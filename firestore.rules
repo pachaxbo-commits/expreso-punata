@@ -213,7 +213,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // COLECCIÓN: cash_shifts (Turnos de Caja por Secretaria)
+    // COLECCIÓN: cash_shifts (Turnos de Caja - Autoridad Exclusiva de Backend)
     // =========================================================================
     match /cash_shifts/{shiftId} {
       // Secretaria lee su propio turno; encargados y tesorería ven los de su sucursal o global
@@ -224,35 +224,28 @@ service cloud.firestore {
         isAdmin()
       );
 
-      // Apertura de turno
-      allow create: if isActive() && isCashier() &&
-        request.resource.data.operatorUid == request.auth.uid &&
-        isBranchAllowed(request.resource.data.branchId) &&
-        request.resource.data.status == 'open' &&
-        request.resource.data.initialCash >= 0;
+      // Apertura, cierre y modificaciones: TOTALMENTE PROHIBIDAS desde clientes
+      allow write: if false; // Solo Cloud Functions autorizadas en transacciones atómicas
+    }
 
-      // Cierre de turno: solo el mismo operador mientras está abierto, o administrador
-      allow update: if isActive() && (
-        (resource.data.operatorUid == request.auth.uid && resource.data.status == 'open') ||
+    // =========================================================================
+    // COLECCIÓN: cash_shift_active_locks (Candados determinísticos de turno activo)
+    // =========================================================================
+    match /cash_shift_active_locks/{lockId} {
+      allow read: if isActive() && (
+        resource.data.operatorUid == request.auth.uid ||
+        (isAgencyManager() && isBranchAllowed(resource.data.branchId)) ||
+        isTreasury() ||
         isAdmin()
       );
+      allow write: if false; // Solo Cloud Functions atómicas
+    }
 
-      allow delete: if false; // Inmutable
-
-      // Subcolección: movements (Movimientos de caja del turno)
-      match /movements/{movementId} {
-        allow read: if isActive() && (
-          get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.operatorUid == request.auth.uid ||
-          (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.branchId)) ||
-          isTreasury() ||
-          isAdmin()
-        );
-        allow create: if isActive() && isCashier() &&
-          get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.status == 'open' &&
-          get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.operatorUid == request.auth.uid &&
-          isBranchAllowed(get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.branchId);
-        allow update, delete: if false; // Movimientos financieros inmutables append-only
-      }
+    // =========================================================================
+    // COLECCIÓN: system_locks (Candados de sincronización interna del backend)
+    // =========================================================================
+    match /system_locks/{lockId} {
+      allow read, write: if false; // Solo Firebase Admin SDK
     }
 
     // =========================================================================

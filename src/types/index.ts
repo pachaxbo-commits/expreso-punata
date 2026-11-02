@@ -89,7 +89,7 @@ export type ParcelShipmentStatus =
   | 'cancelled'
   | 'final_disposition_authorized'
 
-export type PaymentTiming = 'origin_paid' | 'destination_cod'
+export type PaymentTiming = 'origin_paid' | 'origin_pending' | 'destination_cod'
 export type PaymentStatus = 'pending' | 'paid' | 'refunded' | 'uncollectible'
 export type PaymentMethod = 'cash' | 'qr' | 'transfer'
 
@@ -219,49 +219,85 @@ export interface Shipment {
   }
 }
 
+export interface CashShiftBreakdown {
+  initialCashCents: number
+  cashIncomeCents: number
+  qrIncomeCents: number
+  transferIncomeCents: number
+  totalIncomeCents: number
+  shipmentsIncomeCents: number
+  codIncomeCents: number
+  contributionsIncomeCents: number
+  monthlyFeesIncomeCents: number
+  otherIncomeCents: number
+  expensesCents: number
+  refundsCents: number
+  pendingIncomeCents: number
+  netCashCents: number
+}
+
 export interface CashShift {
   id: string
+  shiftNumber?: string
   branchId: string
   operatorUid: string
   operatorName: string
   openedAt: string
-  closedAt?: string
+  closedAt?: string | null
   status: 'open' | 'closed'
 
   initialCashCents: number
-  initialCashBob: number
-  totalCashInCents: number
-  totalCashOutCents: number
+  initialCashBob?: number
+  initialCashBreakdown?: Record<string, number> | null
+
   expectedCashCents: number
-  expectedCashBob: number
-  actualCashCents?: number
-  actualCashBob?: number
-  differenceCents?: number
-  differenceBob?: number
+  expectedCashBob?: number
 
-  totalQrInCents: number
-  totalTransferInCents: number
-  reconciledDriverCustodyInCents: number
+  actualCashCents?: number | null
+  actualCashBob?: number | null
+  actualCashBreakdown?: Record<string, number> | null
 
+  differenceCents?: number | null
+  differenceBob?: number | null
+  differenceStatus?: 'conforme' | 'sobrante' | 'faltante' | null
+
+  closedByUid?: string | null
+  closedByName?: string | null
   notes?: string
+  closingNotes?: string | null
+
+  breakdown: CashShiftBreakdown
+  movementsCount?: number
 }
 
-export interface CashMovement {
+export type FinancialMovementType =
+  | 'shipment_income'
+  | 'cod_income'
+  | 'contribution_income'
+  | 'monthly_fee_income'
+  | 'expense'
+  | 'initial_cash'
+  | 'refund'
+  | 'adjustment'
+
+export interface FinancialMovement {
   id: string
   shiftId: string
   branchId: string
-  timestamp: string
-  type: 'income' | 'expense' | 'reversal'
-  category: string
-  amountCents: number
-  amountBob: number
-  paymentMethod: PaymentMethod
-  concept: string
-  referenceId?: string
   operatorUid: string
   operatorName: string
+  type: FinancialMovementType
+  amountCents: number
+  paymentMethod: PaymentMethod | 'none'
+  concept: string
+  referenceId?: string
+  trackingCode?: string | null
+  status: 'completed' | 'cancelled'
+  timestamp: string
   notes?: string
 }
+
+export type CashMovement = FinancialMovement
 
 export interface FixedAsset {
   id: string
