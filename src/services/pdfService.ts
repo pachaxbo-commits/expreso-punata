@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf'
 import QRCode from 'qrcode'
-import type { Shipment, CashShift } from '../types/index.ts'
+import type { Shipment, CashShift, DispatchManifest } from '../types/index.ts'
 import { EXPRESO_PUNATA_COMPANY } from '../domain/expresoPunataConfig.ts'
 import { formatCurrencyBob } from '../domain/parcelEngine.ts'
 
@@ -409,6 +409,388 @@ Estado: ${diffStatus.toUpperCase()}`
  */
 export async function printCashShiftTicketPdf(shift: CashShift, ticketWidth: '80mm' | '58mm' = '80mm'): Promise<void> {
   const blob = await generateCashShiftTicketPdf(shift, ticketWidth)
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank')
+}
+
+/**
+ * Genera el Manifiesto de Despacho y Carga en Ruta oficial de Expreso Punata en formato A4 / Carta.
+ * Incluye membrete, código QR, datos del móvil y conductor, tabla de guías y casillas de firma de custodia.
+ */
+export async function generateDispatchManifestPdf(manifest: DispatchManifest): Promise<Blob> {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4', // 210 x 297 mm
+  })
+
+  const pageWidth = 210
+  const margin = 12
+  const contentWidth = pageWidth - margin * 2
+
+  // 1. Franja de aviso de entorno de desarrollo
+  doc.setFillColor(254, 243, 199)
+  doc.rect(0, 0, pageWidth, 5, 'F')
+  doc.setTextColor(146, 64, 14)
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'bold')
+  doc.text('DOCUMENTO DE CONTROL OPERATIVO EN DESARROLLO — EXPRESO PUNATA', margin, 3.8)
+
+  // 2. Encabezado institucional
+  doc.setFillColor(6, 78, 59)
+  doc.rect(0, 5, pageWidth, 26, 'F')
+
+  doc.setTextColor(250, 204, 21)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(16)
+  doc.text('EXPRESO PUNATA', margin, 14)
+
+  doc.setFontSize(8.5)
+  doc.setTextColor(255, 255, 255)
+  doc.setFont('helvetica', 'normal')
+  doc.text('MANIFIESTO DE DESPACHO Y CARGA EN RUTA', margin, 20)
+  doc.setFontSize(7.5)
+  doc.text('Servicio Interprovincial Punata — Cochabamba y viceversa • PACHAX Logistics', margin, 26)
+
+  // Recuadro Correlativo de Manifiesto
+  doc.setFillColor(255, 255, 255)
+  doc.roundedRect(pageWidth - margin - 58, 8, 58, 20, 2, 2, 'F')
+  doc.setTextColor(6, 78, 59)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.text('MANIFIESTO OFICIAL', pageWidth - margin - 54, 14)
+  doc.setFontSize(12)
+  doc.setTextColor(180, 83, 9)
+  doc.text(manifest.manifestNumber, pageWidth - margin - 54, 23)
+
+  let y = 35
+
+  // 3. Cuadros de Información de Ruta, Vehículo y Conductor
+  const colWidth = (contentWidth - 6) / 2
+
+  // Cuadro Izquierdo: Ruta y Salida
+  doc.setFillColor(248, 250, 252)
+  doc.roundedRect(margin, y, colWidth, 34, 2, 2, 'FD')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8.5)
+  doc.setTextColor(6, 78, 59)
+  doc.text('INFORMACIÓN DEL VIAJE', margin + 4, y + 6)
+
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(15, 23, 42)
+  const originName = manifest.originBranchId === 'punata' ? 'Punata' : 'Cochabamba'
+  const destName = manifest.destinationBranchId === 'punata' ? 'Punata' : 'Cochabamba'
+  doc.text(`Ruta: ${originName.toUpperCase()} ➔ ${destName.toUpperCase()}`, margin + 4, y + 12)
+  const dateFormatted = manifest.dispatchedAtIso
+    ? new Date(manifest.dispatchedAtIso).toLocaleString('es-BO', { timeZone: 'America/La_Paz' })
+    : 'Reciente'
+  doc.text(`Fecha y Hora: ${dateFormatted}`, margin + 4, y + 18)
+  doc.text(`Despachado por: ${manifest.dispatchedByName}`, margin + 4, y + 24)
+  if (manifest.departureNotes) {
+    doc.text(`Obs: ${manifest.departureNotes.substring(0, 45)}`, margin + 4, y + 30)
+  }
+
+  // Cuadro Derecho: Vehículo y Conductor + QR
+  doc.roundedRect(margin + colWidth + 6, y, colWidth, 34, 2, 2, 'FD')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8.5)
+  doc.setTextColor(6, 78, 59)
+  doc.text('TRANSPORTE Y CONDUCTOR', margin + colWidth + 10, y + 6)
+
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(15, 23, 42)
+  doc.text(`Móvil Interno: N° ${manifest.mobileNumber}  •  Placa: ${manifest.vehiclePlate}`, margin + colWidth + 10, y + 12)
+  doc.text(`Conductor: ${manifest.driverName}`, margin + colWidth + 10, y + 18)
+  doc.text(`Teléfono: ${manifest.driverPhone || 'S/N'}`, margin + colWidth + 10, y + 24)
+  doc.text(`Custodia: ${manifest.driverCustodyStatus === 'accepted' ? 'CONFIRMADA' : 'PENDIENTE'}`, margin + colWidth + 10, y + 30)
+
+  // QR en esquina derecha
+  const qrVerificationText = `EXPRESO PUNATA\nManifiesto: ${manifest.manifestNumber}\nOrigen: ${originName}\nDestino: ${destName}\nMóvil: ${manifest.mobileNumber}\nChofer: ${manifest.driverName}\nGuías: ${manifest.totalShipments}\nBultos: ${manifest.totalPackages}`
+  const qrDataUrl = await QRCode.toDataURL(qrVerificationText, { width: 120, margin: 0 })
+  doc.addImage(qrDataUrl, 'PNG', margin + colWidth * 2 - 20, y + 5, 24, 24)
+
+  y += 39
+
+  // 4. Tabla de Encomiendas Incorporadas
+  doc.setFillColor(6, 78, 59)
+  doc.rect(margin, y, contentWidth, 7, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(250, 204, 21)
+
+  const colX = {
+    num: margin + 2,
+    code: margin + 9,
+    sender: margin + 40,
+    recipient: margin + 78,
+    packages: margin + 116,
+    weight: margin + 129,
+    timing: margin + 144,
+    amount: margin + 168,
+  }
+
+  doc.text('#', colX.num, y + 5)
+  doc.text('GUÍA', colX.code, y + 5)
+  doc.text('REMITENTE', colX.sender, y + 5)
+  doc.text('DESTINATARIO', colX.recipient, y + 5)
+  doc.text('BULTOS', colX.packages, y + 5)
+  doc.text('PESO', colX.weight, y + 5)
+  doc.text('CONDICIÓN', colX.timing, y + 5)
+  doc.text('COBRO DESTINO', colX.amount, y + 5)
+
+  y += 7
+
+  const items = manifest.shipmentSummaries || []
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+
+  items.forEach((item, index) => {
+    // Alternancia de color de fila
+    if (index % 2 === 0) {
+      doc.setFillColor(248, 250, 252)
+      doc.rect(margin, y, contentWidth, 6, 'F')
+    }
+
+    doc.setTextColor(15, 23, 42)
+    doc.text(String(index + 1), colX.num, y + 4.2)
+
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(6, 78, 59)
+    doc.text(item.trackingCode, colX.code, y + 4.2)
+
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(15, 23, 42)
+    doc.text(item.senderName.substring(0, 20), colX.sender, y + 4.2)
+    doc.text(item.recipientName.substring(0, 20), colX.recipient, y + 4.2)
+
+    doc.text(`${item.packageCount} blt`, colX.packages, y + 4.2)
+    doc.text(`${item.totalWeightKg} kg`, colX.weight, y + 4.2)
+
+    const isCod = item.paymentTiming === 'destination_cod' && item.paymentStatus !== 'paid'
+    if (isCod) {
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(180, 83, 9)
+      doc.text('CONTRAENTREGA', colX.timing, y + 4.2)
+      doc.text(formatCurrencyBob(item.finalAmountCents, true), colX.amount, y + 4.2)
+    } else {
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(22, 101, 52)
+      doc.text('PAGADO ORIGEN', colX.timing, y + 4.2)
+      doc.text('Bs 0.00', colX.amount, y + 4.2)
+    }
+
+    // Línea separadora ligera
+    doc.setDrawColor(226, 232, 240)
+    doc.setLineWidth(0.2)
+    doc.line(margin, y + 6, margin + contentWidth, y + 6)
+
+    y += 6
+  })
+
+  // 5. Fila de Totales
+  doc.setFillColor(241, 245, 249)
+  doc.rect(margin, y, contentWidth, 7, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(6, 78, 59)
+  doc.text(`TOTALES: ${manifest.totalShipments} Encomiendas`, colX.num, y + 5)
+  doc.text(`${manifest.totalPackages} Bultos`, colX.packages, y + 5)
+  doc.text(`${manifest.totalWeightKg} kg`, colX.weight, y + 5)
+  doc.setTextColor(180, 83, 9)
+  doc.text(`Total a Cobrar: ${formatCurrencyBob(manifest.totalCodAmountCents, true)}`, colX.timing, y + 5)
+
+  y += 14
+
+  // 6. Casillas de Firmas de Custodia y Recepción
+  const signBoxWidth = (contentWidth - 10) / 3
+  const signBoxHeight = 30
+
+  // Despacho Origen
+  doc.setDrawColor(203, 213, 225)
+  doc.setLineWidth(0.3)
+  doc.roundedRect(margin, y, signBoxWidth, signBoxHeight, 1.5, 1.5, 'S')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(6, 78, 59)
+  doc.text('1. DESPACHADO (ORIGEN)', margin + 3, y + 5)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(100, 116, 139)
+  doc.text(`Responsable: ${manifest.dispatchedByName}`, margin + 3, y + 22)
+  doc.text('Firma y Sello Agencia Origen', margin + 3, y + 27)
+
+  // Chofer Custodia
+  const xChofer = margin + signBoxWidth + 5
+  doc.roundedRect(xChofer, y, signBoxWidth, signBoxHeight, 1.5, 1.5, 'S')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(6, 78, 59)
+  doc.text('2. CUSTODIA (CONDUCTOR)', xChofer + 3, y + 5)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(100, 116, 139)
+  doc.text(`Conductor: ${manifest.driverName}`, xChofer + 3, y + 22)
+  doc.text(`Móvil: ${manifest.mobileNumber} • Firma de Conformidad`, xChofer + 3, y + 27)
+
+  // Recepción Destino
+  const xDest = margin + (signBoxWidth + 5) * 2
+  doc.roundedRect(xDest, y, signBoxWidth, signBoxHeight, 1.5, 1.5, 'S')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(6, 78, 59)
+  doc.text('3. RECEPCIÓN (DESTINO)', xDest + 3, y + 5)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(100, 116, 139)
+  doc.text(`Agencia Destino: ${destName}`, xDest + 3, y + 22)
+  doc.text('Firma, Sello y Fecha de Recepción', xDest + 3, y + 27)
+
+  y += signBoxHeight + 8
+
+  // Pie de página
+  doc.setFontSize(6)
+  doc.setTextColor(148, 163, 184)
+  doc.text(`Documento generado por PACHAX Platform para Expreso Punata • Manifiesto ${manifest.manifestNumber} • Fecha: ${dateFormatted}`, margin, y)
+
+  return doc.output('blob')
+}
+
+export async function printDispatchManifestPdf(manifest: DispatchManifest): Promise<void> {
+  const blob = await generateDispatchManifestPdf(manifest)
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank')
+}
+
+/**
+ * Genera el comprobante de viaje resumido para impresora térmica de 80 mm (Ticket Conductor).
+ */
+export async function generateDispatchManifestTicket80mmPdf(manifest: DispatchManifest): Promise<Blob> {
+  const widthMm = 80
+  const leftMargin = 4
+  const rightMargin = 76
+  const centerX = 40
+
+  const items = manifest.shipmentSummaries || []
+  const baseHeight = 120 + items.length * 9
+
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: [widthMm, baseHeight],
+  })
+
+  let y = 6
+
+  // Cabecera
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(6, 78, 59)
+  doc.text('EXPRESO PUNATA', centerX, y, { align: 'center' })
+  y += 4
+
+  doc.setFontSize(8)
+  doc.setTextColor(180, 83, 9)
+  doc.text('HOJA DE RUTA / CHOFER', centerX, y, { align: 'center' })
+  y += 4
+
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(15, 23, 42)
+  doc.text(manifest.manifestNumber, centerX, y, { align: 'center' })
+  y += 5
+
+  doc.setDrawColor(203, 213, 225)
+  doc.setLineWidth(0.3)
+  doc.line(leftMargin, y, rightMargin, y)
+  y += 4
+
+  // Datos de viaje
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'normal')
+  const originName = manifest.originBranchId === 'punata' ? 'Punata' : 'Cochabamba'
+  const destName = manifest.destinationBranchId === 'punata' ? 'Punata' : 'Cochabamba'
+  doc.text(`Ruta: ${originName} ➔ ${destName}`, leftMargin, y)
+  y += 3.5
+  doc.text(`Móvil: ${manifest.mobileNumber}  •  Placa: ${manifest.vehiclePlate}`, leftMargin, y)
+  y += 3.5
+  doc.text(`Chofer: ${manifest.driverName}`, leftMargin, y)
+  y += 3.5
+  const dateFormatted = manifest.dispatchedAtIso
+    ? new Date(manifest.dispatchedAtIso).toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' })
+    : ''
+  doc.text(`Salida: ${dateFormatted} • Op: ${manifest.dispatchedByName}`, leftMargin, y)
+  y += 4
+
+  doc.line(leftMargin, y, rightMargin, y)
+  y += 4
+
+  // Lista de encomiendas
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7)
+  doc.text('GUÍAS ASIGNADAS:', leftMargin, y)
+  y += 4
+
+  items.forEach((item, idx) => {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(6.5)
+    doc.setTextColor(6, 78, 59)
+    doc.text(`${idx + 1}. ${item.trackingCode}`, leftMargin, y)
+
+    const isCod = item.paymentTiming === 'destination_cod' && item.paymentStatus !== 'paid'
+    if (isCod) {
+      doc.setTextColor(180, 83, 9)
+      doc.text(`COD: ${formatCurrencyBob(item.finalAmountCents, true)}`, rightMargin, y, { align: 'right' })
+    } else {
+      doc.setTextColor(22, 101, 52)
+      doc.text('PAGADO', rightMargin, y, { align: 'right' })
+    }
+    y += 3
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6)
+    doc.setTextColor(71, 85, 105)
+    doc.text(`Para: ${item.recipientName.substring(0, 24)} (${item.packageCount} blt - ${item.totalWeightKg}kg)`, leftMargin + 2, y)
+    y += 4
+  })
+
+  doc.setDrawColor(203, 213, 225)
+  doc.line(leftMargin, y, rightMargin, y)
+  y += 4
+
+  // Totales
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(6, 78, 59)
+  doc.text(`Total Guías: ${manifest.totalShipments}`, leftMargin, y)
+  doc.text(`Bultos: ${manifest.totalPackages}`, rightMargin, y, { align: 'right' })
+  y += 4
+  doc.setTextColor(180, 83, 9)
+  doc.text(`Total por Cobrar en Destino:`, leftMargin, y)
+  doc.text(formatCurrencyBob(manifest.totalCodAmountCents, true), rightMargin, y, { align: 'right' })
+  y += 6
+
+  // QR
+  const qrVerificationText = `EXPRESO PUNATA\n${manifest.manifestNumber}\nMóvil ${manifest.mobileNumber}\n${manifest.totalShipments} Encomiendas`
+  const qrDataUrl = await QRCode.toDataURL(qrVerificationText, { width: 90, margin: 0 })
+  doc.addImage(qrDataUrl, 'PNG', centerX - 12, y, 24, 24)
+  y += 28
+
+  // Firma
+  doc.setDrawColor(15, 23, 42)
+  doc.line(centerX - 20, y, centerX + 20, y)
+  y += 3.5
+  doc.setFontSize(6)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(100, 116, 139)
+  doc.text('Firma de Custodia Chofer', centerX, y, { align: 'center' })
+
+  return doc.output('blob')
+}
+
+export async function printDispatchManifestTicket80mm(manifest: DispatchManifest): Promise<void> {
+  const blob = await generateDispatchManifestTicket80mmPdf(manifest)
   const url = URL.createObjectURL(blob)
   window.open(url, '_blank')
 }

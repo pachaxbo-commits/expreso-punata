@@ -468,3 +468,124 @@ test('12. Conductor no asignado NO puede leer status_logs de encomienda ajena', 
   // Conductor ajeno no puede leer el status_log de la encomienda
   await assertFails(getDoc(doc(driverDb, 'shipments', 'PUN-2026-AUDIT-1', 'status_logs', 'log-1')))
 })
+
+test('13. SEGURIDAD AUTORITATIVA: Creación y modificación directa de manifiestos desde el cliente está BLOQUEADA', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'sec-punata'), {
+      role: 'secretaria',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata'],
+      isActive: true,
+      fullName: 'Secretaria Punata',
+    })
+    await setDoc(doc(context.firestore(), 'manifests', 'MAN-EXISTENTE'), {
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      status: 'dispatched',
+    })
+  })
+
+  const secContext = testEnv.authenticatedContext('sec-punata', {
+    role: 'secretaria',
+    branchId: 'punata',
+    isActive: true,
+  })
+  const secDb = secContext.firestore()
+
+  // Secretaria NO puede crear manifiesto directamente desde cliente
+  await assertFails(setDoc(doc(secDb, 'manifests', 'MAN-NUEVO'), {
+    originBranchId: 'punata',
+    destinationBranchId: 'cochabamba',
+    status: 'dispatched',
+  }))
+
+  // Secretaria NO puede modificar manifiesto directamente desde cliente
+  await assertFails(updateDoc(doc(secDb, 'manifests', 'MAN-EXISTENTE'), {
+    status: 'received',
+  }))
+
+  // Secretaria NO puede borrar manifiesto
+  await assertFails(deleteDoc(doc(secDb, 'manifests', 'MAN-EXISTENTE')))
+})
+
+test('14. VEHÍCULOS: Personal activo puede leer; solo encargado/admin pueden registrar; borrado bloqueado', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'admin-user'), {
+      role: 'directiva_admin',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'],
+      isActive: true,
+      fullName: 'Admin User',
+    })
+    await setDoc(doc(context.firestore(), 'users', 'sec-user'), {
+      role: 'secretaria',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata'],
+      isActive: true,
+      fullName: 'Sec User',
+    })
+    await setDoc(doc(context.firestore(), 'vehicles', 'veh-1'), {
+      mobileNumber: '10',
+      plate: '1234-ABC',
+      status: 'active',
+      branchId: 'punata',
+    })
+  })
+
+  const adminDb = testEnv.authenticatedContext('admin-user', { role: 'directiva_admin', isActive: true }).firestore()
+  const secDb = testEnv.authenticatedContext('sec-user', { role: 'secretaria', isActive: true }).firestore()
+
+  // Ambos pueden leer vehículos
+  await assertSucceeds(getDoc(doc(secDb, 'vehicles', 'veh-1')))
+  await assertSucceeds(getDoc(doc(adminDb, 'vehicles', 'veh-1')))
+
+  // Admin puede registrar vehículo
+  await assertSucceeds(setDoc(doc(adminDb, 'vehicles', 'veh-2'), {
+    mobileNumber: '11',
+    plate: '5678-DEF',
+    status: 'active',
+  }))
+
+  // Secretaria NO puede registrar vehículo directamente
+  await assertFails(setDoc(doc(secDb, 'vehicles', 'veh-3'), {
+    mobileNumber: '12',
+    plate: '9999-ZZZ',
+  }))
+
+  // Nadie puede eliminar vehículos (historial permanente)
+  await assertFails(deleteDoc(doc(adminDb, 'vehicles', 'veh-1')))
+})
+
+test('15. CONDUCTOR ASIGNADO: Puede leer su propio manifiesto pero no el de otro conductor', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'driver-mio'), {
+      role: 'conductor',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'],
+      isActive: true,
+      fullName: 'Chofer Asignado',
+    })
+    await setDoc(doc(context.firestore(), 'users', 'driver-otro'), {
+      role: 'conductor',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'],
+      isActive: true,
+      fullName: 'Chofer Otro',
+    })
+    await setDoc(doc(context.firestore(), 'manifests', 'MAN-MIO'), {
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      driverUid: 'driver-mio',
+      status: 'in_transit',
+    })
+  })
+
+  const driverMioDb = testEnv.authenticatedContext('driver-mio', { role: 'conductor', isActive: true }).firestore()
+  const driverOtroDb = testEnv.authenticatedContext('driver-otro', { role: 'conductor', isActive: true }).firestore()
+
+  // Conductor asignado puede leer su manifiesto
+  await assertSucceeds(getDoc(doc(driverMioDb, 'manifests', 'MAN-MIO')))
+
+  // Conductor no asignado NO puede leer manifiesto ajeno
+  await assertFails(getDoc(doc(driverOtroDb, 'manifests', 'MAN-MIO')))
+})
