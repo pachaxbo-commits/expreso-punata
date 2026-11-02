@@ -14,6 +14,8 @@ import {
   MapPin,
   Filter,
   CheckCircle2,
+  ShieldCheck,
+  FileText,
 } from 'lucide-react'
 import { AuthProvider, useAuth } from '../modules/auth/AuthContext'
 import { LoginView } from '../modules/auth/LoginView'
@@ -24,6 +26,8 @@ import { subscribeShipmentsByBranch, fetchShipmentByTrackingCode } from '../serv
 import { printShipmentGuidePdf } from '../services/pdfService'
 import { isEmulatedEnvironment } from '../firebase/config'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
+import { ShipmentDeliveryModal } from '../modules/shipments/ShipmentDeliveryModal'
+import { printDeliveryProofPdf } from '../services/pdfService'
 import { CashManagementView } from '../modules/cash/CashManagementView'
 import { DispatchManifestView } from '../modules/dispatch/DispatchManifestView'
 import { StorageManagementView } from '../modules/storage/StorageManagementView'
@@ -38,6 +42,8 @@ export const AppContent: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [isWizardOpen, setIsWizardOpen] = useState(false)
+  const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false)
+  const [deliveryTargetShipment, setDeliveryTargetShipment] = useState<Shipment | null>(null)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [realShipments, setRealShipments] = useState<Shipment[]>([])
   const [backendConnected, setBackendConnected] = useState(true)
@@ -274,14 +280,27 @@ export const AppContent: React.FC = () => {
               </div>
 
               {/* Botón Lanzador de Asistente de 4 Pasos */}
-              <button
-                type="button"
-                onClick={() => setIsWizardOpen(true)}
-                className="px-4 py-2 bg-[#064e3b] hover:bg-[#065f46] text-[#facc15] text-xs font-extrabold rounded-lg shadow flex items-center gap-1.5 transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Nueva Encomienda (Paso a Paso)</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeliveryTargetShipment(null)
+                    setIsDeliveryModalOpen(true)
+                  }}
+                  className="px-3.5 py-2 bg-emerald-900 hover:bg-emerald-950 text-emerald-100 text-xs font-bold rounded-lg shadow flex items-center gap-1.5 border border-emerald-700 transition-all"
+                >
+                  <ShieldCheck className="w-4 h-4 text-[#facc15]" />
+                  <span>Entregar Encomienda</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsWizardOpen(true)}
+                  className="px-4 py-2 bg-[#064e3b] hover:bg-[#065f46] text-[#facc15] text-xs font-extrabold rounded-lg shadow flex items-center gap-1.5 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Nueva Encomienda</span>
+                </button>
+              </div>
             </div>
 
             {/* Listado de Encomiendas */}
@@ -417,6 +436,30 @@ export const AppContent: React.FC = () => {
                             </div>
                           </div>
 
+                          {/* Botón Entregar / Ver Comprobante */}
+                          {['received_at_dest', 'stored', 'in_delivery', 'ready_for_pickup'].includes(s.status) && s.destinationBranchId === currentBranch.id && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeliveryTargetShipment(s)
+                                setIsDeliveryModalOpen(true)
+                              }}
+                              className="px-3 py-2 bg-[#064e3b] hover:bg-emerald-800 text-[#facc15] text-xs font-bold rounded-xl shadow-sm flex items-center gap-1.5 transition"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>Entregar</span>
+                            </button>
+                          )}
+                          {s.status === 'delivered' && (
+                            <button
+                              type="button"
+                              onClick={() => printDeliveryProofPdf(s)}
+                              className="p-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl transition-all shadow-sm"
+                              title="Imprimir Acta de Entrega Conforme"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => printShipmentGuidePdf(s)}
@@ -441,6 +484,22 @@ export const AppContent: React.FC = () => {
                 // La lista se actualiza automáticamente gracias a onSnapshot
               }}
               existingShipments={displayedShipments}
+            />
+
+            {/* Modal de Entrega de Encomienda */}
+            <ShipmentDeliveryModal
+              isOpen={isDeliveryModalOpen}
+              onClose={() => {
+                setIsDeliveryModalOpen(false)
+                setDeliveryTargetShipment(null)
+              }}
+              onSuccess={(updated) => {
+                setRealShipments(prev => prev.map(s => s.id === updated.id ? updated : s))
+              }}
+              currentUser={userProfile}
+              currentBranch={currentBranch}
+              initialShipment={deliveryTargetShipment}
+              availableShipments={displayedShipments}
             />
           </div>
         )}

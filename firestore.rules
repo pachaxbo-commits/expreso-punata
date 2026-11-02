@@ -70,16 +70,16 @@ service cloud.firestore {
     // =========================================================================
     match /branches/{branchId} {
       allow read: if isActive();
-      allow write: if isActive() && isAdmin();
+      allow write: if false; // Solo Admin SDK / Cloud Functions
       
-      // Subcolección: shelves y modules (Almacenamiento Físico)
+      // Subcolección: shelves y modules (Almacenamiento Físico de Catálogo)
       match /shelves/{shelfId} {
         allow read: if isActive();
-        allow write: if isActive() && isAgencyManager() && isBranchAllowed(branchId);
+        allow write: if false; // Solo Cloud Function manageShelf
         
         match /modules/{moduleId} {
           allow read: if isActive();
-          allow write: if isActive() && isCashier() && isBranchAllowed(branchId);
+          allow write: if false;
         }
       }
     }
@@ -121,7 +121,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // COLECCIÓN: shipments (Encomiendas)
+    // COLECCIÓN: shipments (Encomiendas - Servidor Autoritativo)
     // =========================================================================
     match /shipments/{shipmentId} {
       // Lectura: secretarias de origen o destino autorizadas, admin, tesorería, o conductor asignado
@@ -135,28 +135,10 @@ service cloud.firestore {
         (isDriver() && ('assignedVehicle' in resource.data) && resource.data.assignedVehicle.driverUid == request.auth.uid)
       );
 
-      // Creación: TOTALMENTE PROHIBIDA desde clientes / navegadores directos
-      allow create: if false;
-
-      // Actualización autorizada:
-      // PROHIBIDO alterar importes, correlativos, IDs o movimientos financieros desde el cliente
-      allow update: if isActive() && (
-        (isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'finalAmountCents', 'shippingFeeCents', 'weightSurchargeCents', 'homeDeliveryFeeCents',
-          'discountCents', 'trackingCode', 'id', 'idempotencyKey', 'registeredByUid', 'financialMovementId', 'createdAt'
-        ])) ||
-        (isCashier() && (isBranchAllowed(resource.data.originBranchId) || isBranchAllowed(resource.data.destinationBranchId)) &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'storageLocation', 'updatedAt', 'deliveryRecord']) &&
-         isValidStatusTransition(resource.data.status, request.resource.data.status) &&
-         (request.resource.data.status != 'delivered' || (request.resource.data.deliveryRecord != null && request.resource.data.deliveryRecord.receivedByName is string))) ||
-        (isDriver() && ('assignedVehicle' in resource.data) && resource.data.assignedVehicle.driverUid == request.auth.uid &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deliveryRecord', 'driverCustody', 'updatedAt']) &&
-         isValidStatusTransition(resource.data.status, request.resource.data.status) &&
-         (request.resource.data.status != 'delivered' || (request.resource.data.deliveryRecord != null && request.resource.data.deliveryRecord.receivedByName is string)))
-      );
-
-      // Eliminación prohibida: Las encomiendas son inmutables
-      allow delete: if false;
+      // Creación, actualización y eliminación: TOTALMENTE BLOQUEADAS desde el navegador.
+      // Todas las transiciones de estado, custodia, recepción, almacenamiento y entrega
+      // deben procesarse exclusivamente a través de Cloud Functions autorizadas.
+      allow write: if false;
 
       // Subcolección: status_logs (Historial auditado independiente)
       match /status_logs/{logId} {
@@ -170,7 +152,7 @@ service cloud.firestore {
           (isDriver() && ('assignedVehicle' in get(/databases/$(database)/documents/shipments/$(shipmentId)).data) &&
            get(/databases/$(database)/documents/shipments/$(shipmentId)).data.assignedVehicle.driverUid == request.auth.uid)
         );
-        allow create, update, delete: if false; // Solo backend append-only
+        allow write: if false; // Solo backend append-only
       }
 
       // Subcolección: storage_moves (Historial de traslados físicos entre módulos)
@@ -183,11 +165,7 @@ service cloud.firestore {
             isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.destinationBranchId)
           ))
         );
-        allow create: if isActive() && isCashier() && (
-          isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.originBranchId) ||
-          isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.destinationBranchId)
-        );
-        allow update, delete: if false; // Inmutable append-only
+        allow write: if false; // Solo backend append-only
       }
     }
 
@@ -196,8 +174,28 @@ service cloud.firestore {
     // =========================================================================
     match /vehicles/{vehicleId} {
       allow read: if isActive();
-      allow create, update: if isActive() && (isAdmin() || isAgencyManager());
-      allow delete: if false;
+      allow write: if false; // Solo Cloud Function manageVehicle con validación de unicidad y concurrencia
+    }
+
+    // =========================================================================
+    // COLECCIÓN: driver_directory (Directorio operativo público de conductores)
+    // =========================================================================
+    match /driver_directory/{driverId} {
+      allow read: if isActive();
+      allow write: if false; // Solo Cloud Function sincronizada
+    }
+
+    // =========================================================================
+    // COLECCIÓN: driver_settlements (Liquidaciones de fondos en custodia de conductores)
+    // =========================================================================
+    match /driver_settlements/{settlementId} {
+      allow read: if isActive() && (
+        isAdmin() ||
+        isTreasury() ||
+        isAgencyManager() ||
+        (isDriver() && resource.data.driverUid == request.auth.uid)
+      );
+      allow write: if false; // Solo Cloud Function settleDriverCash
     }
 
     // =========================================================================

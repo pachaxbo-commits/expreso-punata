@@ -794,3 +794,404 @@ export async function printDispatchManifestTicket80mm(manifest: DispatchManifest
   const url = URL.createObjectURL(blob)
   window.open(url, '_blank')
 }
+
+/**
+ * Genera el Certificado / Acta de Entrega Conforme de Encomienda en PDF (Formato A5 / Media Carta).
+ * Incluye la firma digital manuscrita capturada en ventanilla y datos de quien retira.
+ */
+export async function generateDeliveryProofPdf(shipment: Shipment): Promise<Blob> {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a5', // 148 x 210 mm
+  })
+
+  const deliv = shipment.deliveryRecord || {} as any
+
+  // Franja de aviso de entorno de desarrollo
+  doc.setFillColor(254, 243, 199)
+  doc.rect(0, 0, 148, 5, 'F')
+  doc.setTextColor(146, 64, 14)
+  doc.setFontSize(6.5)
+  doc.setFont('helvetica', 'bold')
+  doc.text('DOCUMENTO DE CONTROL INTERNO • ENTREGA CONFORME EN VENTANILLA', 20, 3.8)
+
+  // Header institucional
+  doc.setFillColor(6, 78, 59)
+  doc.rect(0, 5, 148, 22, 'F')
+
+  doc.setTextColor(250, 204, 21)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(15)
+  doc.text('EXPRESO PUNATA', 10, 14)
+
+  doc.setFontSize(7.5)
+  doc.setTextColor(255, 255, 255)
+  doc.setFont('helvetica', 'normal')
+  doc.text('ACTA DE CONFORMIDAD Y ENTREGA DE ENCOMIENDA', 10, 19)
+  doc.text(`Sucursal: ${shipment.destinationCity || shipment.destinationBranchId.toUpperCase()} • Telf: ${EXPRESO_PUNATA_COMPANY.phone}`, 10, 24)
+
+  // Recuadro de Guía
+  doc.setFillColor(255, 255, 255)
+  doc.roundedRect(88, 8, 52, 16, 2, 2, 'F')
+  doc.setTextColor(6, 78, 59)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.text('GUÍA ENTREGADA', 92, 13)
+  doc.setFontSize(11)
+  doc.setTextColor(180, 83, 9)
+  doc.text(shipment.trackingCode, 92, 20)
+
+  // Datos del envío
+  let y = 33
+  doc.setDrawColor(203, 213, 225)
+  doc.setLineWidth(0.3)
+  doc.line(10, y, 138, y)
+  y += 5
+
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(15, 23, 42)
+  doc.text('DATOS DE LA ENCOMIENDA:', 10, y)
+  y += 4
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7.5)
+  doc.setTextColor(71, 85, 105)
+  doc.text(`Origen: ${shipment.originCity}  ➔  Destino: ${shipment.destinationCity}`, 10, y)
+  doc.text(`Bultos: ${shipment.packageCount || 1}  •  Peso: ${shipment.totalWeightKg || 0} kg`, 85, y)
+  y += 4
+
+  doc.text(`Remitente: ${shipment.sender?.name || 'N/A'}`, 10, y)
+  doc.text(`Destinatario Original: ${shipment.recipient?.name || 'N/A'}`, 85, y)
+  y += 5
+
+  // Datos de la Entrega y Receptor
+  doc.setFillColor(241, 245, 249)
+  doc.roundedRect(10, y, 128, 28, 2, 2, 'F')
+  y += 5
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(6, 78, 59)
+  doc.text('CONSTANCIA DE RECEPCIÓN FÍSICA:', 14, y)
+  y += 4.5
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7.5)
+  doc.setTextColor(15, 23, 42)
+  doc.text(`Retirado por: ${deliv.receivedByName || 'N/A'}`, 14, y)
+  doc.text(`Doc. Identidad: ${deliv.receivedByDocType || 'CI'}: ${deliv.receivedByDocNumber || deliv.receivedByDoc || 'N/A'}`, 85, y)
+  y += 4.5
+
+  doc.text(`Parentesco / Relación: ${(deliv.recipientRelationship || 'titular').toUpperCase()}`, 14, y)
+  const delivTimeStr = deliv.deliveredAtIso
+    ? new Date(deliv.deliveredAtIso).toLocaleString('es-BO')
+    : new Date().toLocaleString('es-BO')
+  doc.text(`Fecha y Hora: ${delivTimeStr}`, 85, y)
+  y += 4.5
+
+  doc.text(`Entregado por: ${deliv.deliveredByName || 'Operador de Ventanilla'}`, 14, y)
+  if (deliv.authorizationNote) {
+    y += 4
+    doc.setTextColor(180, 83, 9)
+    doc.text(`Nota de autorización: ${deliv.authorizationNote.substring(0, 50)}`, 14, y)
+  }
+  y += 9
+
+  // Estado económico / Liquidación COD
+  doc.setFillColor(236, 253, 245)
+  doc.setDrawColor(167, 243, 208)
+  doc.roundedRect(10, y, 128, 14, 2, 2, 'FD')
+  y += 5
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(22, 101, 52)
+  if (shipment.paymentTiming === 'destination_cod') {
+    doc.text('COBRO CONTRAENTREGA (COD) REALIZADO CONFORME', 14, y)
+    y += 4.5
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.text(`Monto Cobrado: ${formatCurrencyBob(shipment.finalAmountCents, true)} (${shipment.paymentMethod?.toUpperCase() || 'EFECTIVO'})`, 14, y)
+    if (shipment.paidShiftId) {
+      doc.text(`Turno Caja: ${shipment.paidShiftId}`, 85, y)
+    }
+  } else {
+    doc.text('FLETE PAGADO EN ORIGEN — ENTREGA SIN CARGO', 14, y)
+    y += 4.5
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.text(`Importe cancelado: ${formatCurrencyBob(shipment.finalAmountCents, true)}`, 14, y)
+  }
+  y += 9
+
+  // Firma Digital Manuscrita
+  doc.setDrawColor(203, 213, 225)
+  doc.roundedRect(10, y, 80, 42, 2, 2, 'D')
+  doc.setFontSize(7)
+  doc.setTextColor(100, 116, 139)
+  doc.setFont('helvetica', 'bold')
+  doc.text('FIRMA MANUSCRITA DIGITAL DEL RECEPTOR', 14, y + 4.5)
+
+  if (deliv.signatureDataUrl && deliv.signatureDataUrl.startsWith('data:image')) {
+    try {
+      doc.addImage(deliv.signatureDataUrl, 'PNG', 15, y + 6, 70, 32)
+    } catch {
+      doc.text('[Firma digital registrada en servidor]', 15, y + 20)
+    }
+  } else {
+    doc.setFont('helvetica', 'normal')
+    doc.text('[Firma registrada electrónicamente]', 15, y + 20)
+  }
+
+  // QR de verificación de entrega
+  const qrVerificationText = `EXPRESO PUNATA\nEntrega Conforme: ${shipment.trackingCode}\nReceptor: ${deliv.receivedByName}\nDoc: ${deliv.receivedByDocNumber || deliv.receivedByDoc}\nFecha: ${delivTimeStr}`
+  const qrDataUrl = await QRCode.toDataURL(qrVerificationText, { width: 100, margin: 0 })
+  doc.addImage(qrDataUrl, 'PNG', 98, y + 4, 34, 34)
+  y += 47
+
+  // Declaración de conformidad
+  doc.setFontSize(6.5)
+  doc.setTextColor(100, 116, 139)
+  doc.setFont('helvetica', 'normal')
+  doc.text(
+    'DECLARACIÓN: El receptor declara haber verificado físicamente el contenido, integridad y estado conforme del paquete al momento de la entrega.',
+    10,
+    y,
+    { maxWidth: 128 }
+  )
+
+  return doc.output('blob')
+}
+
+export async function printDeliveryProofPdf(shipment: Shipment): Promise<void> {
+  const blob = await generateDeliveryProofPdf(shipment)
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank')
+}
+
+/**
+ * Genera el Recibo Térmico de 80mm de Entrega Conforme con firma estampada.
+ */
+export async function generateDeliveryProofTicket80mmPdf(shipment: Shipment): Promise<Blob> {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: [80, 160], // 80 mm ancho x 160 mm alto
+  })
+
+  const leftMargin = 5
+  const rightMargin = 75
+  const centerX = 40
+  let y = 6
+
+  const deliv = shipment.deliveryRecord || {} as any
+
+  // Encabezado
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(6, 78, 59)
+  doc.text('EXPRESO PUNATA', centerX, y, { align: 'center' })
+  y += 4
+
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(71, 85, 105)
+  doc.text('COMPROBANTE DE ENTREGA CONFORME', centerX, y, { align: 'center' })
+  y += 3.5
+  doc.text(`Telf: ${EXPRESO_PUNATA_COMPANY.phone}`, centerX, y, { align: 'center' })
+  y += 4
+
+  doc.setDrawColor(203, 213, 225)
+  doc.setLineWidth(0.3)
+  doc.line(leftMargin, y, rightMargin, y)
+  y += 4
+
+  // Datos de la Guía
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(180, 83, 9)
+  doc.text(`GUÍA: ${shipment.trackingCode}`, centerX, y, { align: 'center' })
+  y += 4.5
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor(15, 23, 42)
+  doc.text(`Origen: ${shipment.originCity} ➔ Destino: ${shipment.destinationCity}`, leftMargin, y)
+  y += 3.5
+  doc.text(`Bultos: ${shipment.packageCount || 1}  •  Peso: ${shipment.totalWeightKg || 0} kg`, leftMargin, y)
+  y += 3.5
+  doc.text(`Remitente: ${shipment.sender?.name || 'N/A'}`, leftMargin, y)
+  y += 4
+
+  doc.line(leftMargin, y, rightMargin, y)
+  y += 4
+
+  // Receptor
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(6, 78, 59)
+  doc.text('DATOS DE QUIEN RECIBE:', leftMargin, y)
+  y += 3.5
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor(15, 23, 42)
+  doc.text(`Nombre: ${deliv.receivedByName || 'N/A'}`, leftMargin, y)
+  y += 3.5
+  doc.text(`Doc: ${deliv.receivedByDocType || 'CI'}: ${deliv.receivedByDocNumber || deliv.receivedByDoc || 'N/A'}`, leftMargin, y)
+  y += 3.5
+  doc.text(`Parentesco: ${(deliv.recipientRelationship || 'titular').toUpperCase()}`, leftMargin, y)
+  y += 3.5
+
+  const delivTimeStr = deliv.deliveredAtIso
+    ? new Date(deliv.deliveredAtIso).toLocaleString('es-BO')
+    : new Date().toLocaleString('es-BO')
+  doc.text(`Fecha: ${delivTimeStr}`, leftMargin, y)
+  y += 3.5
+  doc.text(`Op: ${deliv.deliveredByName || 'Ventanilla'}`, leftMargin, y)
+  y += 4
+
+  doc.line(leftMargin, y, rightMargin, y)
+  y += 4
+
+  // Pago
+  if (shipment.paymentTiming === 'destination_cod') {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7.5)
+    doc.setTextColor(180, 83, 9)
+    doc.text('COBRO CONTRAENTREGA (COD):', leftMargin, y)
+    doc.text(formatCurrencyBob(shipment.finalAmountCents, true), rightMargin, y, { align: 'right' })
+    y += 3.5
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6.5)
+    doc.setTextColor(71, 85, 105)
+    doc.text(`Método: ${(shipment.paymentMethod || 'cash').toUpperCase()}`, leftMargin, y)
+    y += 4
+  } else {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7.5)
+    doc.setTextColor(22, 101, 52)
+    doc.text('PAGADO EN ORIGEN', leftMargin, y)
+    doc.text(formatCurrencyBob(shipment.finalAmountCents, true), rightMargin, y, { align: 'right' })
+    y += 4
+  }
+
+  // Firma
+  if (deliv.signatureDataUrl && deliv.signatureDataUrl.startsWith('data:image')) {
+    try {
+      doc.addImage(deliv.signatureDataUrl, 'PNG', centerX - 25, y, 50, 22)
+      y += 24
+    } catch {
+      y += 5
+    }
+  } else {
+    y += 5
+  }
+
+  doc.setDrawColor(15, 23, 42)
+  doc.line(centerX - 20, y, centerX + 20, y)
+  y += 3
+  doc.setFontSize(6)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(100, 116, 139)
+  doc.text('Firma de Conformidad', centerX, y, { align: 'center' })
+  y += 4
+
+  // QR
+  const qrVerificationText = `EXPRESO PUNATA\n${shipment.trackingCode}\nEntrega Conforme\n${deliv.receivedByName}`
+  const qrDataUrl = await QRCode.toDataURL(qrVerificationText, { width: 70, margin: 0 })
+  doc.addImage(qrDataUrl, 'PNG', centerX - 10, y, 20, 20)
+
+  return doc.output('blob')
+}
+
+export async function printDeliveryProofTicket80mm(shipment: Shipment): Promise<void> {
+  const blob = await generateDeliveryProofTicket80mmPdf(shipment)
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank')
+}
+
+/**
+ * Genera el Ticket Térmico de Liquidación / Rendición de Conductor en Caja.
+ */
+export async function generateDriverSettlementTicket80mmPdf(settlement: any): Promise<Blob> {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: [80, 140],
+  })
+
+  const leftMargin = 5
+  const rightMargin = 75
+  const centerX = 40
+  let y = 6
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(6, 78, 59)
+  doc.text('EXPRESO PUNATA', centerX, y, { align: 'center' })
+  y += 4
+
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(71, 85, 105)
+  doc.text('RECIBO DE RENDICIÓN DE CONDUCTOR', centerX, y, { align: 'center' })
+  y += 4
+
+  doc.setDrawColor(203, 213, 225)
+  doc.setLineWidth(0.3)
+  doc.line(leftMargin, y, rightMargin, y)
+  y += 4
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8.5)
+  doc.setTextColor(180, 83, 9)
+  doc.text(settlement.settlementNumber || 'SETTL-001', centerX, y, { align: 'center' })
+  y += 4.5
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor(15, 23, 42)
+  doc.text(`Conductor: ${settlement.driverName || 'Conductor'}`, leftMargin, y)
+  y += 3.5
+  doc.text(`Recibido por: ${settlement.receivedByName || 'Cajero'}`, leftMargin, y)
+  y += 3.5
+  doc.text(`Fecha: ${new Date(settlement.createdAtIso || Date.now()).toLocaleString('es-BO')}`, leftMargin, y)
+  y += 4
+
+  doc.line(leftMargin, y, rightMargin, y)
+  y += 4
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(6, 78, 59)
+  doc.text('MONTO RENDIDO:', leftMargin, y)
+  doc.text(formatCurrencyBob(settlement.amountCents || 0, true), rightMargin, y, { align: 'right' })
+  y += 4.5
+
+  if (settlement.notes) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6.5)
+    doc.setTextColor(71, 85, 105)
+    doc.text(`Obs: ${settlement.notes}`, leftMargin, y)
+    y += 4
+  }
+
+  y += 12
+  doc.line(centerX - 20, y, centerX + 20, y)
+  y += 3.5
+  doc.setFontSize(6)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(100, 116, 139)
+  doc.text('Firma Conductor / Entrega Fondos', centerX, y, { align: 'center' })
+
+  return doc.output('blob')
+}
+
+export async function printDriverSettlementTicket80mm(settlement: any): Promise<void> {
+  const blob = await generateDriverSettlementTicket80mmPdf(settlement)
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank')
+}

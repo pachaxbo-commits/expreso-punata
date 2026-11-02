@@ -182,7 +182,7 @@ test('4. Directiva / Administrador tiene acceso a reportes y configuraciones', a
   await assertSucceeds(getDoc(doc(adminDb, 'users', 'admin-1')))
 })
 
-test('5. Conductor solo puede actualizar entregas en encomiendas asignadas', async () => {
+test('5. SEGURIDAD AUTORITATIVA: Modificación directa de encomiendas desde el cliente está BLOQUEADA', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'users', 'driver-1'), {
       role: 'conductor',
@@ -211,8 +211,8 @@ test('5. Conductor solo puede actualizar entregas en encomiendas asignadas', asy
   })
   const driverDb = driverContext.firestore()
 
-  // Conductor puede actualizar status y deliveryRecord de su encomienda asignada
-  await assertSucceeds(
+  // Conductor NO puede modificar directamente status ni deliveryRecord (solo backend autoritativo)
+  await assertFails(
     updateDoc(doc(driverDb, 'shipments', 'PUN-2026-00010'), {
       status: 'delivered',
       deliveryRecord: {
@@ -267,7 +267,7 @@ test('6. Creación y modificación directa de perfiles de usuario desde el clien
   )
 })
 
-test('7. Transiciones ilegítimas de estado de encomienda son BLOQUEADAS', async () => {
+test('7. SEGURIDAD AUTORITATIVA: Modificaciones directas de estado de encomienda desde el cliente son BLOQUEADAS', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'users', 'sec-punata'), {
       role: 'secretaria',
@@ -290,7 +290,7 @@ test('7. Transiciones ilegítimas de estado de encomienda son BLOQUEADAS', async
   })
   const secDb = secContext.firestore()
 
-  // Transición ilegal: received -> delivered directo -> DEBE FALLAR
+  // Transición directa desde cliente: received -> delivered -> DEBE FALLAR
   await assertFails(
     updateDoc(doc(secDb, 'shipments', 'PUN-2026-TRANS-1'), {
       status: 'delivered',
@@ -298,8 +298,8 @@ test('7. Transiciones ilegítimas de estado de encomienda son BLOQUEADAS', async
     })
   )
 
-  // Transición legal: received -> in_warehouse -> DEBE PASAR
-  await assertSucceeds(
+  // Modificación directa desde cliente: received -> in_warehouse -> DEBE FALLAR (solo backend Cloud Functions)
+  await assertFails(
     updateDoc(doc(secDb, 'shipments', 'PUN-2026-TRANS-1'), {
       status: 'in_warehouse',
     })
@@ -508,7 +508,7 @@ test('13. SEGURIDAD AUTORITATIVA: Creación y modificación directa de manifiest
   await assertFails(deleteDoc(doc(secDb, 'manifests', 'MAN-EXISTENTE')))
 })
 
-test('14. VEHÍCULOS: Personal activo puede leer; solo encargado/admin pueden registrar; borrado bloqueado', async () => {
+test('14. VEHÍCULOS: Personal activo puede leer; modificación directa desde el cliente está BLOQUEADA (solo manageVehicle backend)', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'users', 'admin-user'), {
       role: 'directiva_admin',
@@ -539,14 +539,13 @@ test('14. VEHÍCULOS: Personal activo puede leer; solo encargado/admin pueden re
   await assertSucceeds(getDoc(doc(secDb, 'vehicles', 'veh-1')))
   await assertSucceeds(getDoc(doc(adminDb, 'vehicles', 'veh-1')))
 
-  // Admin puede registrar vehículo
-  await assertSucceeds(setDoc(doc(adminDb, 'vehicles', 'veh-2'), {
+  // Escrituras directas desde cliente están BLOQUEADAS para todos (deben usar manageVehicle para unicidad)
+  await assertFails(setDoc(doc(adminDb, 'vehicles', 'veh-2'), {
     mobileNumber: '11',
     plate: '5678-DEF',
     status: 'active',
   }))
 
-  // Secretaria NO puede registrar vehículo directamente
   await assertFails(setDoc(doc(secDb, 'vehicles', 'veh-3'), {
     mobileNumber: '12',
     plate: '9999-ZZZ',

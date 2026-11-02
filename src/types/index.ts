@@ -79,6 +79,8 @@ export type ParcelShipmentStatus =
   | 'dispatched'
   | 'in_transit'
   | 'received_at_dest'
+  | 'partially_received'
+  | 'incident_investigation'
   | 'stored'
   | 'ready_for_pickup'
   | 'in_delivery'
@@ -141,14 +143,21 @@ export interface DriverCustodyRecord {
 
 export interface ParcelDeliveryRecord {
   deliveredAt: string
+  deliveredAtIso?: string
   deliveredByUid: string
   deliveredByName: string
   receivedByName: string
-  receivedByDoc: string
+  receivedByDocType?: string
+  receivedByDocNumber?: string
+  receivedByDoc?: string
   recipientRelationship: 'titular' | 'familiar' | 'apoderado' | 'empleado' | 'otro'
+  authorizationNote?: string
   authorizedChangeReason?: string
+  signatureDataUrl?: string
   signatureUrl?: string
+  photoEvidenceUrl?: string
   deliveryNotes?: string
+  branchId?: string
 }
 
 export interface Shipment {
@@ -437,4 +446,30 @@ export interface StorageLocationAssignment {
   assignedAt: string
   assignedByUid: string
   assignedByName: string
+}
+
+export interface DriverDirectoryEntry {
+  uid: string
+  fullName: string
+  phone: string
+  assignedVehiclePlate?: string | null
+  assignedMobileNumber?: string | null
+  isActive: boolean
+}
+
+export interface DriverSettlement {
+  id: string
+  settlementNumber: string
+  driverUid: string
+  driverName: string
+  receivedByUid: string
+  receivedByName: string
+  branchId: string
+  cashShiftId: string
+  amountCents: number
+  amountBob?: number
+  paymentMethod: string
+  notes?: string
+  shipmentIds: string[]
+  createdAtIso: string
 }

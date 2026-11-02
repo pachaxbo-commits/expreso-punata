@@ -2045,7 +2045,7 @@ export const driverConfirmCustody = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario inactivo.')
   }
 
-  const { manifestId, notes = '' } = request.data || {}
+  const { manifestId, notes = '', supervisorOverride } = request.data || {}
   if (!manifestId || typeof manifestId !== 'string') {
     throw new HttpsError('invalid-argument', 'Debe especificar el ID del manifiesto.')
   }
@@ -2060,8 +2060,35 @@ export const driverConfirmCustody = onCall({ cors: true }, async (request) => {
 
     const manifestData = manifestDoc.data() || {}
 
-    if (manifestData.driverUid !== callerUid && callerData.role !== 'directiva_admin') {
-      throw new HttpsError('permission-denied', 'No es el conductor asignado a este manifiesto de carga.')
+    // A3: Validación estricta del conductor titular asignado
+    let overrideApplied = false
+    if (manifestData.driverUid !== callerUid) {
+      const isSupervisor = ['encargado_agencia', 'directiva_admin'].includes(callerData.role)
+      const hasValidOverride = supervisorOverride &&
+        typeof supervisorOverride.reason === 'string' &&
+        supervisorOverride.reason.trim().length >= 10
+
+      if (isSupervisor && hasValidOverride) {
+        overrideApplied = true
+      } else {
+        throw new HttpsError('permission-denied', 'Solo el conductor titular asignado puede aceptar la custodia del manifiesto.')
+      }
+    }
+
+    // A3: Comprobar que el conductor asignado se encuentra activo en la empresa
+    const driverRef = db.collection('users').doc(manifestData.driverUid)
+    const driverDoc = await transaction.get(driverRef)
+    if (!driverDoc.exists || driverDoc.data()?.isActive === false) {
+      throw new HttpsError('failed-precondition', 'El conductor asignado al manifiesto se encuentra inactivo o dado de baja.')
+    }
+
+    // A3: Comprobar que el vehículo asignado se encuentra activo en el padrón
+    if (manifestData.vehicleId) {
+      const vehicleRef = db.collection('vehicles').doc(manifestData.vehicleId)
+      const vehicleDoc = await transaction.get(vehicleRef)
+      if (!vehicleDoc.exists || vehicleDoc.data()?.status !== 'active') {
+        throw new HttpsError('failed-precondition', 'El vehículo asignado al viaje no se encuentra activo.')
+      }
     }
 
     if (manifestData.status !== 'dispatched' && manifestData.status !== 'in_transit') {
@@ -2081,14 +2108,27 @@ export const driverConfirmCustody = onCall({ cors: true }, async (request) => {
     const now = FieldValue.serverTimestamp()
     const nowIso = new Date().toISOString()
 
-    transaction.update(manifestRef, {
+    const updatePayload = {
       driverCustodyStatus: 'accepted',
       driverCustodyAt: now,
       driverCustodyAtIso: nowIso,
       driverCustodyNotes: notes || '',
       status: 'in_transit',
       updatedAt: now,
-    })
+    }
+
+    if (overrideApplied) {
+      updatePayload.supervisorOverride = {
+        applied: true,
+        supervisorUid: callerUid,
+        supervisorName: callerData.fullName || 'Supervisor',
+        supervisorRole: callerData.role,
+        reason: supervisorOverride.reason.trim(),
+        timestamp: nowIso,
+      }
+    }
+
+    transaction.update(manifestRef, updatePayload)
 
     const auditRef = db.collection('audit_logs').doc()
     transaction.set(auditRef, {
@@ -2096,10 +2136,12 @@ export const driverConfirmCustody = onCall({ cors: true }, async (request) => {
       entityId: manifestId,
       action: 'driver_confirm_custody',
       performedByUid: callerUid,
-      performedByName: callerData.fullName || 'Conductor',
+      performedByName: callerData.fullName || (overrideApplied ? 'Supervisor' : 'Conductor'),
       details: {
         manifestNumber: manifestData.manifestNumber,
         notes,
+        overrideApplied,
+        reason: overrideApplied ? supervisorOverride.reason.trim() : null,
       },
       timestamp: now,
     })
@@ -2110,6 +2152,7 @@ export const driverConfirmCustody = onCall({ cors: true }, async (request) => {
       manifestNumber: manifestData.manifestNumber,
       driverCustodyStatus: 'accepted',
       driverCustodyAtIso: nowIso,
+      overrideApplied,
     }
   })
 })
@@ -2142,6 +2185,7 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
     manifestId,
     receivedShipments = [],
     receptionNotes = '',
+    supervisorOverride,
   } = request.data || {}
 
   if (!manifestId || typeof manifestId !== 'string') {
@@ -2180,8 +2224,30 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
       throw new HttpsError('failed-precondition', `El manifiesto tiene estado '${manifestData.status}', no puede ser recibido.`)
     }
 
+    // A2: Custodia de conductor previa obligatoria, salvo contingencia autorizada con motivo explícito de supervisor
+    let custodyOverrideApplied = false
+    if (manifestData.driverCustodyStatus !== 'accepted') {
+      const isSupervisor = ['encargado_agencia', 'directiva_admin'].includes(callerData.role)
+      const hasValidOverride = supervisorOverride &&
+        typeof supervisorOverride.reason === 'string' &&
+        supervisorOverride.reason.trim().length >= 10
+
+      if (isSupervisor && hasValidOverride) {
+        custOverrideApplied = true
+      } else {
+        throw new HttpsError('failed-precondition', 'El conductor aún no ha aceptado la custodia formal del manifiesto. Se requiere confirmación de custodia o autorización explícita de supervisor para contingencia.')
+      }
+    }
+
+    const expectedShipmentIds = manifestData.shipmentIds || []
+
+    // A2: No dar por recibida conforme una encomienda que no esté marcada explícitamente en la lista de recepción
+    if (!Array.isArray(receivedShipments) || receivedShipments.length !== expectedShipmentIds.length) {
+      throw new HttpsError('invalid-argument', `Cada encomienda del manifiesto debe ser verificada explícitamente en la lista de recepción. Se esperaban ${expectedShipmentIds.length} ítems pero se enviaron ${Array.isArray(receivedShipments) ? receivedShipments.length : 0}.`)
+    }
+
     const shipmentRefsAndDocs = []
-    for (const sId of (manifestData.shipmentIds || [])) {
+    for (const sId of expectedShipmentIds) {
       const sRef = db.collection('shipments').doc(sId)
       const sDoc = await transaction.get(sRef)
       shipmentRefsAndDocs.push({ id: sId, ref: sRef, doc: sDoc })
@@ -2193,47 +2259,60 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
     const discrepancies = []
     const receivedMap = new Map()
 
-    if (Array.isArray(receivedShipments)) {
-      for (const item of receivedShipments) {
-        if (item && item.shipmentId) {
-          receivedMap.set(item.shipmentId, item)
-        }
+    for (const item of receivedShipments) {
+      if (item && item.shipmentId) {
+        receivedMap.set(item.shipmentId, item)
       }
     }
 
     for (const item of shipmentRefsAndDocs) {
       if (!item.doc.exists) continue
       const sData = item.doc.data() || {}
-      const itemInput = receivedMap.get(item.id) || {
-        receivedPackages: sData.packageCount || 1,
-        condition: 'good',
-        notes: '',
+      const itemInput = receivedMap.get(item.id)
+
+      if (!itemInput) {
+        throw new HttpsError('invalid-argument', `Falta la verificación explícita de recepción para la encomienda ${sData.trackingCode || item.id}.`)
       }
 
       const expectedPkg = Number(sData.packageCount) || 1
-      const recPkg = Number(itemInput.receivedPackages) ?? expectedPkg
-      const condition = itemInput.condition || 'good'
+      const recPkg = Number(itemInput.receivedPackages)
 
+      if (!Number.isInteger(recPkg) || recPkg < 0) {
+        throw new HttpsError('invalid-argument', `El conteo de bultos recibidos para la encomienda ${sData.trackingCode || item.id} debe ser un entero mayor o igual a 0.`)
+      }
+
+      const condition = itemInput.condition || 'good'
       const isDiscrepant = (recPkg !== expectedPkg) || (condition !== 'good')
+
+      // A2: Si faltan bultos o hay daño visible, exige notas explicativas obligatorias (mínimo 5 caracteres)
       if (isDiscrepant) {
+        const notesStr = (itemInput.notes || '').trim()
+        if (notesStr.length < 5) {
+          throw new HttpsError('invalid-argument', `Debe registrar una nota explicativa de al menos 5 caracteres justificando la discrepancia o daño en la encomienda ${sData.trackingCode || item.id}.`)
+        }
+
         discrepancies.push({
           shipmentId: item.id,
           trackingCode: sData.trackingCode || item.id,
           issueType: condition === 'good' ? (recPkg < expectedPkg ? 'missing' : 'excess') : condition,
           expectedPackages: expectedPkg,
           receivedPackages: recPkg,
-          notes: itemInput.notes || '',
+          notes: notesStr,
           reportedAt: nowIso,
           reportedByUid: callerUid,
         })
       }
 
+      // A2: No marcar como pérdida total si llegaron bultos parciales; usar partially_received / incident_investigation
       let newStatus = 'received_at_dest'
       let statusNote = `Recibido en destino (${manifestData.destinationBranchId}) de viaje ${manifestData.manifestNumber}.`
 
-      if (condition === 'missing') {
-        newStatus = 'lost'
-        statusNote = `DISCREPANCIA: Paquete no encontrado al arribo del manifiesto ${manifestData.manifestNumber}. Declarado faltante.`
+      if (condition === 'missing' || recPkg === 0) {
+        newStatus = condition === 'missing' ? 'lost' : 'incident_investigation'
+        statusNote = `DISCREPANCIA: Paquete no encontrado al arribo del manifiesto ${manifestData.manifestNumber}. Declarado ${newStatus}.`
+      } else if (recPkg < expectedPkg && recPkg > 0) {
+        newStatus = 'partially_received'
+        statusNote = `DISCREPANCIA PARCIAL: Llegaron ${recPkg} de ${expectedPkg} bultos declarados en manifiesto ${manifestData.manifestNumber}. (${itemInput.notes}).`
       } else if (condition === 'damaged') {
         statusNote += ` OBSERVACIÓN: Recibido con daños (${itemInput.notes || 'sin detalle'}).`
       }
@@ -2243,11 +2322,12 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
         currentLocation: manifestData.destinationBranchId,
         arrivedAt: now,
         arrivedAtBranchId: manifestData.destinationBranchId,
+        arrivedPackages: recPkg,
         updatedAt: now,
       }
 
-      if (condition !== 'good') {
-        updatePayload.incidentNotes = itemInput.notes || `Condición: ${condition}`
+      if (condition !== 'good' || recPkg !== expectedPkg) {
+        updatePayload.incidentNotes = itemInput.notes || `Condición: ${condition}, Bultos: ${recPkg}/${expectedPkg}`
       }
 
       transaction.update(item.ref, updatePayload)
@@ -2264,7 +2344,7 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
       })
     }
 
-    transaction.update(manifestRef, {
+    const manifestUpdatePayload = {
       status: 'received',
       receivedAt: now,
       receivedAtIso: nowIso,
@@ -2273,7 +2353,19 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
       receptionNotes: receptionNotes || '',
       discrepancies,
       updatedAt: now,
-    })
+    }
+
+    if (custodyOverrideApplied) {
+      manifestUpdatePayload.custodyOverride = {
+        applied: true,
+        supervisorUid: callerUid,
+        supervisorName: callerData.fullName || 'Supervisor',
+        reason: supervisorOverride.reason.trim(),
+        timestamp: nowIso,
+      }
+    }
+
+    transaction.update(manifestRef, manifestUpdatePayload)
 
     const auditRef = db.collection('audit_logs').doc()
     transaction.set(auditRef, {
@@ -2288,6 +2380,7 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
         totalShipments: manifestData.shipmentIds.length,
         discrepanciesCount: discrepancies.length,
         discrepancies,
+        custodyOverrideApplied,
       },
       timestamp: now,
     })
@@ -2305,6 +2398,7 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
 
 /**
  * Cloud Function Callable para asignar físicamente una encomienda a un estante y módulo de almacén.
+ * Valida estado de recepción formal, existencia dinámica de estante y módulo, y trazabilidad física.
  */
 export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
   if (!request.auth) {
@@ -2352,6 +2446,7 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
 
     const sData = shipmentDoc.data() || {}
 
+    // A1: Validar permisos sobre sucursal de destino
     if (callerData.role !== 'directiva_admin') {
       const isAllowed = callerData.primaryBranchId === sData.destinationBranchId ||
         (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(sData.destinationBranchId))
@@ -2360,13 +2455,75 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
       }
     }
 
+    // A1: Validar que la encomienda haya sido recibida formalmente en destino
+    const st = sData.status
+    if (st === 'in_transit' || st === 'dispatched' || st === 'received') {
+      throw new HttpsError('failed-precondition', `La encomienda aún no ha sido recibida en la sucursal de destino (estado actual: '${st}').`)
+    }
+    if (st === 'delivered' || st === 'lost' || st === 'cancelled' || st === 'incident_investigation') {
+      throw new HttpsError('failed-precondition', `No se puede almacenar una encomienda en estado '${st}'.`)
+    }
+
+    const destBranch = sData.destinationBranchId || 'cochabamba'
+    const shelfRef = db.collection('branches').doc(destBranch).collection('shelves').doc(shelfId)
+    let shelfDoc = await transaction.get(shelfRef)
+
+    // A5: Si la colección de estantes de la sucursal aún está vacía, auto-inicializar catálogo predeterminado
+    if (!shelfDoc.exists) {
+      const allShelvesSnap = await db.collection('branches').doc(destBranch).collection('shelves').get()
+      if (allShelvesSnap.empty) {
+        const defaultShelves = [
+          { id: 'ESTANTE-A', name: 'Estante A - General', code: 'EST-A', moduleCount: 5, active: true },
+          { id: 'ESTANTE-B', name: 'Estante B - Frágil / Paquetería Menor', code: 'EST-B', moduleCount: 5, active: true },
+          { id: 'ESTANTE-C', name: 'Estante C - Cargas Pesadas / Sobredimensionadas', code: 'EST-C', moduleCount: 5, active: true },
+        ]
+        for (const sh of defaultShelves) {
+          const sRef = db.collection('branches').doc(destBranch).collection('shelves').doc(sh.id)
+          transaction.set(sRef, {
+            ...sh,
+            branchId: destBranch,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          })
+          for (let m = 1; m <= sh.moduleCount; m++) {
+            const mRef = sRef.collection('modules').doc(`MOD-${m}`)
+            transaction.set(mRef, {
+              id: `MOD-${m}`,
+              shelfId: sh.id,
+              branchId: destBranch,
+              moduleNumber: m,
+              description: `Módulo ${m} de ${sh.name}`,
+              currentPackageCount: 0,
+            })
+          }
+        }
+        const matchingDefault = defaultShelves.find((d) => d.id === shelfId)
+        if (matchingDefault) {
+          shelfDoc = {
+            exists: true,
+            data: () => matchingDefault,
+          }
+        }
+      }
+    }
+
+    if (!shelfDoc.exists || (typeof shelfDoc.data === 'function' && shelfDoc.data()?.active === false)) {
+      throw new HttpsError('not-found', `El estante '${shelfId}' no existe o no se encuentra activo en la sucursal '${destBranch}'.`)
+    }
+
+    const shelfInfo = typeof shelfDoc.data === 'function' ? shelfDoc.data() : shelfDoc
+    const maxModules = shelfInfo?.moduleCount || 5
+    if (moduleNumber < 1 || moduleNumber > maxModules) {
+      throw new HttpsError('invalid-argument', `El número de módulo debe estar entre 1 y ${maxModules}.`)
+    }
+
     const now = FieldValue.serverTimestamp()
     const nowIso = new Date().toISOString()
 
     const newLocation = {
-      branchId: sData.destinationBranchId,
+      branchId: destBranch,
       shelfId,
-      shelfName: shelfName || shelfId,
+      shelfName: shelfName || shelfInfo.name || shelfId,
       moduleId,
       moduleNumber,
       position: position || '',
@@ -2381,17 +2538,19 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
       updatedAt: now,
     })
 
+    // A1: Trazabilidad física inmutable en storage_moves con origen y nuevo destino
     const moveRef = shipmentRef.collection('storage_moves').doc()
     transaction.set(moveRef, {
-      branchId: sData.destinationBranchId,
+      branchId: destBranch,
       shelfId,
-      shelfName: shelfName || shelfId,
+      shelfName: shelfName || shelfInfo.name || shelfId,
       moduleId,
       moduleNumber,
       position: position || '',
       operatorUid: callerUid,
       operatorName: callerData.fullName || 'Operador',
       previousLocation: sData.storageLocation || null,
+      newLocation,
       timestamp: now,
       timestampIso: nowIso,
     })
@@ -2401,10 +2560,25 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
       status: 'stored',
       operatorUid: callerUid,
       operatorName: callerData.fullName || 'Operador',
-      branchId: sData.destinationBranchId,
-      note: `Almacenado físicamente en ${shelfName || shelfId} / Módulo ${moduleNumber}${position ? ' (' + position + ')' : ''}`,
+      branchId: destBranch,
+      note: `Almacenado físicamente en ${shelfName || shelfInfo.name || shelfId} / Módulo ${moduleNumber}${position ? ' (' + position + ')' : ''}`,
       createdAt: now,
       createdAtIso: nowIso,
+    })
+
+    const auditRef = db.collection('audit_logs').doc()
+    transaction.set(auditRef, {
+      entityType: 'shipment',
+      entityId: shipmentId,
+      action: 'assign_shipment_storage',
+      performedByUid: callerUid,
+      performedByName: callerData.fullName || 'Operador',
+      details: {
+        trackingCode: sData.trackingCode,
+        previousLocation: sData.storageLocation || null,
+        newLocation,
+      },
+      timestamp: now,
     })
 
     return {
@@ -2552,4 +2726,600 @@ export const manageVehicle = onCall({ cors: true }, async (request) => {
   } else {
     throw new HttpsError('invalid-argument', `Acción '${action}' no soportada.`)
   }
+})
+
+/**
+ * A4: Cloud Function Callable para listar conductores activos protegiendo la privacidad de los empleados.
+ * Sincroniza y expone únicamente campos operativos públicos en /driver_directory.
+ */
+export const listActiveDrivers = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para consultar conductores.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists || userDoc.data()?.isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no autorizado o inactivo.')
+  }
+
+  const snapshot = await db.collection('users')
+    .where('role', '==', 'conductor')
+    .where('isActive', '==', true)
+    .get()
+
+  const drivers = []
+  const batch = db.batch()
+
+  snapshot.forEach((doc) => {
+    const data = doc.data() || {}
+    const driverEntry = {
+      uid: doc.id,
+      fullName: data.fullName || 'Conductor',
+      phone: data.phone || '',
+      assignedVehiclePlate: data.assignedVehiclePlate || null,
+      assignedMobileNumber: data.assignedMobileNumber || null,
+      isActive: true,
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+    drivers.push(driverEntry)
+    batch.set(db.collection('driver_directory').doc(doc.id), driverEntry, { merge: true })
+  })
+
+  await batch.commit()
+
+  return { success: true, drivers }
+})
+
+/**
+ * A5: Cloud Function Callable para gestión dinámica del catálogo de estantes y módulos por sucursal.
+ */
+export const manageShelf = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para gestionar estantes.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists || userDoc.data()?.isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no autorizado o inactivo.')
+  }
+  const callerData = userDoc.data() || {}
+
+  const { action = 'get_or_seed', branchId, shelfData } = request.data || {}
+  if (!branchId || (branchId !== 'punata' && branchId !== 'cochabamba')) {
+    throw new HttpsError('invalid-argument', 'Sucursal inválida.')
+  }
+
+  const shelvesCol = db.collection('branches').doc(branchId).collection('shelves')
+
+  if (action === 'get_or_seed' || action === 'list') {
+    const snapshot = await shelvesCol.get()
+    if (snapshot.empty) {
+      const defaultShelves = [
+        {
+          id: 'ESTANTE-A',
+          name: 'Estante A - General',
+          code: 'EST-A',
+          description: 'Encomiendas y sobres generales',
+          moduleCount: 5,
+          active: true,
+        },
+        {
+          id: 'ESTANTE-B',
+          name: 'Estante B - Frágil / Paquetería Menor',
+          code: 'EST-B',
+          description: 'Artículos frágiles y cajas chicas',
+          moduleCount: 5,
+          active: true,
+        },
+        {
+          id: 'ESTANTE-C',
+          name: 'Estante C - Cargas Pesadas / Sobredimensionadas',
+          code: 'EST-C',
+          description: 'Bultos pesados, sacos y repuestos',
+          moduleCount: 5,
+          active: true,
+        },
+      ]
+
+      const batch = db.batch()
+      for (const sh of defaultShelves) {
+        const ref = shelvesCol.doc(sh.id)
+        batch.set(ref, {
+          ...sh,
+          branchId,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+        for (let m = 1; m <= sh.moduleCount; m++) {
+          const modRef = ref.collection('modules').doc(`MOD-${m}`)
+          batch.set(modRef, {
+            id: `MOD-${m}`,
+            shelfId: sh.id,
+            branchId,
+            moduleNumber: m,
+            description: `Módulo ${m} de ${sh.name}`,
+            currentPackageCount: 0,
+          })
+        }
+      }
+      await batch.commit()
+      return { success: true, shelves: defaultShelves }
+    }
+
+    const shelves = []
+    snapshot.forEach((doc) => shelves.push({ id: doc.id, ...doc.data() }))
+    return { success: true, shelves }
+  }
+
+  // Creación o actualización (requiere encargado o directiva_admin)
+  if (!['encargado_agencia', 'directiva_admin'].includes(callerData.role)) {
+    throw new HttpsError('permission-denied', 'Solo encargados de agencia o directiva pueden configurar estantes.')
+  }
+  if (callerData.role !== 'directiva_admin') {
+    const isAllowed = callerData.primaryBranchId === branchId ||
+      (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(branchId))
+    if (!isAllowed) {
+      throw new HttpsError('permission-denied', 'No tiene permiso sobre esta sucursal.')
+    }
+  }
+
+  if (action === 'create_or_update') {
+    if (!shelfData || !shelfData.id || !shelfData.name) {
+      throw new HttpsError('invalid-argument', 'Datos de estante incompletos.')
+    }
+    const moduleCount = Number(shelfData.moduleCount) || 5
+    if (moduleCount < 1 || moduleCount > 20) {
+      throw new HttpsError('invalid-argument', 'El número de módulos debe estar entre 1 y 20.')
+    }
+
+    const shelfRef = shelvesCol.doc(shelfData.id)
+    const now = FieldValue.serverTimestamp()
+    const payload = {
+      id: shelfData.id,
+      branchId,
+      name: shelfData.name.trim(),
+      code: shelfData.code || shelfData.id,
+      description: shelfData.description || '',
+      moduleCount,
+      active: shelfData.active !== false,
+      updatedAt: now,
+    }
+
+    await shelfRef.set(payload, { merge: true })
+
+    const batch = db.batch()
+    for (let m = 1; m <= moduleCount; m++) {
+      const modRef = shelfRef.collection('modules').doc(`MOD-${m}`)
+      batch.set(modRef, {
+        id: `MOD-${m}`,
+        shelfId: shelfData.id,
+        branchId,
+        moduleNumber: m,
+        description: `Módulo ${m} de ${shelfData.name}`,
+      }, { merge: true })
+    }
+    await batch.commit()
+
+    return { success: true, shelf: payload }
+  }
+
+  throw new HttpsError('invalid-argument', `Acción '${action}' no reconocida.`)
+})
+
+/**
+ * ENTREGA 3 — B1: Cloud Function Callable para la entrega final de encomiendas en ventanilla,
+ * con verificación fehaciente de receptor, captura de firma digital, liberación de almacén
+ * e integración transaccional de cobro contraentrega (COD) con arqueo de caja.
+ */
+export const deliverShipment = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para registrar la entrega.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists) {
+    throw new HttpsError('permission-denied', 'Perfil de usuario no encontrado.')
+  }
+  const callerData = userDoc.data() || {}
+  if (callerData.isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario inactivo.')
+  }
+
+  const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', `El rol '${callerData.role}' no tiene permiso para entregar encomiendas.`)
+  }
+
+  const {
+    shipmentId,
+    receivedByName,
+    receivedByDocType = 'CI',
+    receivedByDocNumber,
+    recipientRelationship = 'titular',
+    authorizationNote = '',
+    signatureDataUrl,
+    photoEvidenceUrl = null,
+    paymentMethod = 'cash',
+  } = request.data || {}
+
+  if (!shipmentId || typeof shipmentId !== 'string') {
+    throw new HttpsError('invalid-argument', 'Debe especificar el ID de la encomienda.')
+  }
+  if (!receivedByName || typeof receivedByName !== 'string' || receivedByName.trim().length < 3) {
+    throw new HttpsError('invalid-argument', 'El nombre de quien retira debe tener al menos 3 caracteres.')
+  }
+  if (!receivedByDocNumber || typeof receivedByDocNumber !== 'string' || receivedByDocNumber.trim().length < 4) {
+    throw new HttpsError('invalid-argument', 'El número de documento debe tener al menos 4 caracteres.')
+  }
+  if (!signatureDataUrl || typeof signatureDataUrl !== 'string' || signatureDataUrl.trim().length < 10) {
+    throw new HttpsError('invalid-argument', 'La firma digital es obligatoria para certificar la entrega conforme.')
+  }
+
+  return await db.runTransaction(async (transaction) => {
+    const shipmentRef = db.collection('shipments').doc(shipmentId)
+    const shipmentDoc = await transaction.get(shipmentRef)
+    if (!shipmentDoc.exists) {
+      throw new HttpsError('not-found', 'La encomienda no existe.')
+    }
+    const sData = shipmentDoc.data() || {}
+
+    // Validar pertenencia a sucursal
+    if (callerData.role !== 'directiva_admin') {
+      const isAllowed = callerData.primaryBranchId === sData.destinationBranchId ||
+        (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(sData.destinationBranchId))
+      if (!isAllowed) {
+        throw new HttpsError('permission-denied', `No tiene permiso para entregar encomiendas en la sucursal de destino '${sData.destinationBranchId}'.`)
+      }
+    }
+
+    if (sData.status === 'delivered') {
+      throw new HttpsError('failed-precondition', 'La encomienda ya fue entregada previamente.')
+    }
+    const deliverableStatuses = ['received_at_dest', 'stored', 'in_delivery', 'ready_for_pickup']
+    if (!deliverableStatuses.includes(sData.status)) {
+      throw new HttpsError('failed-precondition', `No se puede entregar una encomienda en estado '${sData.status}'. Debe haber sido recibida formalmente en destino.`)
+    }
+
+    const now = FieldValue.serverTimestamp()
+    const nowIso = new Date().toISOString()
+    let paymentCollected = false
+    let targetShiftId = null
+    let finMovementRef = null
+
+    // Validar cobro contraentrega (COD) si está pendiente
+    const requiresCodPayment = sData.paymentTiming === 'destination_cod' && sData.paymentStatus !== 'paid'
+    if (requiresCodPayment) {
+      const amountCents = Number(sData.finalAmountCents) || 0
+      if (amountCents <= 0) {
+        throw new HttpsError('failed-precondition', 'Importe de encomienda contraentrega inválido.')
+      }
+
+      // Si se cobra en efectivo o electrónico en caja, verificar turno de caja ABIERTO en la sucursal de destino
+      const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${sData.destinationBranchId}`)
+      const lockDoc = await transaction.get(lockRef)
+      if (!lockDoc.exists || lockDoc.data().status !== 'open' || !lockDoc.data().shiftId) {
+        throw new HttpsError('failed-precondition', 'Debe tener un turno de caja abierto en la sucursal de destino para cobrar contraentrega (COD) en efectivo.')
+      }
+
+      targetShiftId = lockDoc.data().shiftId
+      const shiftRef = db.collection('cash_shifts').doc(targetShiftId)
+      const shiftDoc = await transaction.get(shiftRef)
+      if (!shiftDoc.exists || shiftDoc.data().status !== 'open') {
+        throw new HttpsError('failed-precondition', 'El turno de caja activo no es válido o ya fue cerrado.')
+      }
+
+      // Actualizar turno de caja
+      const shiftUpdate = {
+        updatedAt: now,
+        'breakdown.totalIncomeCents': FieldValue.increment(amountCents),
+        'breakdown.codIncomeCents': FieldValue.increment(amountCents),
+        movementsCount: FieldValue.increment(1),
+      }
+
+      if (paymentMethod === 'cash') {
+        shiftUpdate.expectedCashCents = FieldValue.increment(amountCents)
+        shiftUpdate['breakdown.cashIncomeCents'] = FieldValue.increment(amountCents)
+        shiftUpdate['breakdown.netCashCents'] = FieldValue.increment(amountCents)
+      } else if (paymentMethod === 'qr') {
+        shiftUpdate['breakdown.qrIncomeCents'] = FieldValue.increment(amountCents)
+      } else if (paymentMethod === 'transfer') {
+        shiftUpdate['breakdown.transferIncomeCents'] = FieldValue.increment(amountCents)
+      }
+
+      transaction.update(shiftRef, shiftUpdate)
+
+      // Registrar movimiento financiero
+      finMovementRef = db.collection('financial_movements').doc()
+      transaction.set(finMovementRef, {
+        shiftId: targetShiftId,
+        branchId: sData.destinationBranchId,
+        type: 'cod_income',
+        concept: `Cobro contraentrega (COD) guía ${sData.trackingCode || shipmentId}`,
+        amountCents,
+        amountBob: amountCents / 100,
+        currency: 'BOB',
+        paymentMethod,
+        shipmentId,
+        trackingCode: sData.trackingCode || shipmentId,
+        operatorUid: callerUid,
+        operatorName: callerData.fullName || 'Operador',
+        status: 'completed',
+        timestamp: nowIso,
+        createdAt: now,
+      })
+
+      paymentCollected = true
+    }
+
+    // Liberar ubicación de almacén físico si la tenía
+    if (sData.storageLocation) {
+      const exitMoveRef = shipmentRef.collection('storage_moves').doc()
+      transaction.set(exitMoveRef, {
+        branchId: sData.destinationBranchId,
+        previousLocation: sData.storageLocation,
+        newLocation: null,
+        type: 'exit_delivery',
+        operatorUid: callerUid,
+        operatorName: callerData.fullName || 'Operador',
+        timestamp: now,
+        timestampIso: nowIso,
+      })
+    }
+
+    const deliveryRecord = {
+      deliveredAt: now,
+      deliveredAtIso: nowIso,
+      deliveredByUid: callerUid,
+      deliveredByName: callerData.fullName || 'Operador',
+      receivedByName: receivedByName.trim(),
+      receivedByDocType,
+      receivedByDocNumber: receivedByDocNumber.trim(),
+      recipientRelationship,
+      authorizationNote: authorizationNote.trim(),
+      signatureDataUrl,
+      photoEvidenceUrl,
+      branchId: sData.destinationBranchId,
+    }
+
+    const updatePayload = {
+      status: 'delivered',
+      deliveryRecord,
+      storageLocation: null,
+      deliveredAt: now,
+      deliveredAtIso: nowIso,
+      updatedAt: now,
+    }
+
+    if (paymentCollected) {
+      updatePayload.paymentStatus = 'paid'
+      updatePayload.paymentMethod = paymentMethod
+      updatePayload.paidAt = now
+      updatePayload.paidAtIso = nowIso
+      updatePayload.paidCashierUid = callerUid
+      updatePayload.paidCashierName = callerData.fullName || 'Operador'
+      if (targetShiftId) {
+        updatePayload.paidShiftId = targetShiftId
+      }
+      if (finMovementRef) {
+        updatePayload.financialMovementId = finMovementRef.id
+      }
+    }
+
+    transaction.update(shipmentRef, updatePayload)
+
+    // Registro inmutable en status_logs
+    const statusLogRef = shipmentRef.collection('status_logs').doc()
+    transaction.set(statusLogRef, {
+      status: 'delivered',
+      operatorUid: callerUid,
+      operatorName: callerData.fullName || 'Operador',
+      branchId: sData.destinationBranchId,
+      note: `Entregado conforme a ${receivedByName.trim()} (${recipientRelationship}, ${receivedByDocType}: ${receivedByDocNumber.trim()})${paymentCollected ? ' — Cobro COD realizado' : ''}.`,
+      createdAt: now,
+      createdAtIso: nowIso,
+    })
+
+    // Registro en auditoría
+    const auditRef = db.collection('audit_logs').doc()
+    transaction.set(auditRef, {
+      entityType: 'shipment',
+      entityId: shipmentId,
+      action: 'deliver_shipment',
+      performedByUid: callerUid,
+      performedByName: callerData.fullName || 'Operador',
+      details: {
+        trackingCode: sData.trackingCode,
+        receivedByName: receivedByName.trim(),
+        receivedByDocNumber: receivedByDocNumber.trim(),
+        recipientRelationship,
+        paymentCollected,
+        paymentMethod: paymentCollected ? paymentMethod : null,
+      },
+      timestamp: now,
+    })
+
+    return {
+      success: true,
+      shipmentId,
+      trackingCode: sData.trackingCode,
+      status: 'delivered',
+      deliveredAtIso: nowIso,
+      paymentCollected,
+      deliveryRecord,
+    }
+  })
+})
+
+/**
+ * ENTREGA 3 — C1: Cloud Function Callable para la rendición y liquidación financiera
+ * de conductores en caja, asegurando conciliación sin duplicar ventas.
+ */
+export const settleDriverCash = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para liquidar fondos de conductores.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists) {
+    throw new HttpsError('permission-denied', 'Perfil de usuario no encontrado.')
+  }
+  const callerData = userDoc.data() || {}
+  if (callerData.isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario inactivo.')
+  }
+
+  const allowedRoles = ['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permiso para liquidar custodia financiera de conductores.')
+  }
+
+  const {
+    driverUid,
+    amountCents,
+    shipmentIds = [],
+    paymentMethod = 'cash',
+    notes = '',
+  } = request.data || {}
+
+  if (!driverUid || typeof driverUid !== 'string') {
+    throw new HttpsError('invalid-argument', 'Debe especificar el UID del conductor.')
+  }
+  const amount = Number(amountCents)
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw new HttpsError('invalid-argument', 'El importe a rendir debe ser un entero positivo en centavos.')
+  }
+
+  return await db.runTransaction(async (transaction) => {
+    // 1. Validar que el conductor existe y es conductor
+    const driverRef = db.collection('users').doc(driverUid)
+    const driverDoc = await transaction.get(driverRef)
+    if (!driverDoc.exists) {
+      throw new HttpsError('not-found', 'El conductor no existe.')
+    }
+    const driverData = driverDoc.data() || {}
+    if (driverData.role !== 'conductor') {
+      throw new HttpsError('failed-precondition', 'El usuario especificado no tiene rol de conductor.')
+    }
+
+    // 2. Validar que la persona que recibe tiene un turno de caja abierto
+    const branchId = callerData.primaryBranchId || 'punata'
+    const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
+    const lockDoc = await transaction.get(lockRef)
+    if (!lockDoc.exists || lockDoc.data().status !== 'open' || !lockDoc.data().shiftId) {
+      throw new HttpsError('failed-precondition', 'Debe tener un turno de caja abierto para recibir la rendición de fondos del conductor.')
+    }
+
+    const shiftId = lockDoc.data().shiftId
+    const shiftRef = db.collection('cash_shifts').doc(shiftId)
+    const shiftDoc = await transaction.get(shiftRef)
+    if (!shiftDoc.exists || shiftDoc.data().status !== 'open') {
+      throw new HttpsError('failed-precondition', 'El turno de caja activo no es válido o ya fue cerrado.')
+    }
+
+    const now = FieldValue.serverTimestamp()
+    const nowIso = new Date().toISOString()
+    const settlementId = `SETTL-${branchId.toUpperCase()}-${Date.now().toString().slice(-6)}`
+
+    // 3. Crear liquidación de conductor
+    const settlementRef = db.collection('driver_settlements').doc(settlementId)
+    transaction.set(settlementRef, {
+      id: settlementId,
+      settlementNumber: settlementId,
+      driverUid,
+      driverName: driverData.fullName || 'Conductor',
+      receivedByUid: callerUid,
+      receivedByName: callerData.fullName || 'Cajero/Operador',
+      branchId,
+      cashShiftId: shiftId,
+      amountCents: amount,
+      amountBob: amount / 100,
+      paymentMethod,
+      notes: notes || '',
+      shipmentIds: Array.isArray(shipmentIds) ? shipmentIds : [],
+      createdAt: now,
+      createdAtIso: nowIso,
+    })
+
+    // 4. Actualizar turno de caja y registrar movimiento de remesa
+    const shiftUpdate = {
+      updatedAt: now,
+      'breakdown.totalIncomeCents': FieldValue.increment(amount),
+      'breakdown.otherIncomeCents': FieldValue.increment(amount),
+      movementsCount: FieldValue.increment(1),
+    }
+
+    if (paymentMethod === 'cash') {
+      shiftUpdate.expectedCashCents = FieldValue.increment(amount)
+      shiftUpdate['breakdown.cashIncomeCents'] = FieldValue.increment(amount)
+      shiftUpdate['breakdown.netCashCents'] = FieldValue.increment(amount)
+    }
+
+    transaction.update(shiftRef, shiftUpdate)
+
+    const finRef = db.collection('financial_movements').doc()
+    transaction.set(finRef, {
+      shiftId,
+      branchId,
+      type: 'driver_remittance',
+      concept: `Rendición de fondos por conductor: ${driverData.fullName || driverUid} (${settlementId})`,
+      amountCents: amount,
+      amountBob: amount / 100,
+      currency: 'BOB',
+      paymentMethod,
+      driverUid,
+      settlementId,
+      operatorUid: callerUid,
+      operatorName: callerData.fullName || 'Operador',
+      status: 'completed',
+      timestamp: nowIso,
+      createdAt: now,
+    })
+
+    // 5. Conciliar encomiendas involucradas si se pasaron IDs
+    if (Array.isArray(shipmentIds)) {
+      for (const sId of shipmentIds) {
+        const sRef = db.collection('shipments').doc(sId)
+        transaction.set(sRef, {
+          driverCustody: {
+            reconciled: true,
+            reconciledAt: nowIso,
+            reconciledByUid: callerUid,
+            reconciledShiftId: shiftId,
+            settlementId,
+          },
+          updatedAt: now,
+        }, { merge: true })
+      }
+    }
+
+    // 6. Auditoría
+    const auditRef = db.collection('audit_logs').doc()
+    transaction.set(auditRef, {
+      entityType: 'driver_settlement',
+      entityId: settlementId,
+      action: 'driver_cash_settlement',
+      performedByUid: callerUid,
+      performedByName: callerData.fullName || 'Operador',
+      details: {
+        driverUid,
+        driverName: driverData.fullName,
+        amountCents: amount,
+        shipmentIdsCount: shipmentIds.length,
+      },
+      timestamp: now,
+    })
+
+    return {
+      success: true,
+      settlementId,
+      settlementNumber: settlementId,
+      amountCents: amount,
+      amountBob: amount / 100,
+      settledAtIso: nowIso,
+    }
+  })
 })

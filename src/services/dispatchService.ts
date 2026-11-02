@@ -257,8 +257,7 @@ export function subscribeActiveDrivers(
   onError?: (err: Error) => void
 ) {
   const q = query(
-    collection(db, 'users'),
-    where('role', '==', 'conductor'),
+    collection(db, 'driver_directory'),
     where('isActive', '==', true)
   )
 
@@ -276,4 +275,99 @@ export function subscribeActiveDrivers(
       if (onError) onError(err)
     }
   )
+}
+
+export interface DeliverShipmentInput {
+  shipmentId: string
+  receivedByName: string
+  receivedByDocType?: string
+  receivedByDocNumber: string
+  recipientRelationship?: 'titular' | 'familiar' | 'apoderado' | 'empleado' | 'otro'
+  authorizationNote?: string
+  signatureDataUrl: string
+  photoEvidenceUrl?: string | null
+  paymentMethod?: 'cash' | 'qr' | 'transfer'
+}
+
+export interface SettleDriverCashInput {
+  driverUid: string
+  amountCents: number
+  shipmentIds?: string[]
+  paymentMethod?: 'cash'
+  notes?: string
+}
+
+export interface ManageShelfInput {
+  action: 'get_or_seed' | 'list' | 'create_or_update'
+  branchId: string
+  shelfData?: {
+    id: string
+    name: string
+    code?: string
+    description?: string
+    moduleCount?: number
+    active?: boolean
+  }
+}
+
+/**
+ * Entrega final de encomienda con captura de firma, verificación de receptor y cobro COD en caja.
+ */
+export async function deliverShipmentThroughBackend(input: DeliverShipmentInput) {
+  const callable = httpsCallable<DeliverShipmentInput, {
+    success: boolean
+    shipmentId: string
+    trackingCode: string
+    status: 'delivered'
+    deliveredAtIso: string
+    paymentCollected: boolean
+    deliveryRecord: any
+  }>(functions, 'deliverShipment')
+
+  const response = await callable(input)
+  return response.data
+}
+
+/**
+ * Liquidación de fondos y remesa de conductor en el turno de caja abierto.
+ */
+export async function settleDriverCashThroughBackend(input: SettleDriverCashInput) {
+  const callable = httpsCallable<SettleDriverCashInput, {
+    success: boolean
+    settlementId: string
+    settlementNumber: string
+    amountCents: number
+    amountBob: number
+    settledAtIso: string
+  }>(functions, 'settleDriverCash')
+
+  const response = await callable(input)
+  return response.data
+}
+
+/**
+ * Gestión y auto-inicialización de estantes y módulos de almacén por sucursal.
+ */
+export async function manageShelfThroughBackend(input: ManageShelfInput) {
+  const callable = httpsCallable<ManageShelfInput, {
+    success: boolean
+    shelves?: any[]
+    shelf?: any
+  }>(functions, 'manageShelf')
+
+  const response = await callable(input)
+  return response.data
+}
+
+/**
+ * Obtiene la lista operativa de conductores activos y sincroniza el directorio público.
+ */
+export async function listActiveDriversThroughBackend() {
+  const callable = httpsCallable<void, {
+    success: boolean
+    drivers: any[]
+  }>(functions, 'listActiveDrivers')
+
+  const response = await callable()
+  return response.data
 }
