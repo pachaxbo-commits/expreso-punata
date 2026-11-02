@@ -192,7 +192,16 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // COLECCIÓN: manifests (Despachos y Manifiestos de Carga)
+    // COLECCIÓN: vehicles (Padrón de Móviles y Flota de Expreso Punata)
+    // =========================================================================
+    match /vehicles/{vehicleId} {
+      allow read: if isActive();
+      allow create, update: if isActive() && (isAdmin() || isAgencyManager());
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // COLECCIÓN: manifests (Despachos y Manifiestos de Carga - Servidor Autoritativo)
     // =========================================================================
     match /manifests/{manifestId} {
       allow read: if isActive() && (
@@ -204,12 +213,9 @@ service cloud.firestore {
         )) ||
         (isDriver() && resource.data.driverUid == request.auth.uid)
       );
-      allow create: if isActive() && isCashier() && isBranchAllowed(request.resource.data.originBranchId);
-      allow update: if isActive() && (
-        (isCashier() && isBranchAllowed(resource.data.originBranchId)) ||
-        (isDriver() && resource.data.driverUid == request.auth.uid)
-      );
-      allow delete: if false;
+      // Creación, actualización y transiciones operativas:
+      // Exclusivo de Cloud Functions atómicas (createDispatchManifest, receiveDispatchManifest, driverConfirmCustody)
+      allow write: if false;
     }
 
     // =========================================================================

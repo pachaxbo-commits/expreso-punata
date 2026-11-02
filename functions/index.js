@@ -1740,3 +1740,816 @@ export const collectShipmentPayment = onCall({ cors: true }, async (request) => 
     }
   })
 })
+
+
+// =========================================================================
+// BLOQUE 2: LOGÍSTICA INTERAGENCIAS, MANIFIESTOS, CUSTODIA Y ALMACÉN
+// =========================================================================
+
+/**
+ * Cloud Function Callable para la creación de manifiestos de despacho con asignación de vehículo y conductor.
+ * Bloquea guías en tránsito, genera correlativo inmutable (MAN-PUN-YYYY-XXXX / MAN-CBBA-YYYY-XXXX),
+ * previene doble asignación a viajes activos y actualiza estados de forma atómica.
+ */
+export const createDispatchManifest = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para despachar encomiendas.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists) {
+    throw new HttpsError('permission-denied', 'El usuario no tiene perfil registrado.')
+  }
+  const callerData = userDoc.data() || {}
+  if (callerData.isActive === false) {
+    throw new HttpsError('permission-denied', 'La cuenta de usuario está inactiva.')
+  }
+
+  const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', `El rol '${callerData.role}' no tiene permiso para crear manifiestos de despacho.`)
+  }
+
+  const payload = request.data || {}
+  const {
+    originBranchId,
+    destinationBranchId,
+    vehicleId,
+    driverUid,
+    shipmentIds,
+    departureNotes = '',
+  } = payload
+
+  if (!originBranchId || !destinationBranchId) {
+    throw new HttpsError('invalid-argument', 'Debe especificar sucursal de origen y destino.')
+  }
+
+  if (originBranchId === destinationBranchId) {
+    throw new HttpsError('invalid-argument', 'La sucursal de origen y destino no pueden ser iguales.')
+  }
+
+  if (callerData.role !== 'directiva_admin') {
+    const isAllowed = callerData.primaryBranchId === originBranchId ||
+      (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(originBranchId))
+    if (!isAllowed) {
+      throw new HttpsError('permission-denied', `No tiene autorización para despachar carga desde la sucursal '${originBranchId}'.`)
+    }
+  }
+
+  if (!vehicleId || typeof vehicleId !== 'string') {
+    throw new HttpsError('invalid-argument', 'Debe seleccionar un vehículo o móvil asignado.')
+  }
+
+  if (!driverUid || typeof driverUid !== 'string') {
+    throw new HttpsError('invalid-argument', 'Debe asignar un conductor para el viaje.')
+  }
+
+  if (!Array.isArray(shipmentIds) || shipmentIds.length === 0) {
+    throw new HttpsError('invalid-argument', 'Debe incluir al menos una encomienda en el manifiesto.')
+  }
+
+  for (const sId of shipmentIds) {
+    if (!sId || typeof sId !== 'string') {
+      throw new HttpsError('invalid-argument', 'Cada encomienda debe tener un identificador válido.')
+    }
+  }
+
+  return await db.runTransaction(async (transaction) => {
+    // 1. TODAS LAS LECTURAS PRIMERO (Regla estricta de Firestore)
+    const vehicleRef = db.collection('vehicles').doc(vehicleId)
+    const vehicleDoc = await transaction.get(vehicleRef)
+
+    const driverRef = db.collection('users').doc(driverUid)
+    const driverDoc = await transaction.get(driverRef)
+
+    const currentYear = new Date().getFullYear()
+    const counterId = `manifests_${originBranchId}_${currentYear}`
+    const counterRef = db.collection('counters').doc(counterId)
+    const counterDoc = await transaction.get(counterRef)
+
+    const shipmentRefsAndDocs = []
+    for (const sId of shipmentIds) {
+      const sRef = db.collection('shipments').doc(sId)
+      const sDoc = await transaction.get(sRef)
+      shipmentRefsAndDocs.push({ id: sId, ref: sRef, doc: sDoc })
+    }
+
+    // 2. VALIDACIONES
+    if (!vehicleDoc.exists) {
+      throw new HttpsError('not-found', 'El vehículo seleccionado no existe en el padrón de flota.')
+    }
+    const vehicleData = vehicleDoc.data() || {}
+    if (vehicleData.status === 'inactive' || vehicleData.status === 'in_maintenance') {
+      throw new HttpsError('failed-precondition', `El vehículo seleccionado se encuentra ${vehicleData.status === 'in_maintenance' ? 'en mantenimiento' : 'inactivo'}.`)
+    }
+
+    if (!driverDoc.exists) {
+      throw new HttpsError('not-found', 'El conductor seleccionado no existe en el sistema.')
+    }
+    const driverData = driverDoc.data() || {}
+    if (driverData.isActive === false) {
+      throw new HttpsError('failed-precondition', 'El conductor seleccionado se encuentra inactivo.')
+    }
+    if (driverData.role !== 'conductor') {
+      throw new HttpsError('failed-precondition', `El usuario asignado tiene rol '${driverData.role}', no es un conductor.`)
+    }
+
+    let totalPackages = 0
+    let totalWeightKg = 0
+    let totalCodAmountCents = 0
+    const shipmentSummaries = []
+
+    for (const item of shipmentRefsAndDocs) {
+      if (!item.doc.exists) {
+        throw new HttpsError('not-found', `La encomienda con ID '${item.id}' no existe.`)
+      }
+      const sData = item.doc.data() || {}
+
+      if (sData.originBranchId !== originBranchId) {
+        throw new HttpsError('failed-precondition', `La encomienda '${sData.trackingCode || item.id}' no pertenece a la sucursal de origen '${originBranchId}'.`)
+      }
+
+      if (sData.destinationBranchId !== destinationBranchId) {
+        throw new HttpsError('failed-precondition', `La encomienda '${sData.trackingCode || item.id}' tiene como destino '${sData.destinationBranchId}', incompatible con el viaje a '${destinationBranchId}'.`)
+      }
+
+      const validDispatchStatuses = ['received', 'pending_dispatch']
+      if (!validDispatchStatuses.includes(sData.status)) {
+        throw new HttpsError('failed-precondition', `La encomienda '${sData.trackingCode || item.id}' tiene estado '${sData.status}' y no puede ser incorporada al despacho.`)
+      }
+
+      if (sData.manifestId && (sData.status === 'in_transit' || sData.status === 'dispatched')) {
+        throw new HttpsError('failed-precondition', `La encomienda '${sData.trackingCode || item.id}' ya se encuentra asignada al manifiesto activo '${sData.manifestNumber || sData.manifestId}'.`)
+      }
+
+      const pCount = Number(sData.packageCount) || 1
+      const wKg = Number(sData.totalWeightKg) || 0
+      totalPackages += pCount
+      totalWeightKg += wKg
+
+      if (sData.paymentTiming === 'destination_cod' && sData.paymentStatus !== 'paid') {
+        totalCodAmountCents += (Number(sData.finalAmountCents) || 0)
+      }
+
+      shipmentSummaries.push({
+        shipmentId: item.id,
+        trackingCode: sData.trackingCode || item.id,
+        senderName: sData.sender?.name || 'S/N',
+        recipientName: sData.recipient?.name || 'S/N',
+        packageCount: pCount,
+        totalWeightKg: wKg,
+        paymentStatus: sData.paymentStatus || 'pending',
+        paymentTiming: sData.paymentTiming || 'origin_paid',
+        finalAmountCents: sData.finalAmountCents || 0,
+        deliveryType: sData.deliveryType || 'agency',
+      })
+    }
+
+    // 3. GENERAR CORRELATIVO OFICIAL
+    const currentSeq = counterDoc.exists ? (Number(counterDoc.data()?.currentSequence) || 0) : 0
+    const nextSeq = currentSeq + 1
+    const prefix = originBranchId === 'punata' ? 'MAN-PUN' : 'MAN-CBBA'
+    const manifestNumber = `${prefix}-${currentYear}-${String(nextSeq).padStart(4, '0')}`
+
+    const now = FieldValue.serverTimestamp()
+    const nowIso = new Date().toISOString()
+    const manifestRef = db.collection('manifests').doc()
+    const manifestId = manifestRef.id
+
+    // 4. ESCRITURAS TRANSACCIONALES
+    transaction.set(counterRef, {
+      currentSequence: nextSeq,
+      year: currentYear,
+      branchId: originBranchId,
+      updatedAt: now,
+    }, { merge: true })
+
+    transaction.set(manifestRef, {
+      id: manifestId,
+      manifestNumber,
+      originBranchId,
+      destinationBranchId,
+      vehicleId,
+      vehiclePlate: vehicleData.plate || '',
+      mobileNumber: vehicleData.mobileNumber || '',
+      driverUid,
+      driverName: driverData.fullName || 'Conductor',
+      driverPhone: driverData.phone || '',
+      shipmentIds,
+      shipmentSummaries,
+      totalShipments: shipmentIds.length,
+      totalPackages,
+      totalWeightKg: Math.round(totalWeightKg * 100) / 100,
+      totalCodAmountCents,
+      status: 'dispatched',
+      departureNotes: departureNotes || '',
+      dispatchedAt: now,
+      dispatchedAtIso: nowIso,
+      dispatchedByUid: callerUid,
+      dispatchedByName: callerData.fullName || 'Operador',
+      driverCustodyStatus: 'pending',
+      driverCustodyAt: null,
+      driverCustodyNotes: null,
+      receivedAt: null,
+      receivedAtIso: null,
+      receivedByUid: null,
+      receivedByName: null,
+      receptionNotes: null,
+      discrepancies: [],
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    for (const item of shipmentRefsAndDocs) {
+      transaction.update(item.ref, {
+        status: 'in_transit',
+        currentLocation: 'in_transit',
+        manifestId,
+        manifestNumber,
+        assignedVehicle: {
+          vehicleId,
+          vehiclePlate: vehicleData.plate || '',
+          mobileNumber: vehicleData.mobileNumber || '',
+          driverUid,
+          driverName: driverData.fullName || 'Conductor',
+          manifestId,
+        },
+        dispatchedAt: now,
+        updatedAt: now,
+      })
+
+      const statusLogRef = item.ref.collection('status_logs').doc()
+      transaction.set(statusLogRef, {
+        status: 'in_transit',
+        operatorUid: callerUid,
+        operatorName: callerData.fullName || 'Operador',
+        branchId: originBranchId,
+        note: `Despachado en viaje hacia ${destinationBranchId} con manifiesto ${manifestNumber} (Móvil ${vehicleData.mobileNumber}, Chofer ${driverData.fullName})`,
+        createdAt: now,
+        createdAtIso: nowIso,
+      })
+    }
+
+    const auditRef = db.collection('audit_logs').doc()
+    transaction.set(auditRef, {
+      entityType: 'manifest',
+      entityId: manifestId,
+      action: 'create_dispatch_manifest',
+      performedByUid: callerUid,
+      performedByName: callerData.fullName || 'Operador',
+      details: {
+        manifestNumber,
+        originBranchId,
+        destinationBranchId,
+        shipmentCount: shipmentIds.length,
+        totalPackages,
+        totalWeightKg,
+        totalCodAmountCents,
+        vehiclePlate: vehicleData.plate,
+        mobileNumber: vehicleData.mobileNumber,
+        driverUid,
+        driverName: driverData.fullName,
+      },
+      timestamp: now,
+    })
+
+    return {
+      success: true,
+      manifestId,
+      manifestNumber,
+      totalShipments: shipmentIds.length,
+      totalPackages,
+      totalWeightKg,
+      totalCodAmountCents,
+      dispatchedAtIso: nowIso,
+    }
+  })
+})
+
+/**
+ * Cloud Function Callable para que el conductor asignado confirme la recepción formal y custodia de la carga.
+ */
+export const driverConfirmCustody = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para confirmar custodia.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists) {
+    throw new HttpsError('permission-denied', 'Perfil de usuario no encontrado.')
+  }
+  const callerData = userDoc.data() || {}
+  if (callerData.isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario inactivo.')
+  }
+
+  const { manifestId, notes = '' } = request.data || {}
+  if (!manifestId || typeof manifestId !== 'string') {
+    throw new HttpsError('invalid-argument', 'Debe especificar el ID del manifiesto.')
+  }
+
+  return await db.runTransaction(async (transaction) => {
+    const manifestRef = db.collection('manifests').doc(manifestId)
+    const manifestDoc = await transaction.get(manifestRef)
+
+    if (!manifestDoc.exists) {
+      throw new HttpsError('not-found', 'El manifiesto no existe.')
+    }
+
+    const manifestData = manifestDoc.data() || {}
+
+    if (manifestData.driverUid !== callerUid && callerData.role !== 'directiva_admin') {
+      throw new HttpsError('permission-denied', 'No es el conductor asignado a este manifiesto de carga.')
+    }
+
+    if (manifestData.status !== 'dispatched' && manifestData.status !== 'in_transit') {
+      throw new HttpsError('failed-precondition', `El manifiesto tiene estado '${manifestData.status}', no puede confirmarse custodia.`)
+    }
+
+    if (manifestData.driverCustodyStatus === 'accepted') {
+      return {
+        success: true,
+        manifestId,
+        manifestNumber: manifestData.manifestNumber,
+        driverCustodyStatus: 'accepted',
+        message: 'La custodia ya había sido aceptada previamente.',
+      }
+    }
+
+    const now = FieldValue.serverTimestamp()
+    const nowIso = new Date().toISOString()
+
+    transaction.update(manifestRef, {
+      driverCustodyStatus: 'accepted',
+      driverCustodyAt: now,
+      driverCustodyAtIso: nowIso,
+      driverCustodyNotes: notes || '',
+      status: 'in_transit',
+      updatedAt: now,
+    })
+
+    const auditRef = db.collection('audit_logs').doc()
+    transaction.set(auditRef, {
+      entityType: 'manifest',
+      entityId: manifestId,
+      action: 'driver_confirm_custody',
+      performedByUid: callerUid,
+      performedByName: callerData.fullName || 'Conductor',
+      details: {
+        manifestNumber: manifestData.manifestNumber,
+        notes,
+      },
+      timestamp: now,
+    })
+
+    return {
+      success: true,
+      manifestId,
+      manifestNumber: manifestData.manifestNumber,
+      driverCustodyStatus: 'accepted',
+      driverCustodyAtIso: nowIso,
+    }
+  })
+})
+
+/**
+ * Cloud Function Callable para la recepción formal del manifiesto en agencia de destino,
+ * con verificación bulto a bulto, registro de discrepancias y actualización de custodia.
+ */
+export const receiveDispatchManifest = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para recibir manifiestos.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists) {
+    throw new HttpsError('permission-denied', 'Perfil de usuario no encontrado.')
+  }
+  const callerData = userDoc.data() || {}
+  if (callerData.isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario inactivo.')
+  }
+
+  const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', `El rol '${callerData.role}' no tiene permiso para recibir manifiestos en destino.`)
+  }
+
+  const {
+    manifestId,
+    receivedShipments = [],
+    receptionNotes = '',
+  } = request.data || {}
+
+  if (!manifestId || typeof manifestId !== 'string') {
+    throw new HttpsError('invalid-argument', 'Debe especificar el ID del manifiesto.')
+  }
+
+  return await db.runTransaction(async (transaction) => {
+    // 1. LECTURAS
+    const manifestRef = db.collection('manifests').doc(manifestId)
+    const manifestDoc = await transaction.get(manifestRef)
+
+    if (!manifestDoc.exists) {
+      throw new HttpsError('not-found', 'El manifiesto no existe.')
+    }
+
+    const manifestData = manifestDoc.data() || {}
+
+    if (callerData.role !== 'directiva_admin') {
+      const isAllowed = callerData.primaryBranchId === manifestData.destinationBranchId ||
+        (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(manifestData.destinationBranchId))
+      if (!isAllowed) {
+        throw new HttpsError('permission-denied', `No tiene permiso para recibir carga en la sucursal '${manifestData.destinationBranchId}'.`)
+      }
+    }
+
+    // Regla de no auto-recepción: el mismo conductor no puede firmar la recepción
+    if (manifestData.driverUid === callerUid) {
+      throw new HttpsError('permission-denied', 'El conductor que transportó la carga no puede auto-firmar la recepción en la agencia de destino. Debe recibirlo el personal de ventanilla o encargado.')
+    }
+
+    if (manifestData.status === 'received') {
+      throw new HttpsError('failed-precondition', 'Este manifiesto ya fue recibido y cerrado previamente.')
+    }
+
+    if (manifestData.status !== 'dispatched' && manifestData.status !== 'in_transit') {
+      throw new HttpsError('failed-precondition', `El manifiesto tiene estado '${manifestData.status}', no puede ser recibido.`)
+    }
+
+    const shipmentRefsAndDocs = []
+    for (const sId of (manifestData.shipmentIds || [])) {
+      const sRef = db.collection('shipments').doc(sId)
+      const sDoc = await transaction.get(sRef)
+      shipmentRefsAndDocs.push({ id: sId, ref: sRef, doc: sDoc })
+    }
+
+    // 2. PROCESAR RECEPCIÓN Y DISCREPANCIAS
+    const now = FieldValue.serverTimestamp()
+    const nowIso = new Date().toISOString()
+    const discrepancies = []
+    const receivedMap = new Map()
+
+    if (Array.isArray(receivedShipments)) {
+      for (const item of receivedShipments) {
+        if (item && item.shipmentId) {
+          receivedMap.set(item.shipmentId, item)
+        }
+      }
+    }
+
+    for (const item of shipmentRefsAndDocs) {
+      if (!item.doc.exists) continue
+      const sData = item.doc.data() || {}
+      const itemInput = receivedMap.get(item.id) || {
+        receivedPackages: sData.packageCount || 1,
+        condition: 'good',
+        notes: '',
+      }
+
+      const expectedPkg = Number(sData.packageCount) || 1
+      const recPkg = Number(itemInput.receivedPackages) ?? expectedPkg
+      const condition = itemInput.condition || 'good'
+
+      const isDiscrepant = (recPkg !== expectedPkg) || (condition !== 'good')
+      if (isDiscrepant) {
+        discrepancies.push({
+          shipmentId: item.id,
+          trackingCode: sData.trackingCode || item.id,
+          issueType: condition === 'good' ? (recPkg < expectedPkg ? 'missing' : 'excess') : condition,
+          expectedPackages: expectedPkg,
+          receivedPackages: recPkg,
+          notes: itemInput.notes || '',
+          reportedAt: nowIso,
+          reportedByUid: callerUid,
+        })
+      }
+
+      let newStatus = 'received_at_dest'
+      let statusNote = `Recibido en destino (${manifestData.destinationBranchId}) de viaje ${manifestData.manifestNumber}.`
+
+      if (condition === 'missing') {
+        newStatus = 'lost'
+        statusNote = `DISCREPANCIA: Paquete no encontrado al arribo del manifiesto ${manifestData.manifestNumber}. Declarado faltante.`
+      } else if (condition === 'damaged') {
+        statusNote += ` OBSERVACIÓN: Recibido con daños (${itemInput.notes || 'sin detalle'}).`
+      }
+
+      const updatePayload = {
+        status: newStatus,
+        currentLocation: manifestData.destinationBranchId,
+        arrivedAt: now,
+        arrivedAtBranchId: manifestData.destinationBranchId,
+        updatedAt: now,
+      }
+
+      if (condition !== 'good') {
+        updatePayload.incidentNotes = itemInput.notes || `Condición: ${condition}`
+      }
+
+      transaction.update(item.ref, updatePayload)
+
+      const statusLogRef = item.ref.collection('status_logs').doc()
+      transaction.set(statusLogRef, {
+        status: newStatus,
+        operatorUid: callerUid,
+        operatorName: callerData.fullName || 'Operador',
+        branchId: manifestData.destinationBranchId,
+        note: statusNote,
+        createdAt: now,
+        createdAtIso: nowIso,
+      })
+    }
+
+    transaction.update(manifestRef, {
+      status: 'received',
+      receivedAt: now,
+      receivedAtIso: nowIso,
+      receivedByUid: callerUid,
+      receivedByName: callerData.fullName || 'Operador',
+      receptionNotes: receptionNotes || '',
+      discrepancies,
+      updatedAt: now,
+    })
+
+    const auditRef = db.collection('audit_logs').doc()
+    transaction.set(auditRef, {
+      entityType: 'manifest',
+      entityId: manifestId,
+      action: 'receive_dispatch_manifest',
+      performedByUid: callerUid,
+      performedByName: callerData.fullName || 'Operador',
+      details: {
+        manifestNumber: manifestData.manifestNumber,
+        destinationBranchId: manifestData.destinationBranchId,
+        totalShipments: manifestData.shipmentIds.length,
+        discrepanciesCount: discrepancies.length,
+        discrepancies,
+      },
+      timestamp: now,
+    })
+
+    return {
+      success: true,
+      manifestId,
+      manifestNumber: manifestData.manifestNumber,
+      totalShipments: manifestData.shipmentIds.length,
+      discrepanciesCount: discrepancies.length,
+      receivedAtIso: nowIso,
+    }
+  })
+})
+
+/**
+ * Cloud Function Callable para asignar físicamente una encomienda a un estante y módulo de almacén.
+ */
+export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para asignar ubicación en almacén.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists) {
+    throw new HttpsError('permission-denied', 'Perfil de usuario no encontrado.')
+  }
+  const callerData = userDoc.data() || {}
+  if (callerData.isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario inactivo.')
+  }
+
+  const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permiso para gestionar almacén.')
+  }
+
+  const {
+    shipmentId,
+    shelfId,
+    shelfName,
+    moduleId,
+    moduleNumber,
+    position = '',
+  } = request.data || {}
+
+  if (!shipmentId || typeof shipmentId !== 'string') {
+    throw new HttpsError('invalid-argument', 'Debe especificar el ID de la encomienda.')
+  }
+  if (!shelfId || !moduleId || typeof moduleNumber !== 'number') {
+    throw new HttpsError('invalid-argument', 'Debe especificar estante, módulo y número de módulo.')
+  }
+
+  return await db.runTransaction(async (transaction) => {
+    const shipmentRef = db.collection('shipments').doc(shipmentId)
+    const shipmentDoc = await transaction.get(shipmentRef)
+
+    if (!shipmentDoc.exists) {
+      throw new HttpsError('not-found', 'La encomienda no existe.')
+    }
+
+    const sData = shipmentDoc.data() || {}
+
+    if (callerData.role !== 'directiva_admin') {
+      const isAllowed = callerData.primaryBranchId === sData.destinationBranchId ||
+        (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(sData.destinationBranchId))
+      if (!isAllowed) {
+        throw new HttpsError('permission-denied', 'No tiene autorización sobre la sucursal de destino de esta encomienda.')
+      }
+    }
+
+    const now = FieldValue.serverTimestamp()
+    const nowIso = new Date().toISOString()
+
+    const newLocation = {
+      branchId: sData.destinationBranchId,
+      shelfId,
+      shelfName: shelfName || shelfId,
+      moduleId,
+      moduleNumber,
+      position: position || '',
+      storedAt: nowIso,
+      storedByUid: callerUid,
+      storedByName: callerData.fullName || 'Operador',
+    }
+
+    transaction.update(shipmentRef, {
+      status: 'stored',
+      storageLocation: newLocation,
+      updatedAt: now,
+    })
+
+    const moveRef = shipmentRef.collection('storage_moves').doc()
+    transaction.set(moveRef, {
+      branchId: sData.destinationBranchId,
+      shelfId,
+      shelfName: shelfName || shelfId,
+      moduleId,
+      moduleNumber,
+      position: position || '',
+      operatorUid: callerUid,
+      operatorName: callerData.fullName || 'Operador',
+      previousLocation: sData.storageLocation || null,
+      timestamp: now,
+      timestampIso: nowIso,
+    })
+
+    const statusLogRef = shipmentRef.collection('status_logs').doc()
+    transaction.set(statusLogRef, {
+      status: 'stored',
+      operatorUid: callerUid,
+      operatorName: callerData.fullName || 'Operador',
+      branchId: sData.destinationBranchId,
+      note: `Almacenado físicamente en ${shelfName || shelfId} / Módulo ${moduleNumber}${position ? ' (' + position + ')' : ''}`,
+      createdAt: now,
+      createdAtIso: nowIso,
+    })
+
+    return {
+      success: true,
+      shipmentId,
+      trackingCode: sData.trackingCode,
+      storageLocation: newLocation,
+    }
+  })
+})
+
+/**
+ * Cloud Function Callable para administración del padrón de flota de vehículos y móviles.
+ */
+export const manageVehicle = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para administrar la flota.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists) {
+    throw new HttpsError('permission-denied', 'Perfil de usuario no encontrado.')
+  }
+  const callerData = userDoc.data() || {}
+  if (callerData.isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario inactivo.')
+  }
+
+  const allowedRoles = ['encargado_agencia', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', 'Solo encargados de agencia o administración pueden gestionar vehículos.')
+  }
+
+  const {
+    action = 'create',
+    vehicleId,
+    vehicleData = {},
+  } = request.data || {}
+
+  const now = FieldValue.serverTimestamp()
+  const nowIso = new Date().toISOString()
+
+  if (action === 'create') {
+    const {
+      mobileNumber,
+      plate,
+      branchId = 'punata',
+      brand = '',
+      model = '',
+      capacityKg = 1000,
+      assignedDriverUid = null,
+      assignedDriverName = null,
+      notes = '',
+    } = vehicleData
+
+    if (!mobileNumber || !plate) {
+      throw new HttpsError('invalid-argument', 'Debe especificar número de móvil y placa.')
+    }
+
+    const cleanMobile = String(mobileNumber).trim()
+    const cleanPlate = String(plate).trim().toUpperCase()
+
+    // Validar que no exista un vehículo con la misma placa
+    const existingSnap = await db.collection('vehicles')
+      .where('plate', '==', cleanPlate)
+      .limit(1)
+      .get()
+
+    if (!existingSnap.empty) {
+      throw new HttpsError('already-exists', `Ya existe un vehículo registrado con la placa ${cleanPlate}.`)
+    }
+
+    // Validar que no exista un vehículo activo con el mismo número de móvil
+    const existingMobileSnap = await db.collection('vehicles')
+      .where('mobileNumber', '==', cleanMobile)
+      .limit(1)
+      .get()
+
+    if (!existingMobileSnap.empty) {
+      throw new HttpsError('already-exists', `Ya existe un vehículo registrado con el número de móvil ${cleanMobile}.`)
+    }
+
+    const newVehicleRef = db.collection('vehicles').doc()
+    const id = newVehicleRef.id
+
+    await newVehicleRef.set({
+      id,
+      mobileNumber: cleanMobile,
+      plate: cleanPlate,
+      branchId,
+      brand: brand || '',
+      model: model || '',
+      capacityKg: Number(capacityKg) || 1000,
+      assignedDriverUid,
+      assignedDriverName,
+      status: 'active',
+      notes,
+      createdAt: now,
+      createdAtIso: nowIso,
+      updatedAt: now,
+      updatedAtIso: nowIso,
+    })
+
+    return {
+      success: true,
+      vehicleId: id,
+      mobileNumber: cleanMobile,
+      plate: cleanPlate,
+    }
+  } else if (action === 'update') {
+    if (!vehicleId) {
+      throw new HttpsError('invalid-argument', 'Debe especificar el ID del vehículo.')
+    }
+
+    const vRef = db.collection('vehicles').doc(vehicleId)
+    const vDoc = await vRef.get()
+    if (!vDoc.exists) {
+      throw new HttpsError('not-found', 'Vehículo no encontrado.')
+    }
+
+    const updateFields = {
+      updatedAt: now,
+      updatedAtIso: nowIso,
+    }
+
+    if (vehicleData.status) updateFields.status = vehicleData.status
+    if (vehicleData.branchId) updateFields.branchId = vehicleData.branchId
+    if (vehicleData.brand !== undefined) updateFields.brand = vehicleData.brand
+    if (vehicleData.model !== undefined) updateFields.model = vehicleData.model
+    if (vehicleData.capacityKg !== undefined) updateFields.capacityKg = Number(vehicleData.capacityKg)
+    if (vehicleData.assignedDriverUid !== undefined) {
+      updateFields.assignedDriverUid = vehicleData.assignedDriverUid
+      updateFields.assignedDriverName = vehicleData.assignedDriverName || null
+    }
+    if (vehicleData.notes !== undefined) updateFields.notes = vehicleData.notes
+
+    await vRef.update(updateFields)
+
+    return {
+      success: true,
+      vehicleId,
+      action: 'update',
+    }
+  } else {
+    throw new HttpsError('invalid-argument', `Acción '${action}' no soportada.`)
+  }
+})

@@ -116,7 +116,9 @@ export interface ParcelItem {
 export interface ParcelPhysicalLocation {
   branchId: string
   shelfId: string
+  shelfName?: string
   moduleId: string
+  moduleNumber?: number
   position?: string
   storedAt: string
   storedByUid: string
@@ -342,4 +344,97 @@ export interface UnionMonthlyDue {
   status: 'paid' | 'partial' | 'pending' | 'overdue'
   paidAmountBob: number
   balanceBob: number
+}
+
+// =========================================================================
+// TIPOS DE LOGÍSTICA INTERAGENCIAS: Vehículos, Conductores, Manifiestos y Almacén
+// =========================================================================
+
+export interface Vehicle {
+  id: string
+  mobileNumber: string // ej. '04', '12' (número interno de móvil)
+  plate: string // ej. '3456-ABC' (placa oficial)
+  branchId: string // 'punata' | 'cochabamba'
+  brand?: string
+  model?: string
+  capacityKg?: number
+  assignedDriverUid?: string | null
+  assignedDriverName?: string | null
+  status: 'active' | 'in_maintenance' | 'inactive'
+  notes?: string
+  createdAt?: string
+  createdAtIso?: string
+  updatedAtIso?: string
+}
+
+export interface ManifestShipmentSummary {
+  shipmentId: string
+  trackingCode: string
+  senderName: string
+  recipientName: string
+  packageCount: number
+  totalWeightKg: number
+  paymentStatus: PaymentStatus
+  paymentTiming: PaymentTiming
+  finalAmountCents: number
+  deliveryType: 'agency' | 'home' | 'direct_driver'
+}
+
+export interface ManifestDiscrepancy {
+  shipmentId: string
+  trackingCode: string
+  issueType: 'missing' | 'damaged' | 'excess' | 'other'
+  expectedPackages: number
+  receivedPackages: number
+  notes: string
+  reportedAt: string
+  reportedByUid: string
+}
+
+export interface DispatchManifest {
+  id: string
+  manifestNumber: string // ej. 'MAN-PUN-2026-0001'
+  originBranchId: string
+  destinationBranchId: string
+  vehicleId: string
+  vehiclePlate: string
+  mobileNumber: string
+  driverUid: string
+  driverName: string
+  driverPhone?: string
+  shipmentIds: string[]
+  shipmentSummaries: ManifestShipmentSummary[]
+  totalShipments: number
+  totalPackages: number
+  totalWeightKg: number
+  totalCodAmountCents: number
+  status: 'dispatched' | 'in_transit' | 'received' | 'cancelled'
+  departureNotes?: string
+  dispatchedAt: string
+  dispatchedAtIso?: string
+  dispatchedByUid: string
+  dispatchedByName: string
+  driverCustodyStatus: 'pending' | 'accepted'
+  driverCustodyAt?: string | null
+  driverCustodyNotes?: string | null
+  receivedAt?: string | null
+  receivedAtIso?: string | null
+  receivedByUid?: string | null
+  receivedByName?: string | null
+  receptionNotes?: string | null
+  discrepancies?: ManifestDiscrepancy[]
+}
+
+export interface StorageLocationAssignment {
+  shipmentId: string
+  trackingCode: string
+  branchId: string
+  shelfId: string
+  shelfName: string
+  moduleId: string
+  moduleNumber: number
+  position?: string
+  assignedAt: string
+  assignedByUid: string
+  assignedByName: string
 }

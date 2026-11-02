@@ -25,6 +25,8 @@ import { printShipmentGuidePdf } from '../services/pdfService'
 import { isEmulatedEnvironment } from '../firebase/config'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
 import { CashManagementView } from '../modules/cash/CashManagementView'
+import { DispatchManifestView } from '../modules/dispatch/DispatchManifestView'
+import { StorageManagementView } from '../modules/storage/StorageManagementView'
 import { UserManagementView } from '../modules/users/UserManagementView'
 import { UserProfileModal } from '../modules/users/UserProfileModal'
 import type { Shipment } from '../types'
@@ -445,57 +447,20 @@ export const AppContent: React.FC = () => {
 
         {/* PESTAÑA 2: MÓDULOS DE ALMACÉN */}
         {activeTab === 'storage' && (
-          <div className="space-y-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-800 mb-1">
-                Almacenamiento Físico en Destino — {currentBranch.name}
-              </h3>
-              <p className="text-xs text-slate-500">
-                Estructura por estantes y módulos para localización inmediata de encomiendas llegadas.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {['ESTANTE-A', 'ESTANTE-B', 'ESTANTE-C'].map(shelf => (
-                <div key={shelf} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-3">
-                    <span className="font-bold text-xs text-[#064e3b] uppercase tracking-wide">
-                      {shelf}
-                    </span>
-                    <span className="text-[10px] text-slate-500">5 Módulos</span>
-                  </div>
-                  <div className="grid grid-cols-5 gap-2">
-                    {[1, 2, 3, 4, 5].map(num => (
-                      <div
-                        key={num}
-                        className="p-2.5 rounded-lg border border-slate-200 text-center bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 transition-colors cursor-pointer"
-                      >
-                        <span className="block text-[10px] text-slate-500 font-mono">M-{num}</span>
-                        <span className="block text-xs font-bold text-slate-700">0</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <StorageManagementView
+            currentUser={userProfile}
+            currentBranch={currentBranch}
+            shipments={displayedShipments}
+          />
         )}
 
         {/* PESTAÑA 3: DESPACHOS Y RUTA */}
         {activeTab === 'manifests' && (
-          <div className="space-y-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-800 mb-1">
-                Despachos y Manifiestos de Carga en Ruta
-              </h3>
-              <p className="text-xs text-slate-500">
-                Control de salidas de encomiendas en flota de Expreso Punata.
-              </p>
-            </div>
-            <div className="p-8 text-center text-xs text-slate-500 bg-white rounded-xl border border-slate-200">
-              Módulo de manifiestos y custodia en preparación para entrega de ruta.
-            </div>
-          </div>
+          <DispatchManifestView
+            currentUser={userProfile}
+            currentBranch={currentBranch}
+            shipments={displayedShipments}
+          />
         )}
 
         {/* PESTAÑA 4: CAJA DEL TURNO */}
