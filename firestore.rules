@@ -249,6 +249,14 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    // COLECCIÓN: expense_authorizations (Autorizaciones de egresos extraordinarios)
+    // =========================================================================
+    match /expense_authorizations/{authId} {
+      allow read: if isActive() && (isAdmin() || isAgencyManager() || isCashier());
+      allow write: if false; // Solo Cloud Functions autorizadas con Admin SDK
+    }
+
+    // =========================================================================
     // COLECCIÓN: fixed_assets (Inventario / Bienes Fijos de Expreso Punata)
     // =========================================================================
     match /fixed_assets/{assetId} {
