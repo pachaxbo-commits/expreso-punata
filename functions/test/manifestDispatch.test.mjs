@@ -348,6 +348,11 @@ test('7. RECEPCIÓN CON DISCREPANCIAS: Registra faltantes y daños con auditorí
     },
   })
 
+  await driverConfirmCustody.run({
+    auth: { uid: 'chofer-1' },
+    data: { manifestId: manifest.manifestId },
+  })
+
   const recRes = await receiveDispatchManifest.run({
     auth: { uid: 'sec-cbba' },
     data: {

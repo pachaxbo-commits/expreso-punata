@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   Wallet,
+  Truck,
   Clock,
   PlusCircle,
   Lock,
@@ -30,6 +31,7 @@ import {
   fetchBranchShiftsPage,
 } from '../../services/cashService.ts'
 import { CashTicket80mm } from './CashTicket80mm.tsx'
+import { DriverSettlementModal } from './DriverSettlementModal.tsx'
 
 interface CashManagementViewProps {
   currentUser: UserProfile
@@ -79,6 +81,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
   const [isOpenShiftModalOpen, setIsOpenShiftModalOpen] = useState(false)
   const [isCloseShiftModalOpen, setIsCloseShiftModalOpen] = useState(false)
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false)
+  const [isDriverSettlementOpen, setIsDriverSettlementOpen] = useState(false)
   const [ticketShiftToPrint, setTicketShiftToPrint] = useState<CashShift | null>(null)
 
   // Mensajes de error / éxito
@@ -355,6 +358,14 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
 
                 {/* Botones de Acción Rápida */}
                 <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
+                  <button
+                    onClick={() => setIsDriverSettlementOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-emerald-800/80 hover:bg-emerald-700/80 rounded-xl border border-emerald-600 transition-colors"
+                    title="Registrar rendición de cobranzas de conductor en ruta"
+                  >
+                    <Truck className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Rendición Chofer</span>
+                  </button>
                   <button
                     onClick={() => setIsExpenseModalOpen(true)}
                     className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-emerald-800/80 hover:bg-emerald-700/80 rounded-xl border border-emerald-600 transition-colors"
@@ -818,6 +829,21 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
         <CashTicket80mm
           shift={ticketShiftToPrint}
           onClose={() => setTicketShiftToPrint(null)}
+        />
+      )}
+
+      {/* MODAL 5: RENDICIÓN DE CONDUCTOR */}
+      {isDriverSettlementOpen && (
+        <DriverSettlementModal
+          isOpen={isDriverSettlementOpen}
+          onClose={() => setIsDriverSettlementOpen(false)}
+          onSuccess={() => {
+            setIsDriverSettlementOpen(false)
+            showFeedback('success', 'Rendición de conductor registrada en caja correctamente.')
+          }}
+          currentUser={currentUser}
+          currentBranch={currentBranch}
+          currentShiftId={activeShift?.id}
         />
       )}
     </div>

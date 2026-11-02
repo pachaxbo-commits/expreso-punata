@@ -15,6 +15,7 @@
     "test:functions": "firebase emulators:exec --only firestore,auth \"npm --prefix functions test\"",
     "test:caja-lifecycle": "firebase emulators:exec --only firestore,auth \"node tests/e2e/runCajaLifecycle.mjs\"",
     "test:logistics-lifecycle": "firebase emulators:exec --only firestore,auth \"node tests/e2e/runLogisticsLifecycle.mjs\"",
+    "test:delivery-lifecycle": "firebase emulators:exec --only firestore,auth \"node tests/e2e/runDeliveryAndCodLifecycle.mjs\"",
     "test:e2e": "node tests/e2e/runBrowserVerification.mjs",
     "emulators": "firebase emulators:start --only auth,firestore,storage,functions",
     "admin:bootstrap": "node scripts/bootstrapAdmin.mjs"
