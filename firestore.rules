@@ -127,9 +127,13 @@ service cloud.firestore {
       // Toda encomienda y guía debe emitirse exclusivamente mediante Cloud Functions
       allow create: if false;
 
-      // Actualización de estado y transiciones autorizadas (solo campos no financieros)
+      // Actualización autorizada:
+      // PROHIBIDO alterar importes, correlativos, IDs o movimientos financieros desde el cliente
       allow update: if isAuthenticated() && (
-        isAdmin() ||
+        (isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'finalAmountCents', 'shippingFeeCents', 'weightSurchargeCents', 'homeDeliveryFeeCents',
+          'discountCents', 'trackingCode', 'id', 'idempotencyKey', 'registeredByUid', 'financialMovementId', 'createdAt'
+        ])) ||
         (isCashier() && (isAllowedBranch(resource.data.originBranchId) || isAllowedBranch(resource.data.destinationBranchId)) &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'storageLocation', 'updatedAt', 'deliveryRecord'])) ||
         (isDriver() && resource.data.assignedVehicle.driverUid == request.auth.uid &&

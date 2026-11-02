@@ -15,11 +15,9 @@ export async function generateShipmentGuidePdf(shipment: Shipment): Promise<Blob
     format: 'a5', // 148 x 210 mm
   })
 
-  // Código QR seguro (solo identificador de rastreo sin exponer datos personales ni teléfonos)
-  const qrDataUrl = await QRCode.toDataURL(
-    `https://expreso-punata.pachax.dev/rastreo?guia=${encodeURIComponent(shipment.trackingCode)}`,
-    { width: 140, margin: 1 }
-  )
+  // Código QR verificable localmente sin enlaces rotos ni exposición de datos personales
+  const qrVerificationText = `EXPRESO PUNATA\nGuía: ${shipment.trackingCode}\nOrigen: ${shipment.originCity}\nDestino: ${shipment.destinationCity}\nBultos: ${shipment.packageCount || 1}\nSistema PACHAX • Verificación Local`
+  const qrDataUrl = await QRCode.toDataURL(qrVerificationText, { width: 140, margin: 1 })
 
   // Franja de aviso de entorno de desarrollo
   doc.setFillColor(254, 243, 199)

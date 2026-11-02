@@ -283,6 +283,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
     // E. Registro financiero auditable si fue pagado en origen
     if (isPaid && movementId) {
+      const effectiveShiftId = cashShiftId || 'PENDING_SHIFT_DEV'
       const financialMovementDocRef = db.collection('financial_movements').doc(movementId)
       const financialMovement = {
         id: movementId,
@@ -294,7 +295,11 @@ export const createShipment = onCall({ cors: true }, async (request) => {
         paymentMethod,
         concept: 'shipment_origin_payment',
         status: 'completed',
-        cashShiftId,
+        cashShiftId: effectiveShiftId,
+        reconciliationStatus: cashShiftId ? 'shift_assigned' : 'pending_shift_opening',
+        auditNotice: cashShiftId
+          ? 'Asignado a turno de caja formal'
+          : 'Cobro registrado en Fase 2 sin turno de caja formal abierto (pendiente conciliación en Fase 7)',
         idempotencyKey: safeIdempotencyKey,
         createdAt: FieldValue.serverTimestamp(),
         createdAtIso: nowIso,

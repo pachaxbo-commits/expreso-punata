@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
+    "test": "npm run test:unit",
     "lint": "eslint .",
     "test:unit": "node --experimental-strip-types --test tests/unit/*.test.ts",
     "test:rules": "firebase emulators:exec --only firestore,auth \"node --test tests/rules/firestoreRules.test.mjs\"",

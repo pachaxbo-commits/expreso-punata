@@ -87,6 +87,38 @@ test('2. Creación directa de encomiendas desde el cliente está BLOQUEADA (solo
       branchId: 'punata',
     })
   )
+
+  // Crear encomienda en contexto administrative para probar intentos de alteración
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-00001'), {
+      trackingCode: 'PUN-2026-00001',
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      registeredByUid: 'sec-punata',
+      finalAmountCents: 1500,
+      paymentStatus: 'paid',
+      status: 'received',
+    })
+  })
+
+  // Intento de alterar importes financieros desde el cliente -> DEBE FALLAR
+  await assertFails(
+    updateDoc(doc(secDb, 'shipments', 'PUN-2026-00001'), {
+      finalAmountCents: 500,
+    })
+  )
+
+  // Intento de alterar estado de pago o código de guía -> DEBE FALLAR
+  await assertFails(
+    updateDoc(doc(secDb, 'shipments', 'PUN-2026-00001'), {
+      paymentStatus: 'refunded',
+    })
+  )
+  await assertFails(
+    updateDoc(doc(secDb, 'shipments', 'PUN-2026-00001'), {
+      trackingCode: 'PUN-2026-99999',
+    })
+  )
 })
 
 test('3. Secretaria de Cochabamba puede LEER encomiendas con destino a su sucursal', async () => {

@@ -20,7 +20,7 @@ import { LoginView } from '../modules/auth/LoginView'
 import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../domain/expresoPunataConfig'
 import { DEV_SHIPMENTS, DEV_ASSETS, DEV_MEMBERS } from '../fixtures/devFixtures'
 import { formatCurrencyBob } from '../domain/parcelEngine'
-import { subscribeShipmentsByBranch } from '../services/shipmentService'
+import { subscribeShipmentsByBranch, fetchShipmentByTrackingCode } from '../services/shipmentService'
 import { printShipmentGuidePdf } from '../services/pdfService'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
 import type { Shipment } from '../types'
@@ -49,6 +49,23 @@ export const AppContent: React.FC = () => {
     )
     return () => unsubscribe()
   }, [currentBranchId])
+
+  // Búsqueda directa por ID en Firestore si se ingresa una guía histórica fuera de los 100 iniciales
+  useEffect(() => {
+    const trimmed = searchTerm.trim().toUpperCase()
+    if (/^[A-Z]{3}-\d{4}-\d{5}$/.test(trimmed)) {
+      const alreadyPresent = realShipments.some(s => s.trackingCode.toUpperCase() === trimmed)
+      if (!alreadyPresent) {
+        fetchShipmentByTrackingCode(trimmed)
+          .then(found => {
+            if (found) {
+              setRealShipments(prev => [found, ...prev])
+            }
+          })
+          .catch(err => console.warn('Búsqueda exacta en Firestore:', err))
+      }
+    }
+  }, [searchTerm, realShipments])
 
   if (!userProfile) {
     return <LoginView />
