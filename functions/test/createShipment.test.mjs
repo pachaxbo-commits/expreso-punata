@@ -112,7 +112,14 @@ async function executeCreateShipment(callerAuth, data) {
   const weightSurchargeCents = Math.round(excessKg * 200)
   const homeDeliveryFeeCents = deliveryType === 'home' ? 1200 : 0
   const subtotalCents = baseFeeCents + weightSurchargeCents + homeDeliveryFeeCents
-  const finalAmountCents = subtotalCents - Math.min(subtotalCents, Math.max(0, Number(discountCents) || 0))
+  const rawDiscount = Number(discountCents) || 0
+  if (rawDiscount < 0) {
+    throw new Error('INVALID_ARGUMENT: El descuento no puede ser un valor negativo.')
+  }
+  if (rawDiscount > 0 && userProfile.role !== 'directiva_admin') {
+    throw new Error('PERMISSION_DENIED: Los descuentos desde ventanilla están deshabilitados. Solo la Directiva / Administración puede aplicar descuentos.')
+  }
+  const finalAmountCents = subtotalCents - Math.min(subtotalCents, Math.max(0, rawDiscount))
 
   const branchCode = originBranchId === 'punata' ? 'PUN' : 'CBB'
   const currentYear = 2026
@@ -157,13 +164,14 @@ async function executeCreateShipment(callerAuth, data) {
       packageCount,
       totalWeightKg,
       finalAmountCents,
+      discountCents: rawDiscount,
       paymentTiming,
       paymentStatus: isPaid ? 'paid' : 'pending',
       paymentMethod: isPaid ? paymentMethod : null,
       financialMovementId: movementId,
       status: 'received',
       registeredByUid: callerAuth.uid,
-      registeredByName: userProfile.fullName,
+      registeredByName: userProfile.fullName || 'Operador',
     }
 
     if (isPaid && movementId) {
@@ -172,7 +180,7 @@ async function executeCreateShipment(callerAuth, data) {
         id: movementId,
         trackingCode,
         operatorUid: callerAuth.uid,
-        operatorName: userProfile.fullName,
+        operatorName: userProfile.fullName || 'Operador',
         branchId: originBranchId,
         amountCents: finalAmountCents,
         paymentMethod,
@@ -367,4 +375,57 @@ test('5. Concurrencia de 10 peticiones simultáneas sin correlativos duplicados'
 
   assert.equal(results.length, 10)
   assert.equal(unique.size, 10)
+})
+
+test('6. Validación de descuentos: secretaria NO puede aplicar descuentos arbitrarios', async () => {
+  await assert.rejects(
+    async () => executeCreateShipment(
+      { uid: 'sec-test-fin' },
+      {
+        originBranchId: 'punata',
+        destinationBranchId: 'cochabamba',
+        sender: { name: 'Remitente Prueba', phone: '71711111' },
+        recipient: { name: 'Destinatario Prueba', phone: '72211111' },
+        items: [{ description: 'Carga con descuento', quantity: 1, weightKg: 1 }],
+        paymentTiming: 'origin_paid',
+        discountCents: 500, // Intento de descuento por secretaria
+        prohibitedGoodsNoticeAccepted: true,
+        idempotencyKey: `discount-sec-fail-${Date.now()}`,
+      }
+    ),
+    (err) => {
+      assert.match(err.message, /PERMISSION_DENIED: Los descuentos desde ventanilla están deshabilitados/)
+      return true
+    }
+  )
+})
+
+test('7. Directiva / Administración puede aplicar descuentos autorizados', async () => {
+  await db.collection('users').doc('admin-descuentos').set({
+    uid: 'admin-descuentos',
+    fullName: 'Administrador Descuentos',
+    role: 'directiva_admin',
+    primaryBranchId: 'punata',
+    allowedBranchIds: ['punata', 'cochabamba'],
+    isActive: true,
+  })
+
+  const result = await executeCreateShipment(
+    { uid: 'admin-descuentos' },
+    {
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      sender: { name: 'Remitente Especial', phone: '71711111' },
+      recipient: { name: 'Destinatario Especial', phone: '72211111' },
+      items: [{ description: 'Carga con descuento oficial', quantity: 1, weightKg: 1 }],
+      paymentTiming: 'origin_paid',
+      discountCents: 500, // 5 Bs. de descuento aprobado por admin
+      prohibitedGoodsNoticeAccepted: true,
+      idempotencyKey: `discount-admin-ok-${Date.now()}`,
+    }
+  )
+
+  assert.equal(result.isDuplicate, false)
+  assert.equal(result.shipment.discountCents, 500)
+  assert.equal(result.shipment.finalAmountCents, 1000) // 1500 - 500 = 1000
 })
