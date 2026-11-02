@@ -228,24 +228,49 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     let movementId = null
     let effectiveShiftId = null
 
-    if (isPaid && cashShiftId) {
-      const shiftDocRef = db.collection('cash_shifts').doc(cashShiftId)
-      const shiftDoc = await transaction.get(shiftDocRef)
-      if (!shiftDoc.exists) {
-        throw new HttpsError('failed-precondition', `El turno de caja '${cashShiftId}' no existe en el sistema.`)
+    if (isPaid) {
+      let resolvedShiftId = cashShiftId && typeof cashShiftId === 'string' && cashShiftId.trim() ? cashShiftId.trim() : null
+
+      if (!resolvedShiftId) {
+        // Localizar turno activo autorizado del operador y sucursal desde el candado determinístico
+        const activeLockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${originBranchId}`)
+        const activeLockDoc = await transaction.get(activeLockRef)
+        if (activeLockDoc.exists) {
+          const lockData = activeLockDoc.data() || {}
+          if (lockData.status === 'open' && lockData.shiftId) {
+            resolvedShiftId = lockData.shiftId
+          }
+        }
       }
-      const shiftData = shiftDoc.data() || {}
-      if (shiftData.status !== 'open') {
-        throw new HttpsError('failed-precondition', `El turno de caja '${cashShiftId}' no está abierto (estado actual: ${shiftData.status}).`)
+
+      if (!resolvedShiftId) {
+        if (payload.allowPendingFallback === true) {
+          isDefinitivePayment = false
+        } else {
+          throw new HttpsError(
+            'failed-precondition',
+            `No tiene un turno de caja abierto en la sucursal de origen '${originBranchId}'. Debe abrir caja para registrar cobros en origen o seleccionar pago pendiente / contraentrega.`
+          )
+        }
+      } else {
+        const shiftDocRef = db.collection('cash_shifts').doc(resolvedShiftId)
+        const shiftDoc = await transaction.get(shiftDocRef)
+        if (!shiftDoc.exists) {
+          throw new HttpsError('failed-precondition', `El turno de caja '${resolvedShiftId}' no existe en el sistema.`)
+        }
+        const shiftData = shiftDoc.data() || {}
+        if (shiftData.status !== 'open') {
+          throw new HttpsError('failed-precondition', `El turno de caja '${resolvedShiftId}' no está abierto (estado actual: ${shiftData.status}).`)
+        }
+        if (shiftData.operatorUid !== callerUid) {
+          throw new HttpsError('permission-denied', `El turno de caja '${resolvedShiftId}' pertenece a otro operador.`)
+        }
+        if (shiftData.branchId !== originBranchId) {
+          throw new HttpsError('permission-denied', `El turno de caja '${resolvedShiftId}' no corresponde a la sucursal de origen '${originBranchId}'.`)
+        }
+        isDefinitivePayment = true
+        effectiveShiftId = resolvedShiftId
       }
-      if (shiftData.operatorUid !== callerUid) {
-        throw new HttpsError('permission-denied', `El turno de caja '${cashShiftId}' pertenece a otro operador.`)
-      }
-      if (shiftData.branchId !== originBranchId) {
-        throw new HttpsError('permission-denied', `El turno de caja '${cashShiftId}' no corresponde a la sucursal de origen '${originBranchId}'.`)
-      }
-      isDefinitivePayment = true
-      effectiveShiftId = cashShiftId
     }
 
     // C. Leer y avanzar correlativo anual por sucursal
@@ -315,6 +340,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       paidAt: isDefinitivePayment ? nowIso : null,
       paidCashierUid: isDefinitivePayment ? callerUid : null,
       paidCashierName: isDefinitivePayment ? (userProfile.fullName || 'Secretaria') : null,
+      cashShiftId: isDefinitivePayment ? effectiveShiftId : null,
       financialMovementId: movementId,
       paymentNotice: !isDefinitivePayment && isPaid
         ? 'Cobro pendiente de registro en caja formal (Fase 7)'
@@ -346,12 +372,15 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       const financialMovement = {
         id: movementId,
         trackingCode,
+        shiftId: effectiveShiftId,
+        branchId: originBranchId,
         operatorUid: callerUid,
         operatorName: userProfile.fullName || 'Secretaria',
-        branchId: originBranchId,
         amountCents: finalAmountCents,
         paymentMethod,
-        concept: 'shipment_origin_payment',
+        type: 'shipment_income',
+        concept: `Cobro en origen de encomienda ${trackingCode}`,
+        referenceId: trackingCode,
         status: 'completed',
         cashShiftId: effectiveShiftId,
         reconciliationStatus: 'shift_assigned',
@@ -361,6 +390,26 @@ export const createShipment = onCall({ cors: true }, async (request) => {
         createdAtIso: nowIso,
       }
       transaction.set(financialMovementDocRef, financialMovement)
+
+      // Actualizar desglose y totales acumulados en cash_shifts
+      const shiftUpdate = {
+        updatedAt: FieldValue.serverTimestamp(),
+        'breakdown.totalIncomeCents': FieldValue.increment(finalAmountCents),
+        'breakdown.shipmentsIncomeCents': FieldValue.increment(finalAmountCents),
+        movementsCount: FieldValue.increment(1),
+      }
+
+      if (paymentMethod === 'cash') {
+        shiftUpdate.expectedCashCents = FieldValue.increment(finalAmountCents)
+        shiftUpdate['breakdown.cashIncomeCents'] = FieldValue.increment(finalAmountCents)
+        shiftUpdate['breakdown.netCashCents'] = FieldValue.increment(finalAmountCents)
+      } else if (paymentMethod === 'qr') {
+        shiftUpdate['breakdown.qrIncomeCents'] = FieldValue.increment(finalAmountCents)
+      } else if (paymentMethod === 'transfer') {
+        shiftUpdate['breakdown.transferIncomeCents'] = FieldValue.increment(finalAmountCents)
+      }
+
+      transaction.update(db.collection('cash_shifts').doc(effectiveShiftId), shiftUpdate)
     }
 
     // G. Escribir operaciones atómicas en la transacción
@@ -460,30 +509,43 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
   let safeTargetUid = targetUid && typeof targetUid === 'string' && targetUid.trim() ? targetUid.trim() : null
   let targetAuthUser = null
 
-  // PROTECCIÓN ESTRICTA DEL ÚLTIMO ADMINISTRADOR ACTIVO
+  // PROTECCIÓN ESTRICTA DEL ÚLTIMO ADMINISTRADOR ACTIVO CONTRA CONCURRENCIA
   if (safeTargetUid) {
-    const existingTargetDoc = await db.collection('users').doc(safeTargetUid).get()
-    if (existingTargetDoc.exists) {
-      const existingData = existingTargetDoc.data() || {}
-      const isCurrentlyActiveAdmin = existingData.role === 'directiva_admin' && existingData.isActive === true
-      const willBeInactive = Boolean(isActive) === false
-      const willDemoteRole = role !== 'directiva_admin'
+    await db.runTransaction(async (transaction) => {
+      const lockRef = db.collection('system_locks').doc('admin_management')
+      await transaction.get(lockRef)
 
-      if (isCurrentlyActiveAdmin && (willBeInactive || willDemoteRole)) {
-        const activeAdminsSnap = await db.collection('users')
-          .where('role', '==', 'directiva_admin')
-          .where('isActive', '==', true)
-          .get()
+      const targetDocRef = db.collection('users').doc(safeTargetUid)
+      const existingTargetDoc = await transaction.get(targetDocRef)
 
-        const otherAdmins = activeAdminsSnap.docs.filter((d) => d.id !== safeTargetUid)
-        if (otherAdmins.length === 0) {
-          throw new HttpsError(
-            'failed-precondition',
-            'Operación denegada por seguridad: no es posible suspender ni retirar privilegios al único Administrador General activo del sistema.'
-          )
+      if (existingTargetDoc.exists) {
+        const existingData = existingTargetDoc.data() || {}
+        const isCurrentlyActiveAdmin = existingData.role === 'directiva_admin' && existingData.isActive === true
+        const willBeInactive = Boolean(isActive) === false
+        const willDemoteRole = role !== 'directiva_admin'
+
+        if (isCurrentlyActiveAdmin && (willBeInactive || willDemoteRole)) {
+          const activeAdminsQuery = db.collection('users')
+            .where('role', '==', 'directiva_admin')
+            .where('isActive', '==', true)
+
+          const activeAdminsSnap = await transaction.get(activeAdminsQuery)
+          const otherAdmins = activeAdminsSnap.docs.filter((d) => d.id !== safeTargetUid)
+
+          if (otherAdmins.length === 0) {
+            throw new HttpsError(
+              'failed-precondition',
+              'Operación denegada por seguridad: no es posible suspender ni retirar privilegios al único Administrador General activo del sistema.'
+            )
+          }
         }
       }
-    }
+
+      transaction.set(lockRef, {
+        lastEvaluatedAt: FieldValue.serverTimestamp(),
+        targetUid: safeTargetUid,
+      }, { merge: true })
+    })
   }
 
   // 3. Resolución / Creación en Firebase Authentication
@@ -576,19 +638,48 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     updatedAtIso: nowIso,
   }
 
-  // Escribir perfil en Firestore
+  // Escribir perfil en Firestore bajo candado transaccional
   await db.runTransaction(async (transaction) => {
+    const lockRef = db.collection('system_locks').doc('admin_management')
+    await transaction.get(lockRef)
+
     const existingDoc = await transaction.get(targetUserRef)
-    if (!existingDoc.exists) {
-      profileData.createdAt = FieldValue.serverTimestamp()
-      profileData.createdAtIso = nowIso
-      profileData.createdReason = 'admin_provisioned'
-    } else {
+    if (existingDoc.exists) {
       const existingData = existingDoc.data() || {}
+      const isCurrentlyActiveAdmin = existingData.role === 'directiva_admin' && existingData.isActive === true
+      const willBeInactive = Boolean(isActive) === false
+      const willDemoteRole = role !== 'directiva_admin'
+
+      if (isCurrentlyActiveAdmin && (willBeInactive || willDemoteRole)) {
+        const activeAdminsQuery = db.collection('users')
+          .where('role', '==', 'directiva_admin')
+          .where('isActive', '==', true)
+
+        const activeAdminsSnap = await transaction.get(activeAdminsQuery)
+        const otherAdmins = activeAdminsSnap.docs.filter((d) => d.id !== safeTargetUid)
+
+        if (otherAdmins.length === 0) {
+          throw new HttpsError(
+            'failed-precondition',
+            'Operación denegada por seguridad: no es posible suspender ni retirar privilegios al único Administrador General activo del sistema.'
+          )
+        }
+      }
+
       if (!safePhone && existingData.phone) {
         profileData.phone = existingData.phone
       }
+    } else {
+      profileData.createdAt = FieldValue.serverTimestamp()
+      profileData.createdAtIso = nowIso
+      profileData.createdReason = 'admin_provisioned'
     }
+
+    transaction.set(lockRef, {
+      lastUpdateAt: FieldValue.serverTimestamp(),
+      modifiedUid: safeTargetUid,
+    }, { merge: true })
+
     transaction.set(targetUserRef, profileData, { merge: true })
   })
 
@@ -735,4 +826,574 @@ export const adminSendPasswordReset = onCall({ cors: true }, async (request) => 
     email: userEmail,
     message: 'Solicitud de restablecimiento autorizada y registrada en auditoría.',
   }
+})
+
+
+/**
+ * =============================================================================
+ * CLOUD FUNCTION: openCashShift (Apertura Segura de Turno de Caja)
+ * =============================================================================
+ */
+export const openCashShift = onCall({ cors: true }, async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para abrir un turno de caja.')
+  }
+
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists) {
+    throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
+  }
+  const callerData = callerDoc.data() || {}
+  if (!callerData.isActive) {
+    throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
+  }
+
+  const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', `El rol '${callerData.role}' no tiene permiso para abrir turnos de caja.`)
+  }
+
+  const payload = request.data || {}
+  const branchId = payload.branchId && typeof payload.branchId === 'string' ? payload.branchId.trim().toLowerCase() : ''
+  const validBranches = ['punata', 'cochabamba']
+  if (!validBranches.includes(branchId)) {
+    throw new HttpsError('invalid-argument', `Sucursal inválida: '${branchId}'.`)
+  }
+
+  // Validar sucursal permitida para el operador
+  const allowedBranches = Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.length > 0
+    ? callerData.allowedBranchIds
+    : [callerData.primaryBranchId]
+  if (callerData.role !== 'directiva_admin' && !allowedBranches.includes(branchId)) {
+    throw new HttpsError('permission-denied', `No tiene permiso para operar la caja de la sucursal '${branchId}'.`)
+  }
+
+  const initialCashCents = Math.round(Number(payload.initialCashCents) || 0)
+  if (initialCashCents < 0) {
+    throw new HttpsError('invalid-argument', 'El fondo inicial de caja no puede ser negativo.')
+  }
+
+  const initialCashBreakdown = payload.initialCashBreakdown && typeof payload.initialCashBreakdown === 'object'
+    ? payload.initialCashBreakdown
+    : null
+  const notes = payload.notes && typeof payload.notes === 'string' ? payload.notes.trim() : ''
+
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const currentYear = now.getFullYear()
+  const branchCode = branchId === 'punata' ? 'PUN' : 'CBB'
+
+  return await db.runTransaction(async (transaction) => {
+    // 1. Candado determinístico de operador y sucursal para evitar doble apertura o concurrencia
+    const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
+    const lockDoc = await transaction.get(lockRef)
+
+    if (lockDoc.exists) {
+      const lockData = lockDoc.data() || {}
+      if (lockData.status === 'open') {
+        throw new HttpsError(
+          'failed-precondition',
+          `Ya existe un turno de caja abierto para este operador en la sucursal '${branchId}'. Debe cerrar el turno anterior antes de abrir uno nuevo.`
+        )
+      }
+    }
+
+    // 2. Obtener y avanzar correlativo anual de turnos
+    const counterRef = db.collection('counters').doc(`shifts_${branchId}_${currentYear}`)
+    const counterDoc = await transaction.get(counterRef)
+    let nextSeq = 1
+    if (counterDoc.exists) {
+      nextSeq = (Number(counterDoc.data().current) || 0) + 1
+    }
+
+    const shiftSeqPadded = String(nextSeq).padStart(4, '0')
+    const shiftId = `TUR-${branchCode}-${currentYear}-${shiftSeqPadded}`
+
+    // 3. Documento canónico del turno de caja
+    const shiftData = {
+      id: shiftId,
+      shiftNumber: shiftId,
+      branchId,
+      operatorUid: callerUid,
+      operatorName: callerData.fullName || 'Operador',
+      openedAt: nowIso,
+      openedAtServer: FieldValue.serverTimestamp(),
+      initialCashCents,
+      initialCashBreakdown,
+      status: 'open',
+      closedByUid: null,
+      closedByName: null,
+      closedAt: null,
+      notes,
+      closingNotes: null,
+      expectedCashCents: initialCashCents,
+      actualCashCents: null,
+      differenceCents: null,
+      differenceStatus: null,
+      breakdown: {
+        initialCashCents,
+        cashIncomeCents: 0,
+        qrIncomeCents: 0,
+        transferIncomeCents: 0,
+        totalIncomeCents: 0,
+        shipmentsIncomeCents: 0,
+        codIncomeCents: 0,
+        contributionsIncomeCents: 0,
+        monthlyFeesIncomeCents: 0,
+        otherIncomeCents: 0,
+        expensesCents: 0,
+        refundsCents: 0,
+        pendingIncomeCents: 0,
+        netCashCents: initialCashCents,
+      },
+      movementsCount: initialCashCents > 0 ? 1 : 0,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+
+    // 4. Registro de movimiento financiero para el fondo inicial (separado de ventas)
+    if (initialCashCents > 0) {
+      const initMovementId = `MOV-INIT-${shiftId}`
+      const initMovement = {
+        id: initMovementId,
+        shiftId,
+        branchId,
+        operatorUid: callerUid,
+        operatorName: callerData.fullName || 'Operador',
+        type: 'initial_cash',
+        amountCents: initialCashCents,
+        paymentMethod: 'cash',
+        concept: 'Fondo inicial de apertura de caja (cambio/sencillo)',
+        referenceId: shiftId,
+        status: 'completed',
+        timestamp: nowIso,
+        createdAt: FieldValue.serverTimestamp(),
+      }
+      transaction.set(db.collection('financial_movements').doc(initMovementId), initMovement)
+    }
+
+    // 5. Escribir documentos atómicamente
+    transaction.set(counterRef, {
+      branchId,
+      current: nextSeq,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true })
+
+    transaction.set(db.collection('cash_shifts').doc(shiftId), shiftData)
+
+    transaction.set(lockRef, {
+      shiftId,
+      operatorUid: callerUid,
+      operatorName: callerData.fullName || 'Operador',
+      branchId,
+      status: 'open',
+      openedAt: FieldValue.serverTimestamp(),
+    })
+
+    // Log de auditoría
+    transaction.set(db.collection('audit_logs').doc(), {
+      entityType: 'cash_shift',
+      entityId: shiftId,
+      action: 'CASH_SHIFT_OPENED',
+      performedByUid: callerUid,
+      performedByName: callerData.fullName || 'Operador',
+      branchId,
+      initialCashCents,
+      timestamp: FieldValue.serverTimestamp(),
+      timestampIso: nowIso,
+    })
+
+    return {
+      success: true,
+      shift: {
+        ...shiftData,
+        openedAtServer: nowIso,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+    }
+  })
+})
+
+/**
+ * =============================================================================
+ * CLOUD FUNCTION: closeCashShift (Cierre Seguro y Arqueo Transaccional de Caja)
+ * =============================================================================
+ */
+export const closeCashShift = onCall({ cors: true }, async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para cerrar un turno de caja.')
+  }
+
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists) {
+    throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
+  }
+  const callerData = callerDoc.data() || {}
+  if (!callerData.isActive) {
+    throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
+  }
+
+  const payload = request.data || {}
+  const shiftId = payload.shiftId && typeof payload.shiftId === 'string' ? payload.shiftId.trim() : ''
+  if (!shiftId) {
+    throw new HttpsError('invalid-argument', 'Se requiere el identificador del turno de caja.')
+  }
+
+  if (payload.actualCashCents === undefined || payload.actualCashCents === null || isNaN(Number(payload.actualCashCents))) {
+    throw new HttpsError('invalid-argument', 'Debe ingresar el monto de efectivo físico contado en centavos.')
+  }
+
+  const actualCashCents = Math.round(Number(payload.actualCashCents))
+  if (actualCashCents < 0) {
+    throw new HttpsError('invalid-argument', 'El efectivo contado no puede ser negativo.')
+  }
+
+  const actualCashBreakdown = payload.actualCashBreakdown && typeof payload.actualCashBreakdown === 'object'
+    ? payload.actualCashBreakdown
+    : null
+  const notes = payload.notes && typeof payload.notes === 'string' ? payload.notes.trim() : ''
+
+  const nowIso = new Date().toISOString()
+
+  return await db.runTransaction(async (transaction) => {
+    const shiftRef = db.collection('cash_shifts').doc(shiftId)
+    const shiftDoc = await transaction.get(shiftRef)
+
+    if (!shiftDoc.exists) {
+      throw new HttpsError('failed-precondition', `El turno de caja '${shiftId}' no existe en el sistema.`)
+    }
+
+    const shiftData = shiftDoc.data() || {}
+    if (shiftData.status !== 'open') {
+      throw new HttpsError('failed-precondition', `El turno de caja '${shiftId}' ya fue cerrado previamente el ${shiftData.closedAt || 'anteriormente'}.`)
+    }
+
+    // Permisos: el mismo operador, encargado de esa sucursal, tesorería de esa sucursal, o admin general
+    const isOwner = shiftData.operatorUid === callerUid
+    const isManagerOfBranch = callerData.role === 'encargado_agencia' && (callerData.allowedBranchIds || [callerData.primaryBranchId]).includes(shiftData.branchId)
+    const isAdmin = callerData.role === 'directiva_admin'
+
+    if (!isOwner && !isManagerOfBranch && !isAdmin) {
+      throw new HttpsError('permission-denied', 'No tiene autorización para cerrar este turno de caja.')
+    }
+
+    const expectedCashCents = Number(shiftData.expectedCashCents) || 0
+    const differenceCents = actualCashCents - expectedCashCents
+    const differenceStatus = differenceCents === 0 ? 'conforme' : differenceCents > 0 ? 'sobrante' : 'faltante'
+
+    const shiftCloseUpdate = {
+      status: 'closed',
+      closedByUid: callerUid,
+      closedByName: callerData.fullName || 'Operador',
+      closedAt: nowIso,
+      closedAtServer: FieldValue.serverTimestamp(),
+      actualCashCents,
+      differenceCents,
+      differenceStatus,
+      actualCashBreakdown,
+      closingNotes: notes,
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+
+    // Actualizar candado determinístico a cerrado
+    const lockRef = db.collection('cash_shift_active_locks').doc(`${shiftData.operatorUid}_${shiftData.branchId}`)
+    transaction.set(lockRef, {
+      status: 'closed',
+      closedAt: FieldValue.serverTimestamp(),
+      lastClosedShiftId: shiftId,
+    }, { merge: true })
+
+    // Si hay diferencia (sobrante o faltante), registrar movimiento de ajuste
+    if (differenceCents !== 0) {
+      const diffMovementId = `MOV-ADJ-${shiftId}`
+      const diffMovement = {
+        id: diffMovementId,
+        shiftId,
+        branchId: shiftData.branchId,
+        operatorUid: callerUid,
+        operatorName: callerData.fullName || 'Operador',
+        type: 'adjustment',
+        amountCents: differenceCents,
+        paymentMethod: 'cash',
+        concept: `Ajuste por ${differenceStatus} de caja en arqueo: Bs ${(differenceCents / 100).toFixed(2)}`,
+        referenceId: shiftId,
+        status: 'completed',
+        timestamp: nowIso,
+        createdAt: FieldValue.serverTimestamp(),
+      }
+      transaction.set(db.collection('financial_movements').doc(diffMovementId), diffMovement)
+    }
+
+    transaction.update(shiftRef, shiftCloseUpdate)
+
+    // Log de auditoría
+    transaction.set(db.collection('audit_logs').doc(), {
+      entityType: 'cash_shift',
+      entityId: shiftId,
+      action: 'CASH_SHIFT_CLOSED',
+      performedByUid: callerUid,
+      performedByName: callerData.fullName || 'Operador',
+      branchId: shiftData.branchId,
+      expectedCashCents,
+      actualCashCents,
+      differenceCents,
+      differenceStatus,
+      timestamp: FieldValue.serverTimestamp(),
+      timestampIso: nowIso,
+    })
+
+    return {
+      success: true,
+      shift: {
+        ...shiftData,
+        ...shiftCloseUpdate,
+        closedAtServer: nowIso,
+        updatedAt: nowIso,
+      },
+    }
+  })
+})
+
+/**
+ * =============================================================================
+ * CLOUD FUNCTION: registerCashExpense (Registro Seguro de Egreso de Caja)
+ * =============================================================================
+ */
+export const registerCashExpense = onCall({ cors: true }, async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para registrar un egreso de caja.')
+  }
+
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists) {
+    throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
+  }
+  const callerData = callerDoc.data() || {}
+  if (!callerData.isActive) {
+    throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
+  }
+
+  const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para registrar gastos de caja.')
+  }
+
+  const payload = request.data || {}
+  const branchId = payload.branchId && typeof payload.branchId === 'string' ? payload.branchId.trim().toLowerCase() : ''
+  const amountCents = Math.round(Number(payload.amountCents) || 0)
+  const concept = payload.concept && typeof payload.concept === 'string' ? payload.concept.trim() : ''
+  const category = payload.category && typeof payload.category === 'string' ? payload.category.trim() : 'oficina'
+  const voucherNumber = payload.voucherNumber && typeof payload.voucherNumber === 'string' ? payload.voucherNumber.trim() : null
+
+  if (!branchId || amountCents <= 0 || !concept) {
+    throw new HttpsError('invalid-argument', 'Debe proporcionar sucursal, monto positivo y concepto del egreso.')
+  }
+
+  const nowIso = new Date().toISOString()
+
+  return await db.runTransaction(async (transaction) => {
+    // Buscar turno de caja abierto
+    const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
+    const lockDoc = await transaction.get(lockRef)
+    if (!lockDoc.exists || lockDoc.data().status !== 'open' || !lockDoc.data().shiftId) {
+      throw new HttpsError('failed-precondition', 'No tiene un turno de caja abierto en esta sucursal para registrar egresos.')
+    }
+
+    const shiftId = lockDoc.data().shiftId
+    const shiftRef = db.collection('cash_shifts').doc(shiftId)
+    const shiftDoc = await transaction.get(shiftRef)
+    if (!shiftDoc.exists || shiftDoc.data().status !== 'open') {
+      throw new HttpsError('failed-precondition', 'El turno de caja no se encuentra abierto.')
+    }
+
+    const shiftData = shiftDoc.data() || {}
+    const currentExpectedCash = Number(shiftData.expectedCashCents) || 0
+    if (amountCents > currentExpectedCash) {
+      throw new HttpsError('failed-precondition', `El egreso (Bs ${(amountCents / 100).toFixed(2)}) supera el efectivo disponible en caja (Bs ${(currentExpectedCash / 100).toFixed(2)}).`)
+    }
+
+    const expenseMovementId = `MOV-EXP-${shiftId}-${Date.now().toString(36)}`
+    const expenseMovement = {
+      id: expenseMovementId,
+      shiftId,
+      branchId,
+      operatorUid: callerUid,
+      operatorName: callerData.fullName || 'Operador',
+      type: 'expense',
+      category,
+      amountCents: -amountCents,
+      paymentMethod: 'cash',
+      concept: `Egreso autorizado: ${concept}${voucherNumber ? ` (Comprobante: ${voucherNumber})` : ''}`,
+      referenceId: voucherNumber || shiftId,
+      status: 'completed',
+      timestamp: nowIso,
+      createdAt: FieldValue.serverTimestamp(),
+    }
+
+    transaction.set(db.collection('financial_movements').doc(expenseMovementId), expenseMovement)
+
+    transaction.update(shiftRef, {
+      expectedCashCents: FieldValue.increment(-amountCents),
+      'breakdown.expensesCents': FieldValue.increment(amountCents),
+      'breakdown.netCashCents': FieldValue.increment(-amountCents),
+      movementsCount: FieldValue.increment(1),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+
+    return {
+      success: true,
+      movementId: expenseMovementId,
+      amountCents,
+      concept,
+      newExpectedCashCents: currentExpectedCash - amountCents,
+    }
+  })
+})
+
+/**
+ * =============================================================================
+ * CLOUD FUNCTION: collectShipmentPayment (Cobro de Encomienda en Ventanilla)
+ * =============================================================================
+ */
+export const collectShipmentPayment = onCall({ cors: true }, async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para cobrar una encomienda.')
+  }
+
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists) {
+    throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
+  }
+  const callerData = callerDoc.data() || {}
+  if (!callerData.isActive) {
+    throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
+  }
+
+  const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos de cobranza en ventanilla.')
+  }
+
+  const payload = request.data || {}
+  const trackingCode = payload.trackingCode && typeof payload.trackingCode === 'string' ? payload.trackingCode.trim().toUpperCase() : ''
+  const paymentMethod = payload.paymentMethod && ['cash', 'qr', 'transfer'].includes(payload.paymentMethod) ? payload.paymentMethod : 'cash'
+  const branchId = payload.branchId && typeof payload.branchId === 'string' ? payload.branchId.trim().toLowerCase() : callerData.primaryBranchId
+
+  if (!trackingCode) {
+    throw new HttpsError('invalid-argument', 'Se requiere el código de guía de la encomienda.')
+  }
+
+  const nowIso = new Date().toISOString()
+
+  return await db.runTransaction(async (transaction) => {
+    // 1. Candado determinístico de turno abierto
+    const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
+    const lockDoc = await transaction.get(lockRef)
+    if (!lockDoc.exists || lockDoc.data().status !== 'open' || !lockDoc.data().shiftId) {
+      throw new HttpsError('failed-precondition', `No tiene un turno de caja abierto en la sucursal '${branchId}'. Debe abrir caja para cobrar.`)
+    }
+
+    const shiftId = lockDoc.data().shiftId
+    const shiftRef = db.collection('cash_shifts').doc(shiftId)
+    const shiftDoc = await transaction.get(shiftRef)
+    if (!shiftDoc.exists || shiftDoc.data().status !== 'open') {
+      throw new HttpsError('failed-precondition', 'El turno de caja activo no es válido o ya fue cerrado.')
+    }
+
+    // 2. Encomienda
+    const shipmentRef = db.collection('shipments').doc(trackingCode)
+    const shipmentDoc = await transaction.get(shipmentRef)
+    if (!shipmentDoc.exists) {
+      throw new HttpsError('not-found', `No se encontró la encomienda con guía '${trackingCode}'.`)
+    }
+
+    const shipmentData = shipmentDoc.data() || {}
+    if (shipmentData.paymentStatus === 'paid') {
+      throw new HttpsError('failed-precondition', `La encomienda '${trackingCode}' ya se encuentra registrada como pagada.`)
+    }
+
+    const amountCents = shipmentData.finalAmountCents || 0
+    const movementId = `MOV-${trackingCode}`
+
+    const financialMovement = {
+      id: movementId,
+      trackingCode,
+      shiftId,
+      branchId,
+      operatorUid: callerUid,
+      operatorName: callerData.fullName || 'Operador',
+      type: shipmentData.paymentTiming === 'destination_cod' ? 'cod_income' : 'shipment_income',
+      amountCents,
+      paymentMethod,
+      concept: `Cobro en ventanilla de encomienda ${trackingCode}`,
+      referenceId: trackingCode,
+      status: 'completed',
+      timestamp: nowIso,
+      createdAt: FieldValue.serverTimestamp(),
+    }
+
+    transaction.set(db.collection('financial_movements').doc(movementId), financialMovement)
+
+    // Actualizar shift
+    const shiftUpdate = {
+      updatedAt: FieldValue.serverTimestamp(),
+      'breakdown.totalIncomeCents': FieldValue.increment(amountCents),
+      movementsCount: FieldValue.increment(1),
+    }
+
+    if (shipmentData.paymentTiming === 'destination_cod') {
+      shiftUpdate['breakdown.codIncomeCents'] = FieldValue.increment(amountCents)
+    } else {
+      shiftUpdate['breakdown.shipmentsIncomeCents'] = FieldValue.increment(amountCents)
+    }
+
+    if (paymentMethod === 'cash') {
+      shiftUpdate.expectedCashCents = FieldValue.increment(amountCents)
+      shiftUpdate['breakdown.cashIncomeCents'] = FieldValue.increment(amountCents)
+      shiftUpdate['breakdown.netCashCents'] = FieldValue.increment(amountCents)
+    } else if (paymentMethod === 'qr') {
+      shiftUpdate['breakdown.qrIncomeCents'] = FieldValue.increment(amountCents)
+    } else if (paymentMethod === 'transfer') {
+      shiftUpdate['breakdown.transferIncomeCents'] = FieldValue.increment(amountCents)
+    }
+
+    transaction.update(shiftRef, shiftUpdate)
+
+    // Actualizar encomienda
+    transaction.update(shipmentRef, {
+      paymentStatus: 'paid',
+      paymentMethod,
+      paidAt: nowIso,
+      paidCashierUid: callerUid,
+      paidCashierName: callerData.fullName || 'Operador',
+      cashShiftId: shiftId,
+      financialMovementId: movementId,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+
+    // Log de estado
+    const statusLogRef = shipmentRef.collection('status_logs').doc()
+    transaction.set(statusLogRef, {
+      status: shipmentData.status,
+      operatorUid: callerUid,
+      operatorName: callerData.fullName || 'Operador',
+      branchId,
+      note: `Pago confirmado en ventanilla (${paymentMethod.toUpperCase()}: Bs ${(amountCents / 100).toFixed(2)}) en turno ${shiftId}`,
+      createdAt: FieldValue.serverTimestamp(),
+      createdAtIso: nowIso,
+    })
+
+    return {
+      success: true,
+      trackingCode,
+      amountCents,
+      paymentMethod,
+      shiftId,
+    }
+  })
 })

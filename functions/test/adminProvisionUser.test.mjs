@@ -562,3 +562,77 @@ test('12. FAIL-CLOSED: Errores en authAdmin.updateUser lanzan HttpsError y no se
     }
   )
 })
+
+
+test('13. CONCURRENCIA: Protección del último administrador bajo dos peticiones simultáneas de degradación/suspensión', async () => {
+  // Crear Admin 1 y Admin 2 en Auth y Firestore
+  try {
+    await auth.createUser({ uid: 'admin-1', email: 'admin1@expresopunata.com' })
+  } catch {}
+  try {
+    await auth.createUser({ uid: 'admin-2', email: 'admin2@expresopunata.com' })
+  } catch {}
+
+  await db.collection('users').doc('admin-1').set({
+    uid: 'admin-1',
+    email: 'admin1@expresopunata.com',
+    role: 'directiva_admin',
+    primaryBranchId: 'punata',
+    allowedBranchIds: ['punata', 'cochabamba'],
+    isActive: true,
+  })
+
+  await db.collection('users').doc('admin-2').set({
+    uid: 'admin-2',
+    email: 'admin2@expresopunata.com',
+    role: 'directiva_admin',
+    primaryBranchId: 'cochabamba',
+    allowedBranchIds: ['punata', 'cochabamba'],
+    isActive: true,
+  })
+
+  // Preparar dos solicitudes concurrentes intentando suspender a ambos administradores al mismo tiempo
+  const req1 = {
+    auth: { uid: 'admin-1', token: { email: 'admin1@expresopunata.com' } },
+    data: {
+      targetUid: 'admin-1',
+      fullName: 'Admin 1 Modificado',
+      phone: '71711111',
+      role: 'directiva_admin',
+      primaryBranchId: 'punata',
+      isActive: false, // Desactivar
+    }
+  }
+
+  const req2 = {
+    auth: { uid: 'admin-2', token: { email: 'admin2@expresopunata.com' } },
+    data: {
+      targetUid: 'admin-2',
+      fullName: 'Admin 2 Modificado',
+      phone: '72222222',
+      role: 'directiva_admin',
+      primaryBranchId: 'cochabamba',
+      isActive: false, // Desactivar
+    }
+  }
+
+  // Ejecutar ambas llamadas simultáneamente
+  const results = await Promise.allSettled([
+    adminProvisionUser.run(req1),
+    adminProvisionUser.run(req2),
+  ])
+
+  // Una de las dos peticiones PUEDE tener éxito (si la otra aún no se procesó), pero AL MENOS UNA DEBE FALLAR con failed-precondition
+  const rejections = results.filter(r => r.status === 'rejected')
+  assert.ok(rejections.length >= 1, 'Al menos una petición simultánea debió ser rechazada por la protección del último administrador')
+  const rejectedErr = rejections[0].reason
+  assert.equal(rejectedErr.code, 'failed-precondition')
+
+  // Verificar que en Firestore QUEDA AL MENOS UN administrador activo
+  const activeAdminsSnap = await db.collection('users')
+    .where('role', '==', 'directiva_admin')
+    .where('isActive', '==', true)
+    .get()
+
+  assert.ok(activeAdminsSnap.docs.length >= 1, 'Debe quedar al menos 1 administrador activo en el sistema tras operaciones concurrentes')
+})

@@ -24,6 +24,8 @@ export interface CreateShipmentInput {
   paymentTiming: PaymentTiming
   paymentMethod?: PaymentMethod
   discountCents?: number
+  cashShiftId?: string
+  allowPendingFallback?: boolean
   prohibitedGoodsNoticeAccepted: boolean
   idempotencyKey?: string
 }

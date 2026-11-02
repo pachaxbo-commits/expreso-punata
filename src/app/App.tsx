@@ -24,6 +24,7 @@ import { subscribeShipmentsByBranch, fetchShipmentByTrackingCode } from '../serv
 import { printShipmentGuidePdf } from '../services/pdfService'
 import { isEmulatedEnvironment } from '../firebase/config'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
+import { CashManagementView } from '../modules/cash/CashManagementView'
 import { UserManagementView } from '../modules/users/UserManagementView'
 import { UserProfileModal } from '../modules/users/UserProfileModal'
 import type { Shipment } from '../types'
@@ -83,7 +84,7 @@ export const AppContent: React.FC = () => {
     { id: 'shipments', label: 'Encomiendas', icon: Package, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'storage', label: 'Módulos de Almacén', icon: Boxes, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
-    { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
+    { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
     { id: 'dues', label: 'Socios & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
     { id: 'config', label: 'Configuración', icon: Settings, visible: hasRole(['directiva_admin']) },
@@ -499,19 +500,11 @@ export const AppContent: React.FC = () => {
 
         {/* PESTAÑA 4: CAJA DEL TURNO */}
         {activeTab === 'cash' && (
-          <div className="space-y-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-800 mb-1">
-                Control de Caja y Turnos Operativos — {currentBranch.name}
-              </h3>
-              <p className="text-xs text-slate-500">
-                Arqueo de ingresos por encomiendas y rendición de conductores.
-              </p>
-            </div>
-            <div className="p-8 text-center text-xs text-slate-500 bg-white rounded-xl border border-slate-200">
-              Módulo de turnos de caja en desarrollo con validación Cloud.
-            </div>
-          </div>
+          <CashManagementView
+            currentUser={userProfile}
+            currentBranch={currentBranch}
+            onNavigateToShipments={() => setActiveTab('shipments')}
+          />
         )}
 
         {/* PESTAÑA 5: MENSUALIDADES Y SOCIOS */}

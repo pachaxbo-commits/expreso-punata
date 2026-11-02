@@ -220,6 +220,48 @@ async function runE2E() {
       await page.click('button:has-text("Cancelar")')
     }
 
+    // 9. Prueba del Módulo de Caja (Entrega 1)
+    console.log('[E2E] Navegando a la pestaña "Caja del Turno"...')
+    await page.click('button:has-text("Caja del Turno")')
+    await page.waitForSelector('text=Control de Caja y Turnos Operativos', { timeout: 5000 })
+    await page.screenshot({ path: path.join(evidenceDir, '14-caja-cerrada.png') })
+
+    // Abrir Modal de Apertura de Caja
+    console.log('[E2E] Abriendo modal de Apertura de Caja...')
+    const openShiftBtn = page.locator('button:has-text("Abrir Turno de Caja")').first()
+    if (await openShiftBtn.count() > 0) {
+      await openShiftBtn.click()
+      await page.waitForSelector('text=Apertura de Turno de Caja', { timeout: 5000 })
+      await page.fill('input[type="number"]', '100')
+      await page.fill('textarea', 'Apertura de turno de prueba E2E')
+      await page.screenshot({ path: path.join(evidenceDir, '15-modal-apertura-caja.png') })
+      await page.click('button:has-text("Cancelar")')
+    }
+
+    // Vista previa de Historial de Turnos y Ticket 80mm
+    console.log('[E2E] Comprobando subpestaña Historial de Turnos...')
+    await page.click('button:has-text("Historial de Turnos")')
+    await page.waitForSelector('text=Historial de Turnos de Caja', { timeout: 5000 })
+    await page.screenshot({ path: path.join(evidenceDir, '16-historial-turnos.png') })
+
+    // Comprobar vista en dispositivo móvil Android 360x800
+    console.log('[E2E] Comprobando Caja en viewport móvil Android 360x800...')
+    await page.setViewportSize({ width: 360, height: 800 })
+    await page.screenshot({ path: path.join(evidenceDir, '17-caja-mobile-360x800.png') })
+    await page.setViewportSize({ width: 1280, height: 800 })
+
+    // Copiar evidencias al directorio de artefactos de Antigravity
+    const artifactDir = 'C:\\Users\\fabri\\.gemini\\antigravity\\brain\\39f1d6ec-67a4-438d-a34a-fc87f2af0029\\evidence'
+    if (fs.existsSync(artifactDir)) {
+      const files = fs.readdirSync(evidenceDir)
+      for (const file of files) {
+        if (file.endsWith('.png')) {
+          fs.copyFileSync(path.join(evidenceDir, file), path.join(artifactDir, file))
+        }
+      }
+      console.log(`[E2E] Evidencias copiadas a ${artifactDir}`)
+    }
+
     console.log('[E2E] ¡TODAS LAS PRUEBAS DE NAVEGADOR COMPLETADAS CON ÉXITO!')
   } finally {
     await browser.close()

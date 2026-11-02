@@ -791,11 +791,11 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
           {step === 4 && (
             <div className="space-y-4">
               {/* Opciones de Cobro */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <button
                   type="button"
                   onClick={() => setPaymentTiming('origin_paid')}
-                  className={`p-3.5 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded-xl border text-left transition-all ${
                     paymentTiming === 'origin_paid'
                       ? 'border-[#064e3b] bg-emerald-50 ring-2 ring-[#064e3b]'
                       : 'border-slate-200 bg-white hover:border-slate-300'
@@ -805,19 +805,41 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                     <span className="font-bold text-xs text-slate-800">
                       🟢 Pagado en Origen
                     </span>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded">
-                      Cobrado Ahora
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
+                      Cobrado
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500">
-                    El remitente cancela en ventanilla antes de despachar.
+                  <p className="text-[11px] text-slate-500 leading-snug">
+                    El remitente cancela en ventanilla ahora con caja activa.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentTiming('origin_pending')}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    paymentTiming === 'origin_pending'
+                      ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-600'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-xs text-slate-800">
+                      🔵 Pendiente en Origen
+                    </span>
+                    <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
+                      Por Cobrar
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-snug">
+                    El remitente deja el paquete y cancelará antes de despachar.
                   </p>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setPaymentTiming('destination_cod')}
-                  className={`p-3.5 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded-xl border text-left transition-all ${
                     paymentTiming === 'destination_cod'
                       ? 'border-amber-600 bg-amber-50 ring-2 ring-amber-600'
                       : 'border-slate-200 bg-white hover:border-slate-300'
@@ -825,14 +847,14 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-xs text-slate-800">
-                      🟡 Por Cobrar (Contraentrega / COD)
+                      🟡 Contraentrega (COD)
                     </span>
-                    <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
-                      Pendiente
+                    <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded">
+                      Destino
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500">
-                    El destinatario cancela en sucursal de destino al recoger.
+                  <p className="text-[11px] text-slate-500 leading-snug">
+                    El destinatario cancela en sucursal de destino al retirar.
                   </p>
                 </button>
               </div>
