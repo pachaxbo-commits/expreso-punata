@@ -6,12 +6,14 @@ import {
   AlertTriangle,
   Printer,
   DollarSign,
+  Wallet,
 } from 'lucide-react'
 import type { UserProfile, Branch } from '../../types/index.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import {
   settleDriverCashThroughBackend,
   subscribeActiveDrivers,
+  getDriverCustodyBalanceThroughBackend,
 } from '../../services/dispatchService.ts'
 import { printDriverSettlementTicket80mm } from '../../services/pdfService.ts'
 
@@ -34,6 +36,14 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
 }) => {
   const [drivers, setDrivers] = useState<UserProfile[]>([])
   const [selectedDriverUid, setSelectedDriverUid] = useState<string>('')
+  const [custodyAccount, setCustodyAccount] = useState<{
+    pendingRemittanceCents: number
+    cashUnderCustodyCents: number
+    totalCollectedCents: number
+    totalRemittedCents: number
+  } | null>(null)
+  const [pendingRecords, setPendingRecords] = useState<any[]>([])
+  const [loadingCustody, setLoadingCustody] = useState(false)
   const [amountBob, setAmountBob] = useState<string>('')
   const [shipmentCodes, setShipmentCodes] = useState<string>('')
   const [notes, setNotes] = useState<string>('')
@@ -51,9 +61,55 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
     return () => unsubscribe()
   }, [isOpen])
 
+  // Cargar saldo de custodia cuando cambia el conductor seleccionado
+  useEffect(() => {
+    if (!selectedDriverUid) {
+      setCustodyAccount(null)
+      setPendingRecords([])
+      return
+    }
+
+    let isMounted = true
+    setLoadingCustody(true)
+    setErrorMessage(null)
+
+    getDriverCustodyBalanceThroughBackend({ driverUid: selectedDriverUid })
+      .then((res) => {
+        if (!isMounted) return
+        setCustodyAccount(res.account)
+        setPendingRecords(res.pendingRecords || [])
+        // Si hay guías pendientes, auto-sugerir en el campo de texto
+        if (res.pendingRecords && res.pendingRecords.length > 0) {
+          const codes = res.pendingRecords.map((r: any) => r.trackingCode || r.shipmentId).filter(Boolean)
+          setShipmentCodes(codes.join(', '))
+        } else {
+          setShipmentCodes('')
+        }
+      })
+      .catch((err) => {
+        if (!isMounted) return
+        console.warn('[DriverSettlementModal] Error al obtener custodia:', err)
+        setCustodyAccount({
+          pendingRemittanceCents: 0,
+          cashUnderCustodyCents: 0,
+          totalCollectedCents: 0,
+          totalRemittedCents: 0,
+        })
+      })
+      .finally(() => {
+        if (isMounted) setLoadingCustody(false)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [selectedDriverUid])
+
   useEffect(() => {
     if (isOpen) {
       setSelectedDriverUid('')
+      setCustodyAccount(null)
+      setPendingRecords([])
       setAmountBob('')
       setShipmentCodes('')
       setNotes('')
@@ -64,9 +120,19 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
 
   if (!isOpen) return null
 
+  const handleSetFullPendingAmount = () => {
+    if (!custodyAccount || custodyAccount.pendingRemittanceCents <= 0) return
+    setAmountBob((custodyAccount.pendingRemittanceCents / 100).toFixed(2))
+  }
+
   const handleConfirm = async () => {
     if (!selectedDriverUid) {
       setErrorMessage('Seleccione al conductor que rinde los fondos.')
+      return
+    }
+
+    if (!custodyAccount || custodyAccount.pendingRemittanceCents <= 0) {
+      setErrorMessage('El conductor no registra saldo pendiente de rendición bajo custodia.')
       return
     }
 
@@ -77,6 +143,12 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
     }
 
     const amountCents = Math.round(num * 100)
+    if (amountCents > custodyAccount.pendingRemittanceCents) {
+      setErrorMessage(
+        `El monto a rendir (${formatCurrencyBob(amountCents, true)}) no puede superar el saldo pendiente (${formatCurrencyBob(custodyAccount.pendingRemittanceCents, true)}).`
+      )
+      return
+    }
 
     setLoading(true)
     setErrorMessage(null)
@@ -93,6 +165,7 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
         shipmentIds: parsedShipmentIds,
         paymentMethod: 'cash',
         notes: notes.trim(),
+        idempotencyKey: `settle-${selectedDriverUid}-${Date.now()}`,
       })
 
       const driverObj = drivers.find((d) => d.uid === selectedDriverUid)
@@ -101,6 +174,9 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
         driverName: driverObj?.fullName || 'Conductor',
         receivedByName: currentUser.fullName || 'Cajero',
         amountCents: res.amountCents,
+        previousDriverBalanceCents: res.previousDriverBalanceCents ?? custodyAccount.pendingRemittanceCents,
+        remainingDriverBalanceCents: res.remainingDriverBalanceCents ?? (custodyAccount.pendingRemittanceCents - amountCents),
+        reconciledShipmentIds: res.reconciledShipmentIds || parsedShipmentIds,
         createdAtIso: res.settledAtIso,
         notes: notes.trim(),
       }
@@ -126,7 +202,7 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-extrabold text-[#facc15] tracking-tight">
-                RENDICIÓN DE FONDOS DE CONDUCTOR
+                TRANSFERENCIA DE CUSTODIA • RENDICIÓN DE CONDUCTOR
               </h2>
               <p className="text-xs text-emerald-100">
                 Agencia {currentBranch.name} • Ingreso de cobros de ruta a turno de caja
@@ -159,9 +235,14 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
               <p className="text-xs text-slate-600">
                 Conductor: <strong>{completedSettlement.driverName}</strong>
               </p>
-              <p className="text-base font-extrabold text-slate-900 font-mono mt-2">
+              <p className="text-lg font-extrabold text-emerald-700 font-mono mt-2">
                 {formatCurrencyBob(completedSettlement.amountCents, true)}
               </p>
+              {completedSettlement.remainingDriverBalanceCents !== undefined && (
+                <p className="text-xs font-semibold text-slate-500">
+                  Saldo restante en custodia del chofer: {formatCurrencyBob(completedSettlement.remainingDriverBalanceCents, true)}
+                </p>
+              )}
             </div>
 
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -221,10 +302,54 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
               </select>
             </div>
 
+            {/* Panel informativo de custodia del conductor */}
+            {selectedDriverUid && (
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-900">
+                    <Wallet className="w-4 h-4 text-emerald-700" />
+                    <span>Libro de Custodia del Conductor</span>
+                  </div>
+                  {loadingCustody && (
+                    <span className="text-[10px] text-emerald-600 font-medium animate-pulse">Consultando...</span>
+                  )}
+                </div>
+
+                {custodyAccount && (
+                  <div className="flex items-center justify-between pt-1 border-t border-emerald-200/60">
+                    <div>
+                      <p className="text-[11px] text-slate-600">Saldo pendiente de rendición:</p>
+                      <p className="text-sm font-extrabold font-mono text-emerald-800">
+                        {formatCurrencyBob(custodyAccount.pendingRemittanceCents, true)}
+                      </p>
+                      {pendingRecords.length > 0 && (
+                        <p className="text-[10px] text-slate-500">
+                          {pendingRecords.length} cobro(s) de ruta registrado(s)
+                        </p>
+                      )}
+                    </div>
+                    {custodyAccount.pendingRemittanceCents > 0 ? (
+                      <button
+                        type="button"
+                        onClick={handleSetFullPendingAmount}
+                        className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold rounded-lg transition"
+                      >
+                        Rendir Todo
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                        Sin saldo pendiente
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Monto rendido */}
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Importe en Bolivianos (Bs) *
+                Importe en Bolivianos a Rendir (Bs) *
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">Bs</span>
@@ -232,10 +357,12 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
                   type="number"
                   step="0.50"
                   min="0.10"
+                  max={custodyAccount ? (custodyAccount.pendingRemittanceCents / 100) : undefined}
                   value={amountBob}
                   onChange={(e) => setAmountBob(e.target.value)}
                   placeholder="0.00"
-                  className="w-full pl-9 pr-3 py-2 text-xs font-bold font-mono bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#064e3b]"
+                  disabled={!custodyAccount || custodyAccount.pendingRemittanceCents <= 0}
+                  className="w-full pl-9 pr-3 py-2 text-xs font-bold font-mono bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#064e3b] disabled:bg-slate-100 disabled:text-slate-400"
                 />
               </div>
             </div>
@@ -243,7 +370,7 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
             {/* Encomiendas asociadas opcional */}
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Guías de encomienda asociadas (Opcional, separadas por coma)
+                Guías de encomienda asociadas (Opcional)
               </label>
               <input
                 type="text"
@@ -281,7 +408,7 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
               <button
                 type="button"
                 onClick={handleConfirm}
-                disabled={loading || !selectedDriverUid || !amountBob}
+                disabled={loading || !selectedDriverUid || !amountBob || !custodyAccount || custodyAccount.pendingRemittanceCents <= 0}
                 className="px-5 py-2.5 bg-[#064e3b] hover:bg-emerald-800 disabled:bg-slate-300 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-2 transition"
               >
                 <DollarSign className="w-4 h-4 text-[#facc15]" />

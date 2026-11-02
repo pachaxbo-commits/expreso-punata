@@ -295,6 +295,11 @@ export interface SettleDriverCashInput {
   shipmentIds?: string[]
   paymentMethod?: 'cash'
   notes?: string
+  idempotencyKey?: string
+}
+
+export interface GetDriverCustodyBalanceInput {
+  driverUid?: string
 }
 
 export interface ManageShelfInput {
@@ -338,6 +343,9 @@ export async function settleDriverCashThroughBackend(input: SettleDriverCashInpu
     settlementNumber: string
     amountCents: number
     amountBob: number
+    previousDriverBalanceCents?: number
+    remainingDriverBalanceCents?: number
+    reconciledShipmentIds?: string[]
     settledAtIso: string
   }>(functions, 'settleDriverCash')
 
@@ -369,5 +377,26 @@ export async function listActiveDriversThroughBackend() {
   }>(functions, 'listActiveDrivers')
 
   const response = await callable()
+  return response.data
+}
+
+/**
+ * Consulta el saldo de custodia acumulado y los cobros de ruta pendientes de un conductor.
+ */
+export async function getDriverCustodyBalanceThroughBackend(input: GetDriverCustodyBalanceInput = {}) {
+  const callable = httpsCallable<GetDriverCustodyBalanceInput, {
+    account: {
+      driverUid: string
+      driverName: string
+      cashUnderCustodyCents: number
+      pendingRemittanceCents: number
+      totalCollectedCents: number
+      totalRemittedCents: number
+    }
+    pendingRecords: any[]
+    pendingCount: number
+  }>(functions, 'getDriverCustodyBalance')
+
+  const response = await callable(input)
   return response.data
 }

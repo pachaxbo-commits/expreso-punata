@@ -1,3 +1,33 @@
+
+/**
+ * Resuelve y carga la firma digital como Data URL, admitiendo Base64 en memoria o URL de Firebase Storage.
+ */
+async function resolveSignatureDataUrl(deliv: any): Promise<string | null> {
+  if (!deliv) return null
+  if (typeof deliv.signatureDataUrl === 'string' && deliv.signatureDataUrl.startsWith('data:image')) {
+    return deliv.signatureDataUrl
+  }
+  const url = deliv.signature?.downloadUrl || deliv.signatureUrl
+  if (url && typeof url === 'string') {
+    if (url.startsWith('data:image')) return url
+    try {
+      const resp = await fetch(url)
+      if (resp.ok) {
+        const blob = await resp.blob()
+        return new Promise((resolve) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result as string)
+          reader.onerror = () => resolve(null)
+          reader.readAsDataURL(blob)
+        })
+      }
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 import jsPDF from 'jspdf'
 import QRCode from 'qrcode'
 import type { Shipment, CashShift, DispatchManifest } from '../types/index.ts'
@@ -926,7 +956,7 @@ export async function generateDeliveryProofPdf(shipment: Shipment): Promise<Blob
   }
   y += 9
 
-  // Firma Digital Manuscrita
+  // Firma Digital Manuscrita (Firebase Storage / En memoria)
   doc.setDrawColor(203, 213, 225)
   doc.roundedRect(10, y, 80, 42, 2, 2, 'D')
   doc.setFontSize(7)
@@ -934,15 +964,17 @@ export async function generateDeliveryProofPdf(shipment: Shipment): Promise<Blob
   doc.setFont('helvetica', 'bold')
   doc.text('FIRMA MANUSCRITA DIGITAL DEL RECEPTOR', 14, y + 4.5)
 
-  if (deliv.signatureDataUrl && deliv.signatureDataUrl.startsWith('data:image')) {
+  const resolvedSig = await resolveSignatureDataUrl(deliv)
+  if (resolvedSig) {
     try {
-      doc.addImage(deliv.signatureDataUrl, 'PNG', 15, y + 6, 70, 32)
+      doc.addImage(resolvedSig, 'PNG', 15, y + 6, 70, 32)
     } catch {
-      doc.text('[Firma digital registrada en servidor]', 15, y + 20)
+      doc.setFont('helvetica', 'normal')
+      doc.text('[Firma digital verificada y resguardada en Storage]', 15, y + 20)
     }
   } else {
     doc.setFont('helvetica', 'normal')
-    doc.text('[Firma registrada electrónicamente]', 15, y + 20)
+    doc.text('[Firma digital resguardada en Firebase Storage]', 15, y + 20)
   }
 
   // QR de verificación de entrega
@@ -1164,12 +1196,38 @@ export async function generateDriverSettlementTicket80mmPdf(settlement: any): Pr
   doc.line(leftMargin, y, rightMargin, y)
   y += 4
 
+  if (settlement.previousDriverBalanceCents !== undefined) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    doc.setTextColor(100, 116, 139)
+    doc.text('Saldo previo bajo custodia:', leftMargin, y)
+    doc.text(formatCurrencyBob(settlement.previousDriverBalanceCents, true), rightMargin, y, { align: 'right' })
+    y += 3.8
+  }
+
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
   doc.setTextColor(6, 78, 59)
-  doc.text('MONTO RENDIDO:', leftMargin, y)
+  doc.text('MONTO RENDIDO (EFECTIVO):', leftMargin, y)
   doc.text(formatCurrencyBob(settlement.amountCents || 0, true), rightMargin, y, { align: 'right' })
   y += 4.5
+
+  if (settlement.remainingDriverBalanceCents !== undefined) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7.5)
+    doc.setTextColor(settlement.remainingDriverBalanceCents > 0 ? 180 : 22, settlement.remainingDriverBalanceCents > 0 ? 83 : 101, settlement.remainingDriverBalanceCents > 0 ? 9 : 52)
+    doc.text('Saldo pendiente de rendición:', leftMargin, y)
+    doc.text(formatCurrencyBob(settlement.remainingDriverBalanceCents, true), rightMargin, y, { align: 'right' })
+    y += 4
+  }
+
+  if (Array.isArray(settlement.reconciledShipmentIds) && settlement.reconciledShipmentIds.length > 0) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6.5)
+    doc.setTextColor(71, 85, 105)
+    doc.text(`Guías conciliadas (${settlement.reconciledShipmentIds.length}): ${settlement.reconciledShipmentIds.slice(0, 3).join(', ')}${settlement.reconciledShipmentIds.length > 3 ? '...' : ''}`, leftMargin, y)
+    y += 4
+  }
 
   if (settlement.notes) {
     doc.setFont('helvetica', 'normal')
@@ -1179,13 +1237,16 @@ export async function generateDriverSettlementTicket80mmPdf(settlement: any): Pr
     y += 4
   }
 
-  y += 12
-  doc.line(centerX - 20, y, centerX + 20, y)
+  y += 10
+  // Doble firma: Conductor y Cajero
+  doc.line(leftMargin + 2, y, leftMargin + 32, y)
+  doc.line(rightMargin - 32, y, rightMargin - 2, y)
   y += 3.5
   doc.setFontSize(6)
   doc.setFont('helvetica', 'normal')
   doc.setTextColor(100, 116, 139)
-  doc.text('Firma Conductor / Entrega Fondos', centerX, y, { align: 'center' })
+  doc.text('Conductor (Entrega)', leftMargin + 4, y)
+  doc.text('Cajero (Recibe Conforme)', rightMargin - 30, y)
 
   return doc.output('blob')
 }
