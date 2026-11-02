@@ -177,7 +177,7 @@ export const LoginView: React.FC = () => {
                 onClick={() => handleDevLogin('tesoreria', 'punata')}
                 className="p-2 text-xs font-medium rounded border border-slate-200 bg-slate-50 hover:bg-amber-50 hover:border-amber-300 text-slate-700 text-left transition-all"
               >
-                <span className="font-bold block text-amber-800">Tesorería Sindical</span>
+                <span className="font-bold block text-amber-800">Tesorería & Aportes</span>
                 <span className="text-[10px] text-slate-500">Cuotas & Finanzas</span>
               </button>
               <button

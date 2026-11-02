@@ -2,9 +2,10 @@ import { initializeApp, getApps, getApp } from 'firebase/app'
 import { getAuth, connectAuthEmulator } from 'firebase/auth'
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
 import { getStorage, connectStorageEmulator } from 'firebase/storage'
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions'
 
 /**
- * Configuración de Firebase para S.M.T. Expreso Punata.
+ * Configuración de Firebase para Expreso Punata.
  * En entorno de desarrollo o local, se conecta automáticamente a los emuladores
  * para garantizar cero costos, aislamiento total y pruebas seguras sin tocar producción.
  */
@@ -21,6 +22,7 @@ export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getA
 export const auth = getAuth(app)
 export const db = getFirestore(app)
 export const storage = getStorage(app)
+export const functions = getFunctions(app)
 
 // Conexión automática a Emuladores en desarrollo local
 const isLocalhost = Boolean(
@@ -46,7 +48,11 @@ if (import.meta.env.DEV || isLocalhost) {
     if (!storage._emulator) {
       connectStorageEmulator(storage, emulatorHost, 9199)
     }
-    console.log('[Expreso Punata] Conectado a Emuladores Locales de Firebase (Auth: 9099, Firestore: 8080, Storage: 9199)')
+    // @ts-expect-error internal flag
+    if (!functions.emulatorOrigin) {
+      connectFunctionsEmulator(functions, emulatorHost, 5001)
+    }
+    console.log('[Expreso Punata] Conectado a Emuladores Locales de Firebase (Auth: 9099, Firestore: 8080, Storage: 9199, Functions: 5001)')
   } catch (err) {
     console.warn('[Expreso Punata] Advertencia al conectar emuladores:', err)
   }

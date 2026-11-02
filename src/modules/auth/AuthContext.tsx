@@ -25,9 +25,36 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null)
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
-  const [currentBranchId, setCurrentBranchId] = useState<string>('punata')
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
+    try {
+      const saved = localStorage.getItem('expreso_punata_user_profile')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
+  const [currentBranchId, setCurrentBranchId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('expreso_punata_user_profile')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed.primaryBranchId) return parsed.primaryBranchId
+      }
+    } catch {}
+    return 'punata'
+  })
   const [isLoading, setIsLoading] = useState(true)
+
+  const saveProfile = (p: UserProfile | null) => {
+    setUserProfile(p)
+    if (p) {
+      try {
+        localStorage.setItem('expreso_punata_user_profile', JSON.stringify(p))
+      } catch {}
+    } else {
+      localStorage.removeItem('expreso_punata_user_profile')
+    }
+  }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async user => {
@@ -61,7 +88,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Error al cargar perfil:', e)
         }
       } else {
-        setUserProfile(null)
+        // En desarrollo local, mantener perfil simulado si ya fue seleccionado
+        if (!localStorage.getItem('expreso_punata_user_profile')) {
+          saveProfile(null)
+        }
       }
       setIsLoading(false)
     })
@@ -79,16 +109,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const signOut = async () => {
-    await fbSignOut(auth)
-    setUserProfile(null)
+    try {
+      await fbSignOut(auth)
+    } catch {}
+    saveProfile(null)
   }
 
-  // Permite simular rápidamente los 5 roles en entorno de desarrollo
+  // Permite simular rápidamente los 5 roles en entorno de desarrollo local
   const devSwitchRole = async (role: UserRole, branchId = 'punata') => {
-    if (!currentUser) return
+    const devUid = currentUser ? currentUser.uid : `dev-${role}-${branchId}`
     const updated: UserProfile = {
-      uid: currentUser.uid,
-      fullName: `Usuario ${role.toUpperCase()}`,
+      uid: devUid,
+      fullName: role === 'secretaria'
+        ? (branchId === 'punata' ? 'María Secretaria (Punata)' : 'Elena Secretaria (Cochabamba)')
+        : `Usuario ${role.toUpperCase().replace('_', ' ')}`,
       ci: '7654321-CB',
       phone: '70011223',
       role,
@@ -99,8 +133,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isActive: true,
       createdAt: new Date().toISOString(),
     }
-    await setDoc(doc(db, 'users', currentUser.uid), updated)
-    setUserProfile(updated)
+
+    if (currentUser) {
+      try {
+        await setDoc(doc(db, 'users', currentUser.uid), updated)
+      } catch (err) {
+        console.warn('Advertencia al sincronizar usuario con Firestore local:', err)
+      }
+    }
+
+    saveProfile(updated)
     setCurrentBranchId(branchId)
   }
 

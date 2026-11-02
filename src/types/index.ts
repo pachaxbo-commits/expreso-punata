@@ -1,5 +1,5 @@
 /**
- * Tipos canónicos del dominio de S.M.T. EXPRESO PUNATA
+ * Tipos canónicos del dominio de EXPRESO PUNATA
  * Adaptados para Cloud Firestore multisucursal (Punata y Cochabamba),
  * reglas de seguridad RBAC y subcolecciones de auditoría inmutable.
  */
@@ -135,6 +135,7 @@ export interface Shipment {
   id: string
   trackingCode: string // Inmutable (ej. 'PUN-2026-00042')
   createdAt: string
+  createdAtIso?: string
   registeredByUid: string
   registeredByName: string
   originBranchId: string
@@ -156,13 +157,14 @@ export interface Shipment {
   // Ubicación física actual en almacén de destino (resumen rápido)
   storageLocation?: ParcelPhysicalLocation
 
-  // Finanzas del envío (en centavos enteros para evitar errores flotantes y en Bolivianos)
+  // Finanzas del envío: centavos enteros como valor canónico y única fuente de verdad
   shippingFeeCents: number
   weightSurchargeCents: number
   homeDeliveryFeeCents: number
   discountCents: number
   finalAmountCents: number
-  finalAmountBob: number
+  finalAmountBob?: number // Proyección de solo lectura calculada al vuelo
+  idempotencyKey?: string
 
   paymentTiming: PaymentTiming
   paymentStatus: PaymentStatus

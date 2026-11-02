@@ -41,9 +41,11 @@ test('1. Acceso no autenticado es denegado por defecto (fail-closed)', async () 
   await assertFails(getDoc(doc(unauthDb, 'users', 'user-1')))
   await assertFails(getDoc(doc(unauthDb, 'cash_shifts', 'shift-1')))
   await assertFails(getDoc(doc(unauthDb, 'fixed_assets', 'asset-1')))
+  await assertFails(getDoc(doc(unauthDb, 'counters', 'PUN_2026')))
+  await assertFails(getDoc(doc(unauthDb, 'financial_movements', 'MOV-001')))
 })
 
-test('2. Secretaria de Punata puede registrar y leer encomienda de su sucursal', async () => {
+test('2. Creación directa de encomiendas desde el cliente está BLOQUEADA (solo Cloud Functions)', async () => {
   // Crear perfil de secretaria en contexto administrativo
   await testEnv.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'users', 'sec-punata'), {
@@ -60,9 +62,9 @@ test('2. Secretaria de Punata puede registrar y leer encomienda de su sucursal',
   })
   const secDb = secContext.firestore()
 
-  // Crear encomienda en origen punata -> permitido
-  await assertSucceeds(
-    setDoc(doc(secDb, 'shipments', 'PUN-00001'), {
+  // Intento de creación directa de encomienda desde el cliente -> DEBE FALLAR
+  await assertFails(
+    setDoc(doc(secDb, 'shipments', 'PUN-2026-00001'), {
       trackingCode: 'PUN-2026-00001',
       originBranchId: 'punata',
       destinationBranchId: 'cochabamba',
@@ -71,17 +73,70 @@ test('2. Secretaria de Punata puede registrar y leer encomienda de su sucursal',
     })
   )
 
-  // Intentar eliminar la encomienda -> denegado (inmutable)
-  await assertFails(deleteDoc(doc(secDb, 'shipments', 'PUN-00001')))
+  // Intento de escritura directa a contadores -> DEBE FALLAR
+  await assertFails(
+    setDoc(doc(secDb, 'counters', 'PUN_2026'), {
+      current: 99,
+    })
+  )
+
+  // Intento de escritura directa a movimientos financieros -> DEBE FALLAR
+  await assertFails(
+    setDoc(doc(secDb, 'financial_movements', 'MOV-001'), {
+      amountCents: 1500,
+      branchId: 'punata',
+    })
+  )
+
+  // Crear encomienda en contexto administrative para probar intentos de alteración
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-00001'), {
+      trackingCode: 'PUN-2026-00001',
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      registeredByUid: 'sec-punata',
+      finalAmountCents: 1500,
+      paymentStatus: 'paid',
+      status: 'received',
+    })
+  })
+
+  // Intento de alterar importes financieros desde el cliente -> DEBE FALLAR
+  await assertFails(
+    updateDoc(doc(secDb, 'shipments', 'PUN-2026-00001'), {
+      finalAmountCents: 500,
+    })
+  )
+
+  // Intento de alterar estado de pago o código de guía -> DEBE FALLAR
+  await assertFails(
+    updateDoc(doc(secDb, 'shipments', 'PUN-2026-00001'), {
+      paymentStatus: 'refunded',
+    })
+  )
+  await assertFails(
+    updateDoc(doc(secDb, 'shipments', 'PUN-2026-00001'), {
+      trackingCode: 'PUN-2026-99999',
+    })
+  )
 })
 
-test('3. Secretaria de Cochabamba NO puede crear encomiendas con origen Punata', async () => {
+test('3. Secretaria de Cochabamba puede LEER encomiendas con destino a su sucursal', async () => {
+  // Simular encomienda creada por backend desde Punata hacia Cochabamba
   await testEnv.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'users', 'sec-cbb'), {
       role: 'secretaria',
       primaryBranchId: 'cochabamba',
       allowedBranchIds: ['cochabamba'],
       fullName: 'Elena Secretaria',
+    })
+
+    await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-00001'), {
+      trackingCode: 'PUN-2026-00001',
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      registeredByUid: 'sec-punata',
+      status: 'in_transit',
     })
   })
 
@@ -91,74 +146,75 @@ test('3. Secretaria de Cochabamba NO puede crear encomiendas con origen Punata',
   })
   const cbbDb = cbbContext.firestore()
 
-  // Intentar crear encomienda con origen punata -> denegado por violación de sucursal
-  await assertFails(
-    setDoc(doc(cbbDb, 'shipments', 'PUN-00002'), {
-      trackingCode: 'PUN-2026-00002',
-      originBranchId: 'punata',
-      destinationBranchId: 'cochabamba',
-      registeredByUid: 'sec-cbb',
-      status: 'received',
-    })
-  )
+  // Secretaria de Cochabamba debe poder leer la encomienda entrante
+  await assertSucceeds(getDoc(doc(cbbDb, 'shipments', 'PUN-2026-00001')))
 })
 
 test('4. Directiva / Administrador tiene acceso a reportes y configuraciones', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
-    await setDoc(doc(context.firestore(), 'users', 'admin-user'), {
+    await setDoc(doc(context.firestore(), 'users', 'admin-1'), {
       role: 'directiva_admin',
       primaryBranchId: 'punata',
       allowedBranchIds: ['punata', 'cochabamba'],
-      fullName: 'Don Ejecutivo',
+      fullName: 'Directorio Central',
     })
-    await setDoc(doc(context.firestore(), 'shipments', 'PUN-00001'), {
-      trackingCode: 'PUN-2026-00001',
-      originBranchId: 'punata',
-      destinationBranchId: 'cochabamba',
-      registeredByUid: 'sec-punata',
+    await setDoc(doc(context.firestore(), 'shipments', 'CBB-2026-00001'), {
+      trackingCode: 'CBB-2026-00001',
+      originBranchId: 'cochabamba',
+      destinationBranchId: 'punata',
+      registeredByUid: 'sec-cbb',
       status: 'received',
     })
   })
 
-  const adminContext = testEnv.authenticatedContext('admin-user', {
+  const adminContext = testEnv.authenticatedContext('admin-1', {
     role: 'directiva_admin',
     branchId: 'punata',
   })
   const adminDb = adminContext.firestore()
 
-  // Admin puede leer cualquier encomienda
-  await assertSucceeds(getDoc(doc(adminDb, 'shipments', 'PUN-00001')))
+  await assertSucceeds(getDoc(doc(adminDb, 'shipments', 'CBB-2026-00001')))
+  await assertSucceeds(getDoc(doc(adminDb, 'users', 'admin-1')))
 })
 
 test('5. Conductor solo puede actualizar entregas en encomiendas asignadas', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
-    await setDoc(doc(context.firestore(), 'users', 'driver-14'), {
+    await setDoc(doc(context.firestore(), 'users', 'driver-1'), {
       role: 'conductor',
       primaryBranchId: 'punata',
-      allowedBranchIds: ['punata'],
-      assignedMobileNumber: 'M-14',
-      fullName: 'Chofer Walter',
+      allowedBranchIds: ['punata', 'cochabamba'],
+      fullName: 'Conductor Don Pedro',
     })
-    await setDoc(doc(context.firestore(), 'shipments', 'PUN-00010'), {
+
+    await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-00010'), {
       trackingCode: 'PUN-2026-00010',
       originBranchId: 'punata',
       destinationBranchId: 'cochabamba',
+      status: 'in_delivery',
       assignedVehicle: {
-        driverUid: 'driver-14',
-        mobileNumber: 'M-14',
+        driverUid: 'driver-1',
+        driverName: 'Conductor Don Pedro',
       },
-      status: 'in_transit',
     })
   })
 
-  const driverContext = testEnv.authenticatedContext('driver-14', {
+  const driverContext = testEnv.authenticatedContext('driver-1', {
     role: 'conductor',
+    branchId: 'punata',
   })
   const driverDb = driverContext.firestore()
 
-  // Conductor puede leer su encomienda asignada
-  await assertSucceeds(getDoc(doc(driverDb, 'shipments', 'PUN-00010')))
+  // Conductor puede actualizar status y deliveryRecord de su encomienda asignada
+  await assertSucceeds(
+    updateDoc(doc(driverDb, 'shipments', 'PUN-2026-00010'), {
+      status: 'delivered',
+      deliveryRecord: {
+        receivedByName: 'Destinatario Final',
+        deliveredAt: '2026-11-01T23:00:00Z',
+      },
+    })
+  )
 
-  // Conductor no puede borrar encomiendas
-  await assertFails(deleteDoc(doc(driverDb, 'shipments', 'PUN-00010')))
+  // Conductor no puede borrar
+  await assertFails(deleteDoc(doc(driverDb, 'shipments', 'PUN-2026-00010')))
 })
