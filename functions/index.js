@@ -1590,7 +1590,11 @@ export const collectShipmentPayment = onCall({ cors: true }, async (request) => 
 
   const payload = request.data || {}
   const trackingCode = payload.trackingCode && typeof payload.trackingCode === 'string' ? payload.trackingCode.trim().toUpperCase() : ''
-  const paymentMethod = payload.paymentMethod && ['cash', 'qr', 'transfer'].includes(payload.paymentMethod) ? payload.paymentMethod : 'cash'
+  const ALLOWED_PAYMENT_METHODS_COLLECT = ['cash', 'qr', 'transfer']
+  const paymentMethod = payload.paymentMethod || 'cash'
+  if (!ALLOWED_PAYMENT_METHODS_COLLECT.includes(paymentMethod)) {
+    throw new HttpsError('invalid-argument', `Método de pago no válido: '${paymentMethod}'. Permitidos: cash, qr, transfer.`)
+  }
   const branchId = payload.branchId && typeof payload.branchId === 'string' ? payload.branchId.trim().toLowerCase() : callerData.primaryBranchId
 
   if (!trackingCode) {
@@ -2926,18 +2930,22 @@ async function processAndSaveSignatureToStorage(shipmentId, signatureInput, oper
   // 1. Si ya es una ruta relativa o absoluta existente en Firebase Storage
   if (signatureInput.startsWith('shipments/') || signatureInput.startsWith('/shipments/')) {
     const cleanPath = signatureInput.replace(/^\//, '')
+    const expectedPrefix = `shipments/${shipmentId}/signatures/`
+    if (!cleanPath.startsWith(expectedPrefix) || cleanPath.includes('..')) {
+      throw new HttpsError('permission-denied', `La ruta de firma no pertenece a la encomienda ${shipmentId}.`)
+    }
+
     const file = bucket.file(cleanPath)
     const [exists] = await file.exists().catch(() => [false])
     if (!exists) {
       throw new HttpsError('invalid-argument', 'El archivo de firma indicado en Firebase Storage no existe.')
     }
-    const [metadata] = await file.getMetadata()
+    const [metadata] = await file.getMetadata().catch(() => [{}])
     return {
       fileRef: file,
       isNewUpload: false,
       metadata: {
         storagePath: cleanPath,
-        downloadUrl: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(cleanPath)}?alt=media`,
         mimeType: metadata.contentType || 'image/png',
         sizeBytes: Number(metadata.size) || 0,
         sha256: metadata.metadata?.sha256 || null,
@@ -2974,18 +2982,17 @@ async function processAndSaveSignatureToStorage(shipmentId, signatureInput, oper
   }
 
   const sha256 = crypto.createHash('sha256').update(buffer).digest('hex')
-  const downloadToken = crypto.randomUUID()
   const ext = isJpeg ? 'jpg' : 'png'
-  const fileName = `signature_${Date.now()}_${crypto.randomBytes(3).toString('hex')}.${ext}`
+  const fileName = `signature_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`
   const storagePath = `shipments/${shipmentId}/signatures/${fileName}`
   const file = bucket.file(storagePath)
 
   try {
+    // Sin tokens públicos permanentes (firebaseStorageDownloadTokens eliminado)
     await file.save(buffer, {
       metadata: {
         contentType: mimeType,
         metadata: {
-          firebaseStorageDownloadTokens: downloadToken,
           shipmentId,
           operatorUid,
           sha256,
@@ -3000,14 +3007,11 @@ async function processAndSaveSignatureToStorage(shipmentId, signatureInput, oper
     }
   }
 
-  const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`
-
   return {
     fileRef: file,
     isNewUpload: true,
     metadata: {
       storagePath,
-      downloadUrl,
       mimeType,
       sizeBytes: buffer.length,
       sha256,
@@ -3311,7 +3315,7 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
         recipientRelationship,
         authorizationNote: authorizationNote.trim(),
         signature: sigResult.metadata,
-        signatureUrl: sigResult.metadata.downloadUrl,
+        signatureUrl: sigResult.metadata.storagePath || null,
         photoEvidenceUrl,
         branchId: isDriver ? null : sData.destinationBranchId,
         collectedByDriverUid: (isDriver && paymentCollected) ? callerUid : null,
@@ -3438,6 +3442,11 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
     idempotencyKey,
   } = request.data || {}
 
+  // Clave de idempotencia obligatoria (mínimo 8 caracteres)
+  if (!idempotencyKey || typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) {
+    throw new HttpsError('invalid-argument', 'La clave de idempotencia es obligatoria y debe tener al menos 8 caracteres.')
+  }
+
   if (!driverUid || typeof driverUid !== 'string') {
     throw new HttpsError('invalid-argument', 'Debe especificar el UID del conductor.')
   }
@@ -3446,17 +3455,32 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
     throw new HttpsError('invalid-argument', 'El importe a rendir debe ser un entero positivo en centavos.')
   }
 
+  // Validación estricta de método de pago: rendición en caja física solo admite efectivo ('cash')
+  if (paymentMethod !== 'cash') {
+    throw new HttpsError('invalid-argument', `Método de pago no válido: '${paymentMethod}'. La rendición de custodia de conductor debe realizarse en efectivo ('cash').`)
+  }
+
+  const branchId = callerData.primaryBranchId || 'punata'
+  const payloadHash = crypto.createHash('sha256').update(JSON.stringify({
+    driverUid,
+    amountCents: amount,
+    paymentMethod,
+    branchId,
+  })).digest('hex')
+
   return await db.runTransaction(async (transaction) => {
-    // 1. Idempotencia: Verificar si ya fue procesada
-    if (idempotencyKey) {
-      const idempRef = db.collection('idempotency_keys').doc(`settle_${idempotencyKey}`)
-      const idempDoc = await transaction.get(idempRef)
-      if (idempDoc.exists) {
-        return idempDoc.data().response
+    // 1. Idempotencia vinculada al contenido
+    const idempRef = db.collection('idempotency_keys').doc(`settle_${idempotencyKey.trim()}`)
+    const idempDoc = await transaction.get(idempRef)
+    if (idempDoc.exists) {
+      const existing = idempDoc.data()
+      if (existing.payloadHash && existing.payloadHash !== payloadHash) {
+        throw new HttpsError('failed-precondition', 'La clave de idempotencia ya fue utilizada con datos de rendición diferentes.')
       }
+      return existing.response
     }
 
-    // 2. Validar que el conductor existe y es conductor activo
+    // 2. Validar conductor activo
     const driverRef = db.collection('users').doc(driverUid)
     const driverDoc = await transaction.get(driverRef)
     if (!driverDoc.exists) {
@@ -3483,7 +3507,6 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
     }
 
     // 4. Validar turno de caja de la persona que recibe
-    const branchId = callerData.primaryBranchId || 'punata'
     const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
     const lockDoc = await transaction.get(lockRef)
     if (!lockDoc.exists || lockDoc.data().status !== 'open' || !lockDoc.data().shiftId) {
@@ -3497,55 +3520,71 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
       throw new HttpsError('failed-precondition', 'El turno de caja activo no es válido o ya fue cerrado.')
     }
 
-    const now = FieldValue.serverTimestamp()
-    const nowIso = new Date().toISOString()
-    const settlementId = `SETTL-${branchId.toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
-
-    // 5. Validar encomiendas específicas si se suministraron (FASE DE LECTURA)
-    const verifiedShipmentIds = []
-    const shipmentRefsToUpdate = []
-    if (Array.isArray(shipmentIds) && shipmentIds.length > 0) {
-      for (const sId of shipmentIds) {
-        const sRef = db.collection('shipments').doc(sId)
-        const sDoc = await transaction.get(sRef)
-        if (!sDoc.exists) {
-          throw new HttpsError('not-found', `La encomienda '${sId}' no existe para conciliar.`)
-        }
-        const sData = sDoc.data()
-        if (sData.collectedByDriverUid !== driverUid && sData.assignedVehicle?.driverUid !== driverUid) {
-          throw new HttpsError('failed-precondition', `La encomienda '${sId}' no está asociada a cobros del conductor ${driverData.fullName || driverUid}.`)
-        }
-        if (sData.driverCustody?.reconciled === true) {
-          throw new HttpsError('failed-precondition', `La encomienda '${sId}' ya fue conciliada previamente.`)
-        }
-        verifiedShipmentIds.push(sId)
-        shipmentRefsToUpdate.push(sRef)
-      }
-    }
-
-    // 6. Leer asientos en driver_custody_records de forma FIFO (FASE DE LECTURA)
+    // 5. Leer asientos en driver_custody_records de forma FIFO sin límite restrictivo de 20 (FASE DE LECTURA)
     const custodyRecordsQuery = await transaction.get(
       db.collection('driver_custody_records')
         .where('driverUid', '==', driverUid)
         .where('status', 'in', ['pending_remittance', 'partially_remitted'])
         .orderBy('createdAt', 'asc')
-        .limit(20)
     )
 
-    // FASE DE ESCRITURA:
-    // Actualizar encomiendas conciliadas
-    for (const sRef of shipmentRefsToUpdate) {
-      transaction.update(sRef, {
-        'driverCustody.reconciled': true,
-        'driverCustody.reconciledAt': nowIso,
-        'driverCustody.reconciledByUid': callerUid,
-        'driverCustody.reconciledShiftId': shiftId,
-        'driverCustody.settlementId': settlementId,
-        updatedAt: now,
-      })
+    if (custodyRecordsQuery.empty) {
+      throw new HttpsError('failed-precondition', 'No se encontraron asientos de cobro pendientes bajo custodia de este conductor.')
     }
 
+    // Calcular el total disponible distribuible entre los asientos recuperados
+    let totalDistributableInRecords = 0
+    for (const doc of custodyRecordsQuery.docs) {
+      const rec = doc.data()
+      const recPending = rec.amountCents - (rec.remittedAmountCents || 0)
+      if (recPending > 0) {
+        totalDistributableInRecords += recPending
+      }
+    }
+
+    if (amount > totalDistributableInRecords) {
+      throw new HttpsError(
+        'failed-precondition',
+        `El importe a rendir (Bs. ${(amount / 100).toFixed(2)}) supera la suma distribuible de los asientos de cobro pendientes (Bs. ${(totalDistributableInRecords / 100).toFixed(2)}). Distribuya exactamente los asientos disponibles.`
+      )
+    }
+
+    // Si se enviaron shipmentIds explícitos, verificar que cada uno corresponda a un cobro real en driver_custody_records
+    const driverCustodyShipmentIds = new Set(custodyRecordsQuery.docs.map(d => d.data().shipmentId).filter(Boolean))
+    if (Array.isArray(shipmentIds) && shipmentIds.length > 0) {
+      for (const sId of shipmentIds) {
+        if (!driverCustodyShipmentIds.has(sId)) {
+          throw new HttpsError(
+            'failed-precondition',
+            `La guía '${sId}' no registra un cobro de ruta bajo custodia para el conductor ${driverData.fullName || driverUid}. No se puede conciliar una guía sin su asiento de cobro real.`
+          )
+        }
+      }
+    }
+
+    // Recolectar todas las encomiendas que se van a impactar y leerlas (FASE DE LECTURA)
+    const shipmentsMap = new Map()
+    for (const doc of custodyRecordsQuery.docs) {
+      const sId = doc.data().shipmentId
+      if (sId && !shipmentsMap.has(sId)) {
+        const sRef = db.collection('shipments').doc(sId)
+        const sDoc = await transaction.get(sRef)
+        if (sDoc.exists) {
+          shipmentsMap.set(sId, { ref: sRef, data: sDoc.data() })
+        }
+      }
+    }
+
+    // --- FASE DE ESCRITURA ---
+    const now = FieldValue.serverTimestamp()
+    const nowIso = new Date().toISOString()
+    const settlementId = `SETTL-${branchId.toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`
+
     let remainingToAllocate = amount
+    let totalAllocatedExact = 0
+    const reconciledShipments = []
+    const allocatedRecordsSummary = []
+
     for (const doc of custodyRecordsQuery.docs) {
       if (remainingToAllocate <= 0) break
       const rec = doc.data()
@@ -3554,31 +3593,102 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
 
       const alloc = Math.min(remainingToAllocate, recPending)
       const newRemitted = (rec.remittedAmountCents || 0) + alloc
-      const isFull = newRemitted >= rec.amountCents
+      const remainingAfterThis = rec.amountCents - newRemitted
+      const isFull = remainingAfterThis <= 0
 
-      const recUpdates = {
-        remittedAmountCents: newRemitted,
-        status: isFull ? 'reconciled' : 'partially_remitted',
-        settlementIds: FieldValue.arrayUnion(settlementId),
-        updatedAt: now,
-      }
-      transaction.update(doc.ref, recUpdates)
+      totalAllocatedExact += alloc
       remainingToAllocate -= alloc
+
+      allocatedRecordsSummary.push({
+        recordId: doc.id,
+        shipmentId: rec.shipmentId || null,
+        allocatedCents: alloc,
+        remainingAfterThisCents: remainingAfterThis,
+        isFullyReconciled: isFull,
+      })
+
+      // Actualizar asiento de custodia con historial inmutable
+      transaction.update(doc.ref, {
+        remittedAmountCents: newRemitted,
+        remainingAmountCents: remainingAfterThis,
+        status: isFull ? 'reconciled' : 'partially_remitted',
+        lastSettlementId: settlementId,
+        lastSettlementAt: nowIso,
+        lastSettlementByUid: callerUid,
+        lastSettlementByName: callerData.fullName || 'Operador',
+        settlementIds: FieldValue.arrayUnion(settlementId),
+        settlementsHistory: FieldValue.arrayUnion({
+          settlementId,
+          amountCents: alloc,
+          timestamp: nowIso,
+          cashierUid: callerUid,
+          cashierName: callerData.fullName || 'Operador',
+          remainingAfterThisCents: remainingAfterThis,
+        }),
+        updatedAt: now,
+      })
+
+      // Actualizar encomienda vinculada
+      if (rec.shipmentId && shipmentsMap.has(rec.shipmentId)) {
+        const sItem = shipmentsMap.get(rec.shipmentId)
+        const sRef = sItem.ref
+        const sData = sItem.data
+        const currentShipmentRemitted = (sData.driverCustody?.remittedAmountCents || 0) + alloc
+        const totalShipmentCod = Number(sData.finalAmountCents || rec.amountCents)
+        const isShipmentFull = currentShipmentRemitted >= totalShipmentCod
+        const shipmentRemaining = Math.max(0, totalShipmentCod - currentShipmentRemitted)
+
+        reconciledShipments.push({
+          shipmentId: rec.shipmentId,
+          trackingCode: sData.trackingCode || rec.shipmentId,
+          allocatedCents: alloc,
+          fullyReconciled: isShipmentFull,
+        })
+
+        transaction.update(sRef, {
+          'driverCustody.reconciled': isShipmentFull,
+          'driverCustody.status': isShipmentFull ? 'fully_reconciled' : 'partially_reconciled',
+          'driverCustody.remittedAmountCents': currentShipmentRemitted,
+          'driverCustody.remainingAmountCents': shipmentRemaining,
+          'driverCustody.lastSettlementId': settlementId,
+          'driverCustody.lastSettlementAt': nowIso,
+          'driverCustody.lastSettlementByUid': callerUid,
+          'driverCustody.settlementHistory': FieldValue.arrayUnion({
+            settlementId,
+            amountCents: alloc,
+            timestamp: nowIso,
+            cashierUid: callerUid,
+            cashierName: callerData.fullName || 'Operador',
+            remainingAfterThisCents: shipmentRemaining,
+          }),
+          updatedAt: now,
+        })
+      }
     }
 
-    // 7. Actualizar saldo en la cuenta de custodia del conductor
-    const newDriverBalance = currentPendingCents - amount
+    // Control estricto de total asignado: no disminuir la cuenta de custodia por un importe no asignado
+    if (totalAllocatedExact !== amount) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Error de conciliación: Se asignaron Bs. ${(totalAllocatedExact / 100).toFixed(2)} de los Bs. ${(amount / 100).toFixed(2)} requeridos. La operación ha sido abortada.`
+      )
+    }
+
+    // Actualizar cuenta de custodia del conductor
+    const newDriverBalance = currentPendingCents - totalAllocatedExact
+    const settlementType = newDriverBalance === 0 ? 'full' : 'partial'
+
     transaction.update(custodyAccRef, {
-      cashUnderCustodyCents: FieldValue.increment(-amount),
-      pendingRemittanceCents: FieldValue.increment(-amount),
-      totalRemittedCents: FieldValue.increment(amount),
+      cashUnderCustodyCents: FieldValue.increment(-totalAllocatedExact),
+      pendingRemittanceCents: FieldValue.increment(-totalAllocatedExact),
+      totalRemittedCents: FieldValue.increment(totalAllocatedExact),
       lastActivityAt: now,
       updatedAt: now,
     })
 
-    // 8. Crear documento inmutable de liquidación en driver_settlements
+    // Crear comprobante inmutable en driver_settlements
     const settlementRef = db.collection('driver_settlements').doc(settlementId)
-    transaction.set(settlementRef, {
+    const settlementPayload = {
       id: settlementId,
       settlementNumber: settlementId,
       driverUid,
@@ -3587,45 +3697,48 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
       receivedByName: callerData.fullName || 'Cajero/Operador',
       branchId,
       cashShiftId: shiftId,
-      amountCents: amount,
-      amountBob: amount / 100,
+      amountCents: totalAllocatedExact,
+      amountBob: totalAllocatedExact / 100,
       paymentMethod,
+      settlementType,
       previousDriverBalanceCents: currentPendingCents,
       remainingDriverBalanceCents: newDriverBalance,
       notes: notes || '',
-      reconciledShipmentIds: verifiedShipmentIds,
-      shipmentIds: verifiedShipmentIds,
+      reconciledShipments,
+      reconciledShipmentIds: reconciledShipments.map(s => s.shipmentId),
+      allocatedRecords: allocatedRecordsSummary,
       status: 'completed',
       createdAt: now,
       createdAtIso: nowIso,
-    })
+    }
+    transaction.set(settlementRef, settlementPayload)
 
-    // 9. Actualizar turno de caja:
-    // TRANSFERENCIA INTERNA DE CUSTODIA (Aumenta efectivo físico esperado, pero NO duplica totalIncomeCents)
+    // Actualizar turno de caja (TRANSFERENCIA INTERNA: aumenta gaveta, NO suma a totalIncomeCents de ventas)
     const shiftUpdate = {
       updatedAt: now,
-      expectedCashCents: FieldValue.increment(amount),
-      'breakdown.cashIncomeCents': FieldValue.increment(amount),
-      'breakdown.netCashCents': FieldValue.increment(amount),
-      'breakdown.driverRemittanceCents': FieldValue.increment(amount),
+      expectedCashCents: FieldValue.increment(totalAllocatedExact),
+      'breakdown.cashIncomeCents': FieldValue.increment(totalAllocatedExact),
+      'breakdown.netCashCents': FieldValue.increment(totalAllocatedExact),
+      'breakdown.driverRemittanceCents': FieldValue.increment(totalAllocatedExact),
       movementsCount: FieldValue.increment(1),
     }
     transaction.update(shiftRef, shiftUpdate)
 
-    // 10. Registrar movimiento financiero
+    // Movimiento financiero auditable
     const finRef = db.collection('financial_movements').doc()
     transaction.set(finRef, {
       shiftId,
       branchId,
       type: 'driver_remittance',
-      concept: `Transferencia interna de custodia: Rendición de conductor ${driverData.fullName || driverUid} (${settlementId})`,
-      amountCents: amount,
-      amountBob: amount / 100,
+      concept: `Transferencia interna de custodia: Rendición ${settlementType === 'full' ? 'completa' : 'parcial'} de conductor ${driverData.fullName || driverUid} (${settlementId})`,
+      amountCents: totalAllocatedExact,
+      amountBob: totalAllocatedExact / 100,
       currency: 'BOB',
       paymentMethod,
       driverUid,
       driverName: driverData.fullName || 'Conductor',
       settlementId,
+      settlementType,
       transferType: 'internal_custody_transfer',
       operatorUid: callerUid,
       operatorName: callerData.fullName || 'Operador',
@@ -3634,7 +3747,7 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
       createdAt: now,
     })
 
-    // 11. Auditoría
+    // Auditoría
     const auditRef = db.collection('audit_logs').doc()
     transaction.set(auditRef, {
       entityType: 'driver_settlement',
@@ -3645,60 +3758,169 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
       details: {
         driverUid,
         driverName: driverData.fullName,
-        amountCents: amount,
+        amountCents: totalAllocatedExact,
+        settlementType,
         previousDriverBalanceCents: currentPendingCents,
         remainingDriverBalanceCents: newDriverBalance,
-        reconciledCount: verifiedShipmentIds.length,
+        shiftId,
+        branchId,
+        idempotencyKey: idempotencyKey.trim(),
       },
       timestamp: now,
     })
 
-    const response = {
+    const responsePayload = {
       success: true,
       settlementId,
       settlementNumber: settlementId,
-      amountCents: amount,
-      amountBob: amount / 100,
+      settlementType,
+      amountCents: totalAllocatedExact,
       previousDriverBalanceCents: currentPendingCents,
       remainingDriverBalanceCents: newDriverBalance,
-      reconciledShipmentIds: verifiedShipmentIds,
+      reconciledShipments,
+      reconciledShipmentIds: reconciledShipments.map(s => s.shipmentId),
       settledAtIso: nowIso,
+      timestampIso: nowIso,
     }
 
-    if (idempotencyKey) {
-      const idempRef = db.collection('idempotency_keys').doc(`settle_${idempotencyKey}`)
-      transaction.set(idempRef, {
-        idempotencyKey,
-        response,
-        createdAt: now,
-      })
-    }
+    // Guardar respuesta de idempotencia vinculada al payload
+    transaction.set(idempRef, {
+      idempotencyKey: idempotencyKey.trim(),
+      payloadHash,
+      response: responsePayload,
+      createdAt: now,
+    })
 
-    return response
+    return responsePayload
   })
 })
 
 /**
  * Consulta de Saldo de Custodia y Asientos Pendientes de un Conductor.
  */
+export const getShipmentSignatureUrl = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para consultar firmas de encomiendas.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists || userDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario inactivo o no autorizado.')
+  }
+  const callerData = userDoc.data()
+
+  const { shipmentId, storagePath } = request.data || {}
+  if (!shipmentId || typeof shipmentId !== 'string') {
+    throw new HttpsError('invalid-argument', 'Debe especificar el shipmentId.')
+  }
+
+  const shipmentDoc = await db.collection('shipments').doc(shipmentId).get()
+  if (!shipmentDoc.exists) {
+    throw new HttpsError('not-found', 'La encomienda especificada no existe.')
+  }
+  const sData = shipmentDoc.data()
+
+  const isGlobalAdmin = ['directiva_admin', 'tesoreria'].includes(callerData.role)
+  const isBranchOperator = ['secretaria', 'encargado_agencia'].includes(callerData.role) &&
+    (sData.originBranchId === callerData.primaryBranchId || sData.destinationBranchId === callerData.primaryBranchId ||
+     (callerData.allowedBranchIds && (callerData.allowedBranchIds.includes(sData.originBranchId) || callerData.allowedBranchIds.includes(sData.destinationBranchId))))
+  const isDriverAssigned = callerData.role === 'conductor' &&
+    (sData.assignedVehicle?.driverUid === callerUid || sData.collectedByDriverUid === callerUid)
+
+  if (!isGlobalAdmin && !isBranchOperator && !isDriverAssigned) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para consultar la firma de esta encomienda.')
+  }
+
+  const resolvedPath = storagePath || sData.deliveryRecord?.signature?.storagePath || sData.deliveryRecord?.signatureUrl
+  if (!resolvedPath || typeof resolvedPath !== 'string') {
+    throw new HttpsError('not-found', 'Esta encomienda no registra una ruta de firma válida en almacenamiento.')
+  }
+
+  const expectedPrefix = `shipments/${shipmentId}/signatures/`
+  if (!resolvedPath.startsWith(expectedPrefix) || resolvedPath.includes('..')) {
+    throw new HttpsError('permission-denied', 'La ruta solicitada no pertenece a la encomienda.')
+  }
+
+  const bucketName = process.env.STORAGE_BUCKET_NAME || 'expreso-punata-dev.firebasestorage.app'
+  const bucket = storageAdmin.bucket(bucketName)
+  const file = bucket.file(resolvedPath)
+
+  if (process.env.STORAGE_EMULATOR_HOST || process.env.FIREBASE_STORAGE_EMULATOR_HOST) {
+    const host = process.env.STORAGE_EMULATOR_HOST || process.env.FIREBASE_STORAGE_EMULATOR_HOST || 'http://127.0.0.1:9199'
+    return {
+      success: true,
+      url: `${host}/v0/b/${bucket.name}/o/${encodeURIComponent(resolvedPath)}?alt=media`,
+      expiresInMinutes: 15,
+    }
+  }
+
+  try {
+    const [signedUrl] = await file.getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: Date.now() + 15 * 60 * 1000,
+    })
+    return {
+      success: true,
+      url: signedUrl,
+      expiresInMinutes: 15,
+    }
+  } catch (err) {
+    console.warn('[getShipmentSignatureUrl] Fallback a URL estándar:', err.message)
+    return {
+      success: true,
+      url: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(resolvedPath)}?alt=media`,
+      expiresInMinutes: 15,
+    }
+  }
+})
+
+/**
+ * Cloud Function Callable para consultar el balance y libro mayor de custodia de un conductor.
+ * Aplica restricciones estrictas de rol y sucursal.
+ */
 export const getDriverCustodyBalance = onCall({ cors: true }, async (request) => {
   if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Debe iniciar sesión.')
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para consultar el saldo de custodia.')
   }
+
   const callerUid = request.auth.uid
   const userDoc = await db.collection('users').doc(callerUid).get()
   if (!userDoc.exists || userDoc.data().isActive === false) {
     throw new HttpsError('permission-denied', 'Usuario inactivo o no encontrado.')
   }
   const callerData = userDoc.data()
+  const allowedRoles = ['conductor', 'secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para consultar saldos de custodia.')
+  }
+
   const { driverUid } = request.data || {}
   const targetDriverUid = driverUid || (callerData.role === 'conductor' ? callerUid : null)
   if (!targetDriverUid) {
     throw new HttpsError('invalid-argument', 'Debe especificar el UID del conductor.')
   }
 
+  // 1. Restricción para conductor: solo puede ver su propia cuenta
   if (callerData.role === 'conductor' && callerUid !== targetDriverUid) {
     throw new HttpsError('permission-denied', 'No tiene permiso para consultar la custodia de otro conductor.')
+  }
+
+  // 2. Restricción para secretaria o encargado: validar que el conductor opere en su sucursal autorizada
+  if (['secretaria', 'encargado_agencia'].includes(callerData.role)) {
+    const targetDriverDoc = await db.collection('users').doc(targetDriverUid).get()
+    if (!targetDriverDoc.exists) {
+      throw new HttpsError('not-found', 'El conductor no existe.')
+    }
+    const targetDriverData = targetDriverDoc.data() || {}
+    const callerBranches = callerData.allowedBranchIds || [callerData.primaryBranchId]
+    const driverBranches = targetDriverData.allowedBranchIds || [targetDriverData.primaryBranchId]
+
+    const hasCommonBranch = callerBranches.some(b => driverBranches.includes(b))
+    if (!hasCommonBranch) {
+      throw new HttpsError('permission-denied', 'No tiene permiso para consultar la custodia de un conductor de otra sucursal.')
+    }
   }
 
   const accountDoc = await db.collection('driver_custody_accounts').doc(targetDriverUid).get()
@@ -3714,7 +3936,6 @@ export const getDriverCustodyBalance = onCall({ cors: true }, async (request) =>
     .where('driverUid', '==', targetDriverUid)
     .where('status', 'in', ['pending_remittance', 'partially_remitted'])
     .orderBy('createdAt', 'desc')
-    .limit(50)
     .get()
 
   const pendingRecords = pendingRecordsSnap.docs.map(d => ({ id: d.id, ...d.data() }))

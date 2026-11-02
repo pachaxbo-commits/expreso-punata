@@ -50,6 +50,13 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [completedSettlement, setCompletedSettlement] = useState<any | null>(null)
+  const [activeIdempotencyKey, setActiveIdempotencyKey] = useState<string>('')
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveIdempotencyKey(`settle-${currentUser?.uid || 'usr'}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`)
+    }
+  }, [isOpen, currentUser?.uid])
 
   // Cargar conductores activos
   useEffect(() => {
@@ -165,7 +172,7 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
         shipmentIds: parsedShipmentIds,
         paymentMethod: 'cash',
         notes: notes.trim(),
-        idempotencyKey: `settle-${selectedDriverUid}-${Date.now()}`,
+        idempotencyKey: activeIdempotencyKey || `settle-${selectedDriverUid}-${Date.now()}`,
       })
 
       const driverObj = drivers.find((d) => d.uid === selectedDriverUid)
@@ -240,7 +247,7 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
               </p>
               {completedSettlement.remainingDriverBalanceCents !== undefined && (
                 <p className="text-xs font-semibold text-slate-500">
-                  Saldo restante en custodia del chofer: {formatCurrencyBob(completedSettlement.remainingDriverBalanceCents, true)}
+                  COD cobrado por conductor y pendiente de rendición restante: {formatCurrencyBob(completedSettlement.remainingDriverBalanceCents, true)}
                 </p>
               )}
             </div>
@@ -318,7 +325,7 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
                 {custodyAccount && (
                   <div className="flex items-center justify-between pt-1 border-t border-emerald-200/60">
                     <div>
-                      <p className="text-[11px] text-slate-600">Saldo pendiente de rendición:</p>
+                      <p className="text-[11px] text-slate-600 font-semibold">COD cobrado por conductor y pendiente de rendición:</p>
                       <p className="text-sm font-extrabold font-mono text-emerald-800">
                         {formatCurrencyBob(custodyAccount.pendingRemittanceCents, true)}
                       </p>
@@ -412,7 +419,7 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
                 className="px-5 py-2.5 bg-[#064e3b] hover:bg-emerald-800 disabled:bg-slate-300 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-2 transition"
               >
                 <DollarSign className="w-4 h-4 text-[#facc15]" />
-                {loading ? 'Procesando...' : 'Registrar Rendición en Caja'}
+                {loading ? 'Procesando Transferencia...' : (parseFloat(amountBob || '0') * 100 >= (custodyAccount?.pendingRemittanceCents || 0) ? 'Registrar Rendición Completa en Caja' : 'Registrar Rendición Parcial en Caja')}
               </button>
             </div>
           </div>

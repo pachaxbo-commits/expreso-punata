@@ -13,6 +13,7 @@ import {
   deliverShipment,
   settleDriverCash,
   getDriverCustodyBalance,
+  getShipmentSignatureUrl,
   openCashShift,
 } from '../index.js'
 
@@ -423,9 +424,9 @@ test('7. COBRO EN RUTA POR CONDUCTOR (B2): Conductor entrega encomienda COD en r
   assert.equal(finSnap.docs[0].data().amountCents, 4000)
 })
 
-test('8. RENDICIÓN DE CONDUCTOR (C1): Transferencia interna de custodia en caja con validación estricta de saldo', async () => {
+test('8. RENDICIÓN DE CONDUCTOR (C1): Transferencia interna de custodia en caja con validación estricta, rendición parcial y completa', async () => {
   await createTestUser('sec-cbba', 'secretaria', 'cochabamba')
-  await createTestUser('chofer-2', 'conductor', 'punata')
+  await createTestUser('chofer-2', 'conductor', 'punata', ['punata', 'cochabamba'])
 
   // Configurar custodia previa de Bs 30.00 en la cuenta del conductor
   await db.collection('driver_custody_accounts').doc('chofer-2').set({
@@ -443,6 +444,7 @@ test('8. RENDICIÓN DE CONDUCTOR (C1): Transferencia interna de custodia en caja
     driverUid: 'chofer-2',
     driverName: 'Test chofer-2',
     type: 'route_collection',
+    shipmentId: 'ship-cust-2',
     amountCents: 3000,
     remittedAmountCents: 0,
     status: 'pending_remittance',
@@ -462,7 +464,19 @@ test('8. RENDICIÓN DE CONDUCTOR (C1): Transferencia interna de custodia en caja
   })
   const shiftId = shiftRes.shift.id
 
-  // Intento de rendir más de lo disponible (Bs 50 > Bs 30) -> DEBE FALLAR
+  // 1) Clave de idempotencia obligatoria
+  await assert.rejects(async () => {
+    await settleDriverCash.run({
+      auth: { uid: 'sec-cbba' },
+      data: {
+        driverUid: 'chofer-2',
+        amountCents: 1000,
+        shipmentIds: ['ship-cust-2'],
+      },
+    })
+  }, (err) => err.code === 'invalid-argument')
+
+  // 2) Intento de rendir más de lo disponible (Bs 50 > Bs 30) -> DEBE FALLAR
   await assert.rejects(async () => {
     await settleDriverCash.run({
       auth: { uid: 'sec-cbba' },
@@ -470,49 +484,95 @@ test('8. RENDICIÓN DE CONDUCTOR (C1): Transferencia interna de custodia en caja
         driverUid: 'chofer-2',
         amountCents: 5000,
         shipmentIds: ['ship-cust-2'],
+        idempotencyKey: 'idemp-fail-overlimit',
       },
     })
   }, (err) => err.code === 'failed-precondition')
 
-  // Rendición legítima de Bs 30.00
-  const settlRes = await settleDriverCash.run({
+  // 3) Rendición parcial legítima de Bs 10.00 (de Bs 30.00)
+  const settlRes1 = await settleDriverCash.run({
     auth: { uid: 'sec-cbba' },
     data: {
       driverUid: 'chofer-2',
-      amountCents: 3000,
+      amountCents: 1000,
       shipmentIds: ['ship-cust-2'],
-      notes: 'Rendición conforme de cobros en ruta',
+      notes: 'Rendición parcial de ruta',
+      idempotencyKey: 'idemp-partial-1000',
     },
   })
 
-  assert.equal(settlRes.success, true)
-  assert.equal(settlRes.amountCents, 3000)
-  assert.equal(settlRes.remainingDriverBalanceCents, 0)
+  assert.equal(settlRes1.success, true)
+  assert.equal(settlRes1.settlementType, 'partial')
+  assert.equal(settlRes1.amountCents, 1000)
+  assert.equal(settlRes1.previousDriverBalanceCents, 3000)
+  assert.equal(settlRes1.remainingDriverBalanceCents, 2000)
 
-  // Saldo de custodia del conductor actualizado a 0
-  const updatedCustody = await db.collection('driver_custody_accounts').doc('chofer-2').get()
-  assert.equal(updatedCustody.data().pendingRemittanceCents, 0)
-  assert.equal(updatedCustody.data().totalRemittedCents, 3000)
+  // Saldo de custodia actualizado parcialmente a Bs 20
+  const custPartial = await db.collection('driver_custody_accounts').doc('chofer-2').get()
+  assert.equal(custPartial.data().pendingRemittanceCents, 2000)
+  assert.equal(custPartial.data().totalRemittedCents, 1000)
 
-  // Encomienda marcada formalmente como conciliada
+  // Encomienda parcialmente conciliada
+  const shipPartial = await db.collection('shipments').doc('ship-cust-2').get()
+  assert.equal(shipPartial.data().driverCustody.reconciled, false)
+  assert.equal(shipPartial.data().driverCustody.status, 'partially_reconciled')
+  assert.equal(shipPartial.data().driverCustody.remainingAmountCents, 2000)
+
+  // 4) Idempotencia: reenvío con misma clave pero datos diferentes es rechazado
+  await assert.rejects(async () => {
+    await settleDriverCash.run({
+      auth: { uid: 'sec-cbba' },
+      data: {
+        driverUid: 'chofer-2',
+        amountCents: 2000, // diferente monto con la misma clave
+        shipmentIds: ['ship-cust-2'],
+        idempotencyKey: 'idemp-partial-1000',
+      },
+    })
+  }, (err) => err.code === 'failed-precondition')
+
+  // 5) Rendición completa del saldo restante (Bs 20.00)
+  const settlRes2 = await settleDriverCash.run({
+    auth: { uid: 'sec-cbba' },
+    data: {
+      driverUid: 'chofer-2',
+      amountCents: 2000,
+      shipmentIds: ['ship-cust-2'],
+      notes: 'Rendición final del saldo de ruta',
+      idempotencyKey: 'idemp-full-2000-ok',
+    },
+  })
+
+  assert.equal(settlRes2.success, true)
+  assert.equal(settlRes2.settlementType, 'full')
+  assert.equal(settlRes2.remainingDriverBalanceCents, 0)
+
+  // Saldo final en 0
+  const custFinal = await db.collection('driver_custody_accounts').doc('chofer-2').get()
+  assert.equal(custFinal.data().pendingRemittanceCents, 0)
+  assert.equal(custFinal.data().totalRemittedCents, 3000)
+
+  // Encomienda marcada formalmente como conciliada en su totalidad
   const updatedShip = await db.collection('shipments').doc('ship-cust-2').get()
   assert.equal(updatedShip.data().driverCustody.reconciled, true)
-  assert.equal(updatedShip.data().driverCustody.settlementId, settlRes.settlementId)
+  assert.equal(updatedShip.data().driverCustody.status, 'fully_reconciled')
+  assert.equal(updatedShip.data().driverCustody.remainingAmountCents, 0)
 
-  // Turno de caja: aumenta efectivo en gaveta (5000 + 3000 = 8000), pero NO duplica totalIncomeCents
+  // Turno de caja: gaveta sube exactamente por Bs 30 (5000 + 1000 + 2000 = 8000), totalIncomeCents sigue en 0 (no duplica ventas)
   const updatedShift = await db.collection('cash_shifts').doc(shiftId).get()
   assert.equal(updatedShift.data().expectedCashCents, 8000)
   assert.equal(updatedShift.data().breakdown.driverRemittanceCents, 3000)
-  assert.equal(updatedShift.data().breakdown.totalIncomeCents, 0) // No duplica ventas comerciales
+  assert.equal(updatedShift.data().breakdown.totalIncomeCents, 0)
 })
 
-test('9. CONSULTA DE CUSTODIA (getDriverCustodyBalance): Conductor y cajero consultan estado en tiempo real', async () => {
-  await createTestUser('chofer-3', 'conductor', 'punata')
-  await createTestUser('sec-punata', 'secretaria', 'punata')
+test('9. CONSULTA DE CUSTODIA (getDriverCustodyBalance): Restricción estricta por rol y sucursal', async () => {
+  await createTestUser('chofer-punata-only', 'conductor', 'punata', ['punata'])
+  await createTestUser('sec-punata', 'secretaria', 'punata', ['punata'])
+  await createTestUser('sec-cbba-alien', 'secretaria', 'cochabamba', ['cochabamba'])
 
-  await db.collection('driver_custody_accounts').doc('chofer-3').set({
-    driverUid: 'chofer-3',
-    driverName: 'Test chofer-3',
+  await db.collection('driver_custody_accounts').doc('chofer-punata-only').set({
+    driverUid: 'chofer-punata-only',
+    driverName: 'Chofer Punata Only',
     cashUnderCustodyCents: 1500,
     pendingRemittanceCents: 1500,
     totalCollectedCents: 1500,
@@ -520,17 +580,54 @@ test('9. CONSULTA DE CUSTODIA (getDriverCustodyBalance): Conductor y cajero cons
     updatedAt: FieldValue.serverTimestamp(),
   })
 
-  // Conductor consulta su propio saldo
+  // Conductor consulta su propio saldo -> OK
   const balanceRes = await getDriverCustodyBalance.run({
-    auth: { uid: 'chofer-3' },
+    auth: { uid: 'chofer-punata-only' },
     data: {},
   })
   assert.equal(balanceRes.account.pendingRemittanceCents, 1500)
 
-  // Cajera consulta saldo del conductor
+  // Secretaria de la misma sucursal (Punata) -> OK
   const cashierView = await getDriverCustodyBalance.run({
     auth: { uid: 'sec-punata' },
-    data: { driverUid: 'chofer-3' },
+    data: { driverUid: 'chofer-punata-only' },
   })
   assert.equal(cashierView.account.pendingRemittanceCents, 1500)
+
+  // Secretaria de otra sucursal (Cochabamba) intentando consultar chofer exclusivo de Punata -> DENEGADO
+  await assert.rejects(async () => {
+    await getDriverCustodyBalance.run({
+      auth: { uid: 'sec-cbba-alien' },
+      data: { driverUid: 'chofer-punata-only' },
+    })
+  }, (err) => err.code === 'permission-denied')
+})
+
+test('10. SEGURIDAD DE FIRMAS: getShipmentSignatureUrl genera URL temporal y bloquea rutas ajenas', async () => {
+  await createTestUser('sec-punata', 'secretaria', 'punata')
+  await createTestUser('sec-cbba', 'secretaria', 'cochabamba')
+  await createTestShipment('ship-sig-test', 'PUN-2026-SIG1', 'punata', 'cochabamba', 'delivered')
+
+  await db.collection('shipments').doc('ship-sig-test').update({
+    'deliveryRecord.signature.storagePath': 'shipments/ship-sig-test/signatures/signature_valid.png',
+  })
+
+  // 1) Acceso autorizado por secretaria de destino
+  const sigRes = await getShipmentSignatureUrl.run({
+    auth: { uid: 'sec-cbba' },
+    data: { shipmentId: 'ship-sig-test' },
+  })
+  assert.equal(sigRes.success, true)
+  assert.ok(sigRes.url.includes(encodeURIComponent('shipments/ship-sig-test/signatures/signature_valid.png')) || sigRes.url.includes('shipments/ship-sig-test/signatures/signature_valid.png'))
+
+  // 2) Intento de inyectar ruta de otra encomienda -> DENEGADO
+  await assert.rejects(async () => {
+    await getShipmentSignatureUrl.run({
+      auth: { uid: 'sec-cbba' },
+      data: {
+        shipmentId: 'ship-sig-test',
+        storagePath: 'shipments/OTHER-SHIPMENT/signatures/hacked.png',
+      },
+    })
+  }, (err) => err.code === 'permission-denied')
 })
