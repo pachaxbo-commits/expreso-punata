@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
@@ -458,7 +459,32 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
 
   let safeTargetUid = targetUid && typeof targetUid === 'string' && targetUid.trim() ? targetUid.trim() : null
   let targetAuthUser = null
-  let generatedResetLink = null
+
+  // PROTECCIÓN ESTRICTA DEL ÚLTIMO ADMINISTRADOR ACTIVO
+  if (safeTargetUid) {
+    const existingTargetDoc = await db.collection('users').doc(safeTargetUid).get()
+    if (existingTargetDoc.exists) {
+      const existingData = existingTargetDoc.data() || {}
+      const isCurrentlyActiveAdmin = existingData.role === 'directiva_admin' && existingData.isActive === true
+      const willBeInactive = Boolean(isActive) === false
+      const willDemoteRole = role !== 'directiva_admin'
+
+      if (isCurrentlyActiveAdmin && (willBeInactive || willDemoteRole)) {
+        const activeAdminsSnap = await db.collection('users')
+          .where('role', '==', 'directiva_admin')
+          .where('isActive', '==', true)
+          .get()
+
+        const otherAdmins = activeAdminsSnap.docs.filter((d) => d.id !== safeTargetUid)
+        if (otherAdmins.length === 0) {
+          throw new HttpsError(
+            'failed-precondition',
+            'Operación denegada por seguridad: no es posible suspender ni retirar privilegios al único Administrador General activo del sistema.'
+          )
+        }
+      }
+    }
+  }
 
   // 3. Resolución / Creación en Firebase Authentication
   if (!safeTargetUid) {
@@ -478,8 +504,8 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
       safeTargetUid = targetAuthUser.uid
     } catch (err) {
       if (err.code === 'auth/user-not-found') {
-        // Generar contraseña aleatoria temporal de alta entropía (nunca almacenada ni expuesta)
-        const tempPassword = 'Ep_' + Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 6) + '!9A'
+        // Generar contraseña aleatoria temporal criptográfica segura con crypto (alta entropía, nunca expuesta)
+        const tempPassword = 'Ep_' + crypto.randomBytes(24).toString('base64url') + '!9Az'
         targetAuthUser = await authAdmin.createUser({
           email: safeEmail,
           displayName: fullName.trim(),
@@ -503,24 +529,27 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     }
   }
 
-  // Generar link de restablecimiento de contraseña para el nuevo o modificado usuario si tiene email
-  if (targetAuthUser && targetAuthUser.email) {
-    try {
-      generatedResetLink = await authAdmin.generatePasswordResetLink(targetAuthUser.email)
-    } catch (linkErr) {
-      console.warn('[adminProvisionUser] No se pudo generar enlace de restablecimiento:', linkErr.message)
-    }
-  }
-
-  // Sincronizar estado disabled y displayName en Firebase Auth
+  // Sincronizar estado disabled, displayName y cambio de email en Firebase Auth de forma FAIL-CLOSED
   if (targetAuthUser) {
+    const requestedEmail = payload.email && typeof payload.email === 'string' && payload.email.includes('@')
+      ? payload.email.trim().toLowerCase()
+      : targetAuthUser.email
+
+    const authUpdatePayload = {
+      disabled: !Boolean(isActive),
+      displayName: fullName.trim(),
+    }
+
+    const emailChanged = requestedEmail && requestedEmail !== targetAuthUser.email
+    if (emailChanged) {
+      authUpdatePayload.email = requestedEmail
+      authUpdatePayload.emailVerified = false // Exige verificación de la nueva dirección
+    }
+
     try {
-      await authAdmin.updateUser(safeTargetUid, {
-        disabled: !Boolean(isActive),
-        displayName: fullName.trim(),
-      })
+      targetAuthUser = await authAdmin.updateUser(safeTargetUid, authUpdatePayload)
     } catch (authUpErr) {
-      console.warn('[adminProvisionUser] Error al actualizar estado en Auth:', authUpErr.message)
+      throw new HttpsError('internal', `Fallo crítico al actualizar cuenta en Firebase Authentication: ${authUpErr.message}`)
     }
   }
 
@@ -637,10 +666,10 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     )
   }
 
+  // NUNCA devolver enlaces sensibles, tokens ni contraseñas al cliente
   return {
     success: true,
     message: 'Perfil de usuario aprovisionado y claims sincronizados exitosamente.',
-    passwordResetLink: generatedResetLink,
     profile: {
       ...profileData,
       syncStatus: 'synced',
@@ -651,8 +680,10 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
 })
 
 /**
- * Cloud Function Callable para solicitar / generar enlace de restablecimiento de contraseña.
+ * Cloud Function Callable para autorizar solicitud de restablecimiento de contraseña.
  * Protegido exclusivamente para directiva_admin.
+ * NO expone enlaces sensibles: registra la auditoría y permite al cliente disparar
+ * el correo oficial de Firebase Auth hacia la bandeja registrada del trabajador.
  */
 export const adminSendPasswordReset = onCall({ cors: true }, async (request) => {
   if (!request.auth) {
@@ -686,26 +717,22 @@ export const adminSendPasswordReset = onCall({ cors: true }, async (request) => 
     throw new HttpsError('invalid-argument', 'Se requiere el correo electrónico del usuario.')
   }
 
-  try {
-    const link = await authAdmin.generatePasswordResetLink(userEmail)
+  // Registrar auditoría de seguridad
+  await db.collection('audit_logs').add({
+    entityType: 'user_profile',
+    entityId: targetUid || userEmail,
+    action: 'PASSWORD_RESET_AUTHORIZED_BY_ADMIN',
+    performedByUid: callerUid,
+    performedByEmail: request.auth.token?.email || callerData.email || '',
+    details: { email: userEmail },
+    timestamp: FieldValue.serverTimestamp(),
+    timestampIso: new Date().toISOString(),
+  })
 
-    await db.collection('audit_logs').add({
-      entityType: 'user_profile',
-      entityId: targetUid || userEmail,
-      action: 'PASSWORD_RESET_LINK_REQUESTED',
-      performedByUid: callerUid,
-      performedByEmail: request.auth.token?.email || callerData.email || '',
-      details: { email: userEmail },
-      timestamp: FieldValue.serverTimestamp(),
-      timestampIso: new Date().toISOString(),
-    })
-
-    return {
-      success: true,
-      email: userEmail,
-      passwordResetLink: link,
-    }
-  } catch (err) {
-    throw new HttpsError('internal', `Error al generar enlace de restablecimiento: ${err.message}`)
+  // Jamás devolver enlaces sensibles al navegador ni a la interfaz
+  return {
+    success: true,
+    email: userEmail,
+    message: 'Solicitud de restablecimiento autorizada y registrada en auditoría.',
   }
 })

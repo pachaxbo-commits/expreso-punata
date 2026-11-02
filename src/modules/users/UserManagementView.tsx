@@ -14,8 +14,6 @@ import {
   Phone,
   FileText,
   Lock,
-  Copy,
-  Check,
   RefreshCw,
 } from 'lucide-react'
 import {
@@ -33,7 +31,7 @@ const ROLE_LABELS: Record<UserRole, { label: string; bg: string; text: string }>
   directiva_admin: { label: 'Administrador General (Directiva)', bg: 'bg-purple-100', text: 'text-purple-800' },
   encargado_agencia: { label: 'Encargado de Agencia', bg: 'bg-blue-100', text: 'text-blue-800' },
   secretaria: { label: 'Secretaria / Ventanilla', bg: 'bg-emerald-100', text: 'text-emerald-800' },
-  tesoreria: { label: 'Tesorería Sindical', bg: 'bg-amber-100', text: 'text-amber-800' },
+  tesoreria: { label: 'Tesorería', bg: 'bg-amber-100', text: 'text-amber-800' },
   conductor: { label: 'Chofer / Conductor', bg: 'bg-indigo-100', text: 'text-indigo-800' },
 }
 
@@ -56,11 +54,9 @@ export const UserManagementView: React.FC = () => {
   const [auditUser, setAuditUser] = useState<UserProfile | null>(null)
   const [auditLogs, setAuditLogs] = useState<UserAuditLog[]>([])
   const [loadingAudit, setLoadingAudit] = useState(false)
-  const [passwordResetData, setPasswordResetData] = useState<{ email: string; link?: string; sentEmail?: boolean } | null>(null)
 
   // Estados de acción en progreso
   const [actionLoading, setActionLoading] = useState(false)
-  const [copiedLink, setCopiedLink] = useState(false)
 
   // Suscripción reactiva a usuarios
   useEffect(() => {
@@ -177,43 +173,32 @@ export const UserManagementView: React.FC = () => {
     }
   }
 
-  // Acción: Generar / Enviar restablecimiento de contraseña
+  // Acción: Enviar restablecimiento de contraseña oficial por correo
   const handleRequestPasswordReset = async (user: UserProfile) => {
     const targetEmail = user.email
     if (!targetEmail) {
-      alert('El usuario no tiene un correo electrónico registrado en Firebase Auth.')
+      alert('El operador no tiene un correo electrónico registrado en Firebase Authentication.')
       return
     }
 
+    const confirmMsg = `¿Confirma solicitar el restablecimiento de contraseña para "${user.fullName}" (${targetEmail})?\n\nEl enlace oficial se enviará exclusivamente a su bandeja de correo registrada.`
+    if (!window.confirm(confirmMsg)) return
+
     try {
       setActionLoading(true)
-      // Generar link mediante backend seguro
-      const res = await requestPasswordResetLink(targetEmail, user.uid)
-      setPasswordResetData({
-        email: targetEmail,
-        link: res.passwordResetLink,
-      })
-    } catch (err: any) {
-      // Fallback a cliente
+      // 1. Disparar el flujo oficial de Firebase Auth directamente a la bandeja del usuario
+      await sendUserPasswordResetEmail(targetEmail)
+      // 2. Registrar la autorización en la bitácora de auditoría del backend
       try {
-        await sendUserPasswordResetEmail(targetEmail)
-        setPasswordResetData({
-          email: targetEmail,
-          sentEmail: true,
-        })
-      } catch (clientErr: any) {
-        alert(`Error al procesar restablecimiento: ${err.message || clientErr.message}`)
+        await requestPasswordResetLink(targetEmail, user.uid)
+      } catch (auditErr) {
+        console.warn('Auditoría registrada:', auditErr)
       }
+      alert(`Correo oficial de restablecimiento enviado exitosamente a: ${targetEmail}.\nEl operador debe abrir el enlace recibido para configurar su contraseña.`)
+    } catch (err: any) {
+      alert(`Error al procesar restablecimiento: ${err.message}`)
     } finally {
       setActionLoading(false)
-    }
-  }
-
-  const handleCopyLink = () => {
-    if (passwordResetData?.link) {
-      navigator.clipboard.writeText(passwordResetData.link)
-      setCopiedLink(true)
-      setTimeout(() => setCopiedLink(false), 2500)
     }
   }
 
@@ -315,7 +300,7 @@ export const UserManagementView: React.FC = () => {
               <option value="encargado_agencia">Encargado de Agencia</option>
               <option value="secretaria">Secretaria / Ventanilla</option>
               <option value="conductor">Chofer / Conductor</option>
-              <option value="tesoreria">Tesorería Sindical</option>
+              <option value="tesoreria">Tesorería</option>
             </select>
           </div>
         </div>
@@ -563,14 +548,7 @@ export const UserManagementView: React.FC = () => {
           onClose={() => setIsNewUserModalOpen(false)}
           onSuccess={(result) => {
             setIsNewUserModalOpen(false)
-            if (result.passwordResetLink) {
-              setPasswordResetData({
-                email: result.profile.email || '',
-                link: result.passwordResetLink,
-              })
-            } else {
-              alert(`Operador ${result.profile.fullName} registrado exitosamente.`)
-            }
+            alert(`Operador ${result.profile.fullName} registrado exitosamente en Expreso Punata.\nSe ha habilitado su perfil en Cloud Firestore y Firebase Authentication.\nPara que configure su contraseña, puede utilizar la opción 'Restablecer Contraseña' para enviar el enlace oficial a ${result.profile.email}.`)
           }}
         />
       )}
@@ -620,7 +598,7 @@ export const UserManagementView: React.FC = () => {
                 <option value="secretaria">Secretaria / Ventanilla (Emisión de guías, cobros en caja)</option>
                 <option value="encargado_agencia">Encargado de Agencia (Almacén, inventario, caja)</option>
                 <option value="conductor">Chofer / Conductor (Manifiestos y entregas en ruta)</option>
-                <option value="tesoreria">Tesorería Sindical (Socios, mensualidades, reportes)</option>
+                <option value="tesoreria">Tesorería (Socios, mensualidades, reportes)</option>
                 <option value="directiva_admin">Administrador General (Control total de Expreso Punata)</option>
               </select>
             </div>
@@ -653,67 +631,7 @@ export const UserManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 4: RESULTADO DE ENLACE DE RESTABLECIMIENTO */}
-      {passwordResetData && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-4 border border-slate-200">
-            <div className="flex items-center gap-2 text-[#064e3b]">
-              <Key className="w-5 h-5" />
-              <h3 className="font-extrabold text-sm sm:text-base text-slate-800">
-                Enlace Oficial de Restablecimiento de Contraseña
-              </h3>
-            </div>
 
-            <p className="text-xs text-slate-600">
-              Expreso Punata y Firebase Auth han generado el siguiente procedimiento seguro para{' '}
-              <strong className="text-slate-800">{passwordResetData.email}</strong>.
-            </p>
-
-            {passwordResetData.link ? (
-              <div className="space-y-2">
-                <label className="text-[11px] font-bold text-slate-700 block">
-                  Enlace seguro de un solo uso generado por Firebase Admin:
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={passwordResetData.link}
-                    className="w-full p-2.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-mono text-slate-700 select-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleCopyLink}
-                    className={`px-3 py-2.5 text-xs font-bold rounded-lg flex items-center gap-1 shrink-0 ${
-                      copiedLink ? 'bg-emerald-600 text-white' : 'bg-[#064e3b] text-white hover:bg-emerald-800'
-                    }`}
-                  >
-                    {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedLink ? 'Copiado' : 'Copiar'}</span>
-                  </button>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Puede enviar este enlace directamente al operador para que ingrese y configure su contraseña personal. Las contraseñas jamás se transmiten ni guardan en texto claro.
-                </p>
-              </div>
-            ) : (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800">
-                Se ha enviado el correo electrónico oficial de restablecimiento a la bandeja de entrada del usuario.
-              </div>
-            )}
-
-            <div className="flex justify-end pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setPasswordResetData(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-lg transition"
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* MODAL 5: HISTORIAL DE AUDITORÍA */}
       {auditUser && (
@@ -795,7 +713,7 @@ export const UserManagementView: React.FC = () => {
 // =============================================================================
 interface NewUserModalProps {
   onClose: () => void
-  onSuccess: (result: { profile: UserProfile; passwordResetLink?: string }) => void
+  onSuccess: (result: { profile: UserProfile }) => void
 }
 
 const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
@@ -855,7 +773,6 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
       const res = await provisionUserThroughBackend(input)
       onSuccess({
         profile: res.profile,
-        passwordResetLink: res.passwordResetLink,
       })
     } catch (err: any) {
       setFormError(err.message || 'Error al aprovisionar usuario.')
@@ -962,7 +879,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
                 <option value="secretaria">Secretaria / Ventanilla</option>
                 <option value="encargado_agencia">Encargado de Agencia</option>
                 <option value="conductor">Chofer / Conductor</option>
-                <option value="tesoreria">Tesorería Sindical</option>
+                <option value="tesoreria">Tesorería</option>
                 <option value="directiva_admin">Administrador General (Directiva)</option>
               </select>
             </div>
@@ -1078,6 +995,7 @@ interface EditUserModalProps {
 
 const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess }) => {
   const [fullName, setFullName] = useState(user.fullName)
+  const [email, setEmail] = useState(user.email || '')
   const [phone, setPhone] = useState(user.phone)
   const [ci, setCi] = useState(user.ci || '')
   const [primaryBranchId, setPrimaryBranchId] = useState(user.primaryBranchId)
@@ -1108,6 +1026,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
       const input: ProvisionUserInput = {
         targetUid: user.uid,
         fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
         phone: phone.trim(),
         ci: ci.trim() ? ci.trim() : null, // Opcional, guarda null si no se ingresa
         role: user.role, // El rol se cambia en el modal dedicado para confirmación
@@ -1161,15 +1080,27 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div>
-            <label className="font-bold text-slate-700 block mb-1">Nombre Completo *</label>
-            <input
-              type="text"
-              required
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              className="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Nombre Completo *</label>
+              <input
+                type="text"
+                required
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
+              />
+            </div>
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Correo Electrónico (Firebase Auth) *</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
