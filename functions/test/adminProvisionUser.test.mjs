@@ -294,7 +294,7 @@ test('7. CI ES OPCIONAL: Guarda null cuando no se proporciona y no inventa datos
   assert.equal(docSnap.data().phone, '75999279')
 })
 
-test('8. ALTA DE NUEVO OPERADOR: Creación atómica mediante email sin targetUid previo', async () => {
+test('8. ALTA DE NUEVO OPERADOR: Creación atómica mediante email sin devolver enlaces sensibles', async () => {
   await db.collection('users').doc('admin-user').set({
     uid: 'admin-user',
     role: 'directiva_admin',
@@ -325,7 +325,8 @@ test('8. ALTA DE NUEVO OPERADOR: Creación atómica mediante email sin targetUid
   assert.equal(res.success, true)
   assert.ok(res.profile.uid)
   assert.equal(res.profile.email, uniqueEmail)
-  assert.ok(res.passwordResetLink)
+  // SEGURIDAD: Jamás devolver enlaces sensibles de reseteo al navegador
+  assert.equal(res.passwordResetLink, undefined)
 
   // Verificar que el usuario existe en Firebase Auth
   const createdAuthUser = await auth.getUser(res.profile.uid)
@@ -339,7 +340,7 @@ test('8. ALTA DE NUEVO OPERADOR: Creación atómica mediante email sin targetUid
   assert.equal(createdDoc.data().role, 'secretaria')
 })
 
-test('9. adminSendPasswordReset: Genera enlace de restablecimiento y asienta auditoría', async () => {
+test('9. adminSendPasswordReset: Registra auditoría sin exponer enlaces sensibles', async () => {
   await db.collection('users').doc('admin-user').set({
     uid: 'admin-user',
     role: 'directiva_admin',
@@ -358,7 +359,6 @@ test('9. adminSendPasswordReset: Genera enlace de restablecimiento y asienta aud
     }
   }
 
-  // Crear usuario previo en Auth para permitir generar el link
   try {
     await auth.createUser({
       email: 'test.reset@expresopunata.com',
@@ -368,12 +368,197 @@ test('9. adminSendPasswordReset: Genera enlace de restablecimiento y asienta aud
 
   const res = await adminSendPasswordReset.run(req)
   assert.equal(res.success, true)
-  assert.ok(res.passwordResetLink)
-  assert.ok(res.passwordResetLink.includes('mode=resetPassword') || res.passwordResetLink.includes('apiKey='))
+  assert.equal(res.email, 'test.reset@expresopunata.com')
+  // No expone el enlace al administrador
+  assert.equal(res.passwordResetLink, undefined)
 
   // Verificar audit log
   const auditSnap = await db.collection('audit_logs')
-    .where('action', '==', 'PASSWORD_RESET_LINK_REQUESTED')
+    .where('action', '==', 'PASSWORD_RESET_AUTHORIZED_BY_ADMIN')
     .get()
   assert.ok(auditSnap.size >= 1)
+})
+
+test('10. PROTECCIÓN DEL ÚLTIMO ADMINISTRADOR: No permite suspender ni degradar al único admin activo', async () => {
+  // Crear único admin
+  await db.collection('users').doc('unico-admin').set({
+    uid: 'unico-admin',
+    role: 'directiva_admin',
+    primaryBranchId: 'punata',
+    allowedBranchIds: ['punata', 'cochabamba'],
+    isActive: true,
+  })
+
+  try {
+    await auth.createUser({
+      uid: 'unico-admin',
+      email: 'unico.admin@expresopunata.com',
+      displayName: 'Único Administrador',
+    })
+  } catch {}
+
+  // Intento 1: Desactivar al único admin
+  const deactivateReq = {
+    auth: {
+      uid: 'unico-admin',
+      token: { email: 'unico.admin@expresopunata.com' }
+    },
+    data: {
+      targetUid: 'unico-admin',
+      fullName: 'Único Administrador',
+      phone: '75999279',
+      role: 'directiva_admin',
+      primaryBranchId: 'punata',
+      isActive: false, // Intento de suspensión
+    }
+  }
+
+  await assert.rejects(
+    async () => adminProvisionUser.run(deactivateReq),
+    (err) => {
+      assert.equal(err.code, 'failed-precondition')
+      return true
+    }
+  )
+
+  // Intento 2: Degradar rol a secretaria
+  const demoteReq = {
+    auth: {
+      uid: 'unico-admin',
+      token: { email: 'unico.admin@expresopunata.com' }
+    },
+    data: {
+      targetUid: 'unico-admin',
+      fullName: 'Único Administrador',
+      phone: '75999279',
+      role: 'secretaria', // Intento de degradación
+      primaryBranchId: 'punata',
+      isActive: true,
+    }
+  }
+
+  await assert.rejects(
+    async () => adminProvisionUser.run(demoteReq),
+    (err) => {
+      assert.equal(err.code, 'failed-precondition')
+      return true
+    }
+  )
+
+  // Verificar que el admin sigue activo e intacto
+  const adminSnap = await db.collection('users').doc('unico-admin').get()
+  assert.equal(adminSnap.data().role, 'directiva_admin')
+  assert.equal(adminSnap.data().isActive, true)
+})
+
+test('11. CAMBIO SEGURO DE CORREO: Sincroniza nuevo email en Auth y Firestore con emailVerified=false', async () => {
+  await db.collection('users').doc('admin-user').set({
+    uid: 'admin-user',
+    role: 'directiva_admin',
+    primaryBranchId: 'punata',
+    allowedBranchIds: ['punata', 'cochabamba'],
+    isActive: true,
+  })
+
+  const initialEmail = `operador.old.${Date.now()}@expresopunata.com`
+  const newEmail = `operador.new.${Date.now()}@expresopunata.com`
+
+  let targetAuth
+  try {
+    targetAuth = await auth.createUser({
+      uid: 'user-change-email',
+      email: initialEmail,
+      displayName: 'Operador Email Test',
+    })
+  } catch {
+    targetAuth = await auth.getUser('user-change-email')
+  }
+
+  await db.collection('users').doc('user-change-email').set({
+    uid: 'user-change-email',
+    email: initialEmail,
+    fullName: 'Operador Email Test',
+    role: 'secretaria',
+    primaryBranchId: 'punata',
+    isActive: true,
+  })
+
+  const req = {
+    auth: {
+      uid: 'admin-user',
+      token: { email: 'admin@expresopunata.com' }
+    },
+    data: {
+      targetUid: 'user-change-email',
+      fullName: 'Operador Email Test',
+      email: newEmail, // Nuevo correo
+      phone: '71712345',
+      role: 'secretaria',
+      primaryBranchId: 'punata',
+      isActive: true,
+    }
+  }
+
+  const res = await adminProvisionUser.run(req)
+  assert.equal(res.success, true)
+  assert.equal(res.profile.email, newEmail)
+
+  // Verificar en Firebase Auth
+  const updatedAuth = await auth.getUser('user-change-email')
+  assert.equal(updatedAuth.email, newEmail)
+  assert.equal(updatedAuth.emailVerified, false)
+
+  // Verificar en Firestore
+  const updatedDoc = await db.collection('users').doc('user-change-email').get()
+  assert.equal(updatedDoc.data().email, newEmail)
+})
+
+test('12. FAIL-CLOSED: Errores en authAdmin.updateUser lanzan HttpsError y no se ignoran', async () => {
+  await db.collection('users').doc('admin-user').set({
+    uid: 'admin-user',
+    role: 'directiva_admin',
+    primaryBranchId: 'punata',
+    allowedBranchIds: ['punata', 'cochabamba'],
+    isActive: true,
+  })
+
+  // Crear usuario con email existente
+  const conflictEmail = `conflict.${Date.now()}@expresopunata.com`
+  try {
+    await auth.createUser({
+      uid: 'user-existing-email',
+      email: conflictEmail,
+    })
+  } catch {}
+
+  try {
+    await auth.createUser({
+      uid: 'user-target-conflict',
+      email: `target.${Date.now()}@expresopunata.com`,
+    })
+  } catch {}
+
+  const req = {
+    auth: {
+      uid: 'admin-user',
+      token: { email: 'admin@expresopunata.com' }
+    },
+    data: {
+      targetUid: 'user-target-conflict',
+      fullName: 'Operador Conflicto',
+      email: conflictEmail, // Forzar error de email-already-exists
+      phone: '71712345',
+      role: 'secretaria',
+      primaryBranchId: 'punata',
+      isActive: true,
+    }
+  }
+
+  await assert.rejects(
+    async () => adminProvisionUser.run(req),
+    (err) => {
+      assert.ok(err.code === 'internal' || err.code === 'invalid-argument')
+      return true
+    }
+  )
 })

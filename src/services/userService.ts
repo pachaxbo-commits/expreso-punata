@@ -32,14 +32,13 @@ export interface ProvisionUserInput {
 export interface ProvisionUserResult {
   success: boolean
   message: string
-  passwordResetLink?: string
   profile: UserProfile
 }
 
 export interface PasswordResetResult {
   success: boolean
   email: string
-  passwordResetLink: string
+  message: string
 }
 
 /**
@@ -135,7 +134,8 @@ export async function provisionUserThroughBackend(
 }
 
 /**
- * Solicita el enlace de restablecimiento de contraseña mediante Cloud Function segura para directiva_admin.
+ * Autoriza y registra la solicitud de restablecimiento de contraseña en auditoría.
+ * Jamás expone enlaces sensibles al cliente.
  */
 export async function requestPasswordResetLink(
   email: string,
@@ -156,6 +156,7 @@ export async function requestPasswordResetLink(
 
 /**
  * Dispara el envío de correo de restablecimiento de contraseña usando el flujo oficial de Firebase Auth.
+ * Envía el enlace directamente a la bandeja del trabajador sin intermediarios ni exposición a terceros.
  */
 export async function sendUserPasswordResetEmail(email: string): Promise<void> {
   if (!email || !email.includes('@')) {
