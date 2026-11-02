@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "test:unit": "node --experimental-strip-types --test tests/unit/*.test.ts",
     "test:rules": "firebase emulators:exec --only firestore,auth \"node --test tests/rules/firestoreRules.test.mjs\"",
+    "test:functions": "firebase emulators:exec --only firestore \"npm --prefix functions test\"",
     "emulators": "firebase emulators:start --only auth,firestore,storage,functions"
   },
   "dependencies": {
@@ -18,6 +19,7 @@
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.21.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
@@ -25,6 +27,7 @@
     "@eslint/js": "^10.0.1",
     "@firebase/rules-unit-testing": "^5.0.1",
     "@types/node": "^24.12.3",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

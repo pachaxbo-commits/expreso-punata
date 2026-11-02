@@ -1,5 +1,5 @@
-# S.M.T. EXPRESO PUNATA — SISTEMA WEB INDEPENDIENTE
-## GESTIÓN MULTISUCURSAL DE ENCOMIENDAS & ADMINISTRACIÓN SINDICAL
+# EXPRESO PUNATA — SISTEMA WEB INDEPENDIENTE
+## GESTIÓN MULTISUCURSAL DE ENCOMIENDAS & ADMINISTRACIÓN
 **Propietario / Organización**: PACHAX (`pachaxbo-commits`)  
 **Cuenta Administradora**: `pachax.bo@gmail.com`  
 **Repositorio Privado**: `https://github.com/pachaxbo-commits/expreso-punata`  
@@ -8,7 +8,7 @@
 ---
 
 ### Descripción del Proyecto
-Aplicación web en la nube diseñada específicamente para **S.M.T. Expreso Punata**, permitiendo la operación simultánea y en tiempo real de dos sucursales:
+Aplicación web en la nube diseñada específicamente para **Expreso Punata**, permitiendo la operación simultánea y en tiempo real de dos sucursales:
 - **Agencia Central Punata (PUN)**
 - **Agencia Cochabamba (CBB)**
 
@@ -23,7 +23,7 @@ El sistema integra:
 3. **Padrón de Socios y Mensualidades**:
    - Registro de vehículos e internos (`M-14`, `M-28`).
    - Control de aportes, cuotas mensuales, moras y estados de cuenta.
-4. **Inventario / Bienes Fijos del Sindicato**:
+4. **Inventario / Bienes Fijos de Expreso Punata**:
    - Control de equipos, mobiliario, herramientas, impresoras con código QR.
    - Bajas y transferencias auditadas.
 5. **Seguridad y Permisos (RBAC)**:

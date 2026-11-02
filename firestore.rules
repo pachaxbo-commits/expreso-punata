@@ -84,11 +84,12 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // COLECCIÓN: counters (Generación atómica de números de guía/recibo)
+    // COLECCIÓN: counters (Generación atómica de números de guía/recibo en backend)
+    // El navegador NO puede escribir o modificar correlativos directamente
     // =========================================================================
     match /counters/{counterId} {
       allow read: if isAuthenticated();
-      allow write: if isCashier() || isTreasury();
+      allow write: if false; // Solo Cloud Functions con Admin SDK
     }
 
     // =========================================================================
@@ -182,7 +183,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // COLECCIÓN: fixed_assets (Inventario / Bienes Fijos del Sindicato)
+    // COLECCIÓN: fixed_assets (Inventario / Bienes Fijos de Expreso Punata)
     // =========================================================================
     match /fixed_assets/{assetId} {
       allow read: if isAuthenticated() && !isDriver();

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Package,
   Truck,
@@ -12,17 +12,43 @@ import {
   Plus,
   Printer,
   MapPin,
+  Filter,
+  CheckCircle2,
 } from 'lucide-react'
 import { AuthProvider, useAuth } from '../modules/auth/AuthContext'
 import { LoginView } from '../modules/auth/LoginView'
 import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../domain/expresoPunataConfig'
 import { DEV_SHIPMENTS, DEV_ASSETS, DEV_MEMBERS } from '../fixtures/devFixtures'
 import { formatCurrencyBob } from '../domain/parcelEngine'
+import { subscribeShipmentsByBranch } from '../services/shipmentService'
+import { printShipmentGuidePdf } from '../services/pdfService'
+import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
+import type { Shipment } from '../types'
 
 export const AppContent: React.FC = () => {
   const { userProfile, signOut, currentBranchId, setCurrentBranchId, hasRole } = useAuth()
   const [activeTab, setActiveTab] = useState('shipments')
   const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [isWizardOpen, setIsWizardOpen] = useState(false)
+  const [realShipments, setRealShipments] = useState<Shipment[]>([])
+  const [backendConnected, setBackendConnected] = useState(true)
+
+  // Suscripción reactiva a encomiendas en Firestore Emulator por sucursal
+  useEffect(() => {
+    const unsubscribe = subscribeShipmentsByBranch(
+      currentBranchId,
+      (list) => {
+        setRealShipments(list)
+        setBackendConnected(true)
+      },
+      (err) => {
+        console.warn('[App] Error al conectar con Firestore:', err)
+        setBackendConnected(false)
+      }
+    )
+    return () => unsubscribe()
+  }, [currentBranchId])
 
   if (!userProfile) {
     return <LoginView />
@@ -36,14 +62,29 @@ export const AppContent: React.FC = () => {
     { id: 'storage', label: 'Módulos de Almacén', icon: Boxes, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
-    { id: 'dues', label: 'Mensualidades & Socios', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
+    { id: 'dues', label: 'Socios & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
     { id: 'config', label: 'Configuración', icon: Settings, visible: hasRole(['directiva_admin']) },
   ].filter(t => t.visible)
 
+  // Encomiendas a listar (prioriza registros de Firestore Emulator)
+  const displayedShipments = realShipments.length > 0 ? realShipments : DEV_SHIPMENTS
+
+  const filteredShipments = displayedShipments.filter(s => {
+    if (statusFilter !== 'all' && s.status !== statusFilter) return false
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase().trim()
+      const matchCode = s.trackingCode?.toLowerCase().includes(term)
+      const matchSender = s.sender?.name?.toLowerCase().includes(term) || s.sender?.phone?.includes(term)
+      const matchRecipient = s.recipient?.name?.toLowerCase().includes(term) || s.recipient?.phone?.includes(term)
+      if (!matchCode && !matchSender && !matchRecipient) return false
+    }
+    return true
+  })
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col text-slate-800">
-      {/* Top Bar Institucional de S.M.T. Expreso Punata */}
+      {/* Top Bar Institucional de Expreso Punata */}
       <header className="bg-[#064e3b] text-white shadow-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
           {/* Logo y Nombre */}
@@ -139,8 +180,8 @@ export const AppContent: React.FC = () => {
               <h2 className="text-base font-bold text-slate-800">
                 {currentBranch.name} ({currentBranch.code})
               </h2>
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800">
-                Operativa en tiempo real
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${backendConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                {backendConnected ? 'Operativa en tiempo real' : 'Modo local'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -158,7 +199,7 @@ export const AppContent: React.FC = () => {
         {/* PESTAÑA 1: ENCOMIENDAS */}
         {activeTab === 'shipments' && (
           <div className="space-y-4">
-            {/* Acciones Rápidas */}
+            {/* Acciones Rápidas y Filtros */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
               <div className="relative flex-1 min-w-[240px]">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -166,82 +207,199 @@ export const AppContent: React.FC = () => {
                   type="text"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  placeholder="Buscar por guía (PUN-2026-...), remitente, destinatario o teléfono..."
+                  placeholder="Buscar por guía exacta (PUN-2026-...), remitente o destinatario..."
                   className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
                 />
               </div>
+
+              {/* Filtro de Estado */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
+                <Filter className="w-3.5 h-3.5 text-slate-500 ml-1.5" />
+                <select
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                  className="bg-transparent text-slate-700 text-xs font-semibold focus:outline-none cursor-pointer pr-1"
+                >
+                  <option value="all">Todos los estados</option>
+                  <option value="received">Recibido en Ventanilla</option>
+                  <option value="pending_dispatch">Pendiente Despacho</option>
+                  <option value="dispatched">Despachado</option>
+                  <option value="in_transit">En Tránsito</option>
+                  <option value="received_at_dest">Llegado a Destino</option>
+                  <option value="stored">En Módulo de Almacén</option>
+                  <option value="delivered">Entregado</option>
+                </select>
+              </div>
+
+              {/* Botón Lanzador de Asistente de 4 Pasos */}
               <button
                 type="button"
-                className="px-4 py-2 bg-[#064e3b] hover:bg-[#065f46] text-white text-xs font-bold rounded-lg shadow flex items-center gap-1.5"
+                onClick={() => setIsWizardOpen(true)}
+                className="px-4 py-2 bg-[#064e3b] hover:bg-[#065f46] text-[#facc15] text-xs font-extrabold rounded-lg shadow flex items-center gap-1.5 transition-all"
               >
                 <Plus className="w-4 h-4" />
                 <span>Nueva Encomienda (Paso a Paso)</span>
               </button>
             </div>
 
-            {/* Listado de Encomiendas de Muestra */}
+            {/* Listado de Encomiendas */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                  Envíos Registrados ({DEV_SHIPMENTS.length})
-                </span>
-                <span className="text-[11px] text-slate-500">
-                  Mostrando datos de desarrollo
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                    Envíos Registrados ({filteredShipments.length})
+                  </span>
+                  {realShipments.length > 0 ? (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      Firestore Emulator Conectado ({realShipments.length})
+                    </span>
+                  ) : (
+                    <span className="text-[10px] bg-amber-100 text-amber-800 font-medium px-2 py-0.5 rounded-full">
+                      Mostrando datos ficticios iniciales
+                    </span>
+                  )}
+                </div>
+                <span className="text-[11px] text-slate-500 font-mono">
+                  Sucursal: {currentBranch.code}
                 </span>
               </div>
 
-              <div className="divide-y divide-slate-100">
-                {DEV_SHIPMENTS.map(s => (
-                  <div key={s.id} className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-xs bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-[#064e3b]">
-                          {s.trackingCode}
-                        </span>
-                        <span className="text-[11px] font-semibold text-slate-600">
-                          {s.originCity} → {s.destinationCity}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-100 text-amber-800">
-                          {s.status}
-                        </span>
-                      </div>
+              {filteredShipments.length === 0 ? (
+                <div className="p-8 text-center space-y-3">
+                  <Package className="w-10 h-10 text-slate-300 mx-auto" />
+                  <p className="text-xs font-bold text-slate-600">
+                    No se encontraron encomiendas con el criterio seleccionado.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsWizardOpen(true)}
+                    className="px-4 py-2 bg-[#064e3b] text-[#facc15] text-xs font-bold rounded-lg shadow-sm"
+                  >
+                    Registrar Nueva Encomienda
+                  </button>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {filteredShipments.map(s => {
+                    const isPaid = s.paymentStatus === 'paid'
+                    const dateFormatted = s.createdAtIso
+                      ? new Date(s.createdAtIso).toLocaleString('es-BO', {
+                          timeZone: 'America/La_Paz',
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'Fecha reciente'
 
-                      <div className="text-xs text-slate-600">
-                        <span className="font-semibold text-slate-800">De:</span> {s.sender.name} ({s.sender.phone})
-                        <span className="mx-2 text-slate-300">|</span>
-                        <span className="font-semibold text-slate-800">Para:</span> {s.recipient.name} ({s.recipient.phone})
-                      </div>
-
-                      {s.storageLocation && (
-                        <div className="inline-flex items-center gap-1 text-[11px] bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 font-medium">
-                          <Boxes className="w-3 h-3 text-[#064e3b]" />
-                          Ubicación física: {s.storageLocation.shelfId} / {s.storageLocation.moduleId}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                      <div className="text-right">
-                        <div className="font-bold text-sm text-[#064e3b]">
-                          {formatCurrencyBob(s.finalAmountBob)}
-                        </div>
-                        <div className="text-[10px] uppercase font-semibold text-slate-500">
-                          {s.paymentTiming === 'origin_paid' ? 'Pagado en Origen' : 'Contraentrega'}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        className="p-2 border border-slate-200 rounded-lg hover:bg-slate-100 text-slate-600"
-                        title="Imprimir Comprobante"
+                    return (
+                      <div
+                        key={s.id}
+                        className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
                       >
-                        <Printer className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono font-extrabold text-xs bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200 text-[#064e3b]">
+                              {s.trackingCode}
+                            </span>
+                            <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
+                              {s.originCity} ➔ {s.destinationCity}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                s.status === 'delivered'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : s.status === 'in_transit'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : s.status === 'stored'
+                                  ? 'bg-purple-100 text-purple-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {s.status.replace(/_/g, ' ')}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {dateFormatted}
+                            </span>
+                          </div>
+
+                          <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2">
+                            <span>
+                              <strong className="text-slate-800">De:</strong> {s.sender.name} ({s.sender.phone})
+                            </span>
+                            <span className="text-slate-300">|</span>
+                            <span>
+                              <strong className="text-slate-800">Para:</strong> {s.recipient.name} ({s.recipient.phone})
+                            </span>
+                            {s.deliveryType === 'home' && (
+                              <span className="text-[11px] text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-medium">
+                                🏠 Domicilio: {s.deliveryAddress}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                            <span>
+                              {s.packageCount} bulto(s)
+                              {s.items?.[0] ? ` • ${s.items[0].description}` : ''}
+                            </span>
+                            {s.totalWeightKg ? <span>• {s.totalWeightKg} kg</span> : null}
+                            <span className="text-slate-400">• Op: {s.registeredByName || 'Ventanilla'}</span>
+                          </div>
+
+                          {s.storageLocation && (
+                            <div className="inline-flex items-center gap-1 text-[11px] bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 font-medium">
+                              <Boxes className="w-3 h-3 text-[#064e3b]" />
+                              Ubicación: {s.storageLocation.shelfId} / {s.storageLocation.moduleId}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end shrink-0 pt-2 sm:pt-0 border-t sm:border-0 border-slate-100">
+                          <div className="text-right">
+                            <div className="font-extrabold text-sm sm:text-base text-[#064e3b] font-mono">
+                              {formatCurrencyBob(s.finalAmountCents, true)}
+                            </div>
+                            <div
+                              className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded inline-block ${
+                                isPaid
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {isPaid
+                                ? `Pagado (${s.paymentMethod || 'Efectivo'})`
+                                : 'Por Cobrar (COD)'}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => printShipmentGuidePdf(s)}
+                            className="p-2.5 bg-slate-100 hover:bg-[#064e3b] hover:text-[#facc15] text-slate-700 rounded-xl transition-all shadow-sm"
+                            title="Imprimir Guía Oficial en PDF con QR"
+                          >
+                            <Printer className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
+
+            {/* Modal de Asistente de Nueva Encomienda */}
+            <NewShipmentWizardModal
+              isOpen={isWizardOpen}
+              onClose={() => setIsWizardOpen(false)}
+              onSuccess={() => {
+                // La lista se actualiza automáticamente gracias a onSnapshot
+              }}
+              existingShipments={displayedShipments}
+            />
           </div>
         )}
 
@@ -289,7 +447,7 @@ export const AppContent: React.FC = () => {
             <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
               <div>
                 <h3 className="text-sm font-bold text-slate-800">
-                  Inventario de Bienes Fijos del Sindicato
+                  Inventario de Bienes Fijos de Expreso Punata
                 </h3>
                 <p className="text-xs text-slate-500">
                   Control de muebles, computadoras, impresoras y herramientas.

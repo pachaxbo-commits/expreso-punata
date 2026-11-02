@@ -4,10 +4,10 @@ import type { Branch } from '../types/index.ts'
 export { EXPRESO_PUNATA_LOGO_DATA_URL, EXPRESO_PUNATA_LOGO_PATH }
 
 export const EXPRESO_PUNATA_COMPANY = {
-  name: 'S.M.T. EXPRESO PUNATA',
-  tradeName: 'S.M.T. EXPRESO PUNATA',
-  legalName: 'Sindicato Mixto de Transporte Expreso Punata',
-  acronym: 'S.M.T.',
+  name: 'EXPRESO PUNATA',
+  tradeName: 'EXPRESO PUNATA',
+  legalName: 'Expreso Punata',
+  acronym: 'EP',
   slogan: 'Servicio Ejecutivo — "Somos los Pioneros"',
   serviceHours: 'Atención 24 Horas',
   phone: '4-4571234 / 71798765',
