@@ -5,17 +5,16 @@ import { getStorage, connectStorageEmulator } from 'firebase/storage'
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions'
 
 /**
- * Configuración de Firebase para Expreso Punata.
- * En entorno de desarrollo o local, se conecta automáticamente a los emuladores
- * para garantizar cero costos, aislamiento total y pruebas seguras sin tocar producción.
+ * Configuración de Firebase para Expreso Punata (Desarrollo).
+ * Proyecto aislado: expreso-punata-dev
  */
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'demo-expreso-punata-api-key',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyAWSWtpZXjhDgq7IPS-Mvo4dp2cJsEqawg',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'expreso-punata-dev.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'demo-expreso-punata-dev',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'demo-expreso-punata-dev.appspot.com',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '1234567890',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:1234567890:web:abcdef',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'expreso-punata-dev',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'expreso-punata-dev.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '405140168085',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:405140168085:web:a94720c5be75f910996a9c',
 }
 
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp()
@@ -24,7 +23,9 @@ export const db = getFirestore(app)
 export const storage = getStorage(app)
 export const functions = getFunctions(app)
 
-// Conexión automática a Emuladores en desarrollo local
+// Control de conexión a Emuladores:
+// 1. Si VITE_USE_FIREBASE_EMULATORS está definido, manda su valor explícito ('true' o 'false').
+// 2. Si no está definido, se conecta a emuladores solo en localhost/desarrollo local.
 const isLocalhost = Boolean(
   typeof window !== 'undefined' &&
   (window.location.hostname === 'localhost' ||
@@ -32,7 +33,11 @@ const isLocalhost = Boolean(
     window.location.hostname.endsWith('.local'))
 )
 
-if (import.meta.env.DEV || isLocalhost) {
+const shouldConnectEmulators =
+  import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' ||
+  (import.meta.env.VITE_USE_FIREBASE_EMULATORS === undefined && (import.meta.env.DEV || isLocalhost))
+
+if (shouldConnectEmulators) {
   const emulatorHost = '127.0.0.1'
   try {
     // Solo conectar si no han sido conectados previamente
@@ -56,4 +61,6 @@ if (import.meta.env.DEV || isLocalhost) {
   } catch (err) {
     console.warn('[Expreso Punata] Advertencia al conectar emuladores:', err)
   }
+} else {
+  console.log('[Expreso Punata] Conectado a Firebase Cloud: expreso-punata-dev')
 }
