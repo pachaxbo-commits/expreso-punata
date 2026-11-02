@@ -64,10 +64,13 @@ async function runE2E() {
       viewport: { width: 1280, height: 800 },
     })
     const page = await context.newPage()
+    page.on('console', (msg) => console.log('[Browser Console]', msg.type(), msg.text()))
+    page.on('pageerror', (err) => console.log('[Browser Error]', err.message, '\nStack:', err.stack))
 
     // 1. Cargar aplicación
     console.log('[E2E] Navegando a la aplicación...')
-    await page.goto(`http://127.0.0.1:${PORT}`, { waitUntil: 'networkidle' })
+    await page.goto(`http://127.0.0.1:${PORT}`, { waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('text=EXPRESO PUNATA', { timeout: 10000 })
 
     // Validar Título
     const pageTitle = await page.title()
@@ -98,7 +101,7 @@ async function runE2E() {
 
     // 3. Abrir Asistente Nueva Encomienda
     console.log('[E2E] Abriendo Asistente "Nueva Encomienda"...')
-    await page.click('button:has-text("Nueva Encomienda (Paso a Paso)")')
+    await page.click('button:has-text("Nueva Encomienda")')
     await page.waitForSelector('text=1. Ruta', { timeout: 5000 })
 
     // Captura Paso 1 en Escritorio

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import {
   X,
   CheckCircle2,
@@ -57,45 +57,15 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [completedShipment, setCompletedShipment] = useState<Shipment | null>(null)
 
-  // Sincronizar initialShipment cuando se abre el modal
-  useEffect(() => {
-    if (initialShipment) {
-      setSelectedShipment(initialShipment)
-      setReceivedByName(initialShipment.recipient?.name || '')
-      setReceivedByDocNumber(initialShipment.recipient?.docNumber || '')
-      setReceivedByDocType(initialShipment.recipient?.docType === 'NINGUNO' ? 'CI' : (initialShipment.recipient?.docType || 'CI'))
-    } else {
-      setSelectedShipment(null)
-      setReceivedByName('')
-      setReceivedByDocNumber('')
-      setAuthorizationNote('')
-    }
-    setCompletedShipment(null)
-    setErrorMessage(null)
-    clearSignature()
-  }, [isOpen, initialShipment])
-
-  // Inicializar canvas cuando se muestra
-  useEffect(() => {
-    if (!isOpen || completedShipment) return
+  const clearSignature = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-
-    // Ajustar escala para pantallas retina / alta resolución
     const dpr = window.devicePixelRatio || 1
-    const rect = canvas.getBoundingClientRect()
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
-    ctx.scale(dpr, dpr)
-    ctx.lineWidth = 2.5
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.strokeStyle = '#0f172a'
-  }, [isOpen, selectedShipment, completedShipment])
-
-  if (!isOpen) return null
+    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr)
+    setHasSignature(false)
+  }, [])
 
   // Manejadores de dibujo en el canvas (táctil y ratón)
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
@@ -133,15 +103,43 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
     setIsDrawing(false)
   }
 
-  const clearSignature = () => {
+  // Sincronizar initialShipment cuando se abre el modal
+  useEffect(() => {
+    if (initialShipment) {
+      setSelectedShipment(initialShipment)
+      setReceivedByName(initialShipment.recipient?.name || '')
+      setReceivedByDocNumber(initialShipment.recipient?.docNumber || '')
+      setReceivedByDocType(initialShipment.recipient?.docType === 'NINGUNO' ? 'CI' : (initialShipment.recipient?.docType || 'CI'))
+    } else {
+      setSelectedShipment(null)
+      setReceivedByName('')
+      setReceivedByDocNumber('')
+      setAuthorizationNote('')
+    }
+    setCompletedShipment(null)
+    setErrorMessage(null)
+    clearSignature()
+  }, [isOpen, initialShipment])
+
+  // Inicializar canvas cuando se muestra
+  useEffect(() => {
+    if (!isOpen || completedShipment) return
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+
+    // Ajustar escala para pantallas retina / alta resolución
     const dpr = window.devicePixelRatio || 1
-    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr)
-    setHasSignature(false)
-  }
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * dpr
+    canvas.height = rect.height * dpr
+    ctx.scale(dpr, dpr)
+    ctx.lineWidth = 2.5
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = '#0f172a'
+  }, [isOpen, selectedShipment, completedShipment])
 
   // Filtrar o seleccionar encomienda por código
   const handleSelectShipment = (s: Shipment) => {
@@ -233,6 +231,8 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
     return s.destinationBranchId === currentBranch.id &&
       ['received_at_dest', 'stored', 'in_delivery', 'ready_for_pickup'].includes(s.status)
   })
+
+  if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm overflow-y-auto">
