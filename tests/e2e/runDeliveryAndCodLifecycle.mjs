@@ -343,22 +343,39 @@ async function runDeliveryLifecycle() {
   assert.equal(updatedCbbaShift.data().expectedCashCents, 5000 + ship2.shipment.finalAmountCents)
   console.log(`   ✓ Encomienda 2 entregada. COD de Bs 39.00 ingresado a caja. Total esperado: Bs ${(5000 + ship2.shipment.finalAmountCents) / 100}.00\n`)
 
-  // 9. RENDICIÓN DE CONDUCTOR: Don Juan rinde en caja de Cochabamba los Bs 30.00 cobrados en ruta
-  console.log('9. Don Juan Conductor rinde Bs 30.00 en caja de Cochabamba...')
-  const settlRes = await settleDriverCash.run({
+  // 9. RENDICIÓN DE CONDUCTOR: Don Juan rinde en caja de Cochabamba con rendición parcial y completa
+  console.log('9. Don Juan Conductor realiza rendición parcial de Bs 10.00 en caja de Cochabamba...')
+  const settlRes1 = await settleDriverCash.run({
     auth: { uid: 'sec-cbba-deliv' },
     data: {
       driverUid: 'chofer-deliv',
-      amountCents: ship3.shipment.finalAmountCents,
+      amountCents: 1000,
       shipmentIds: [ship3.shipment.id],
-      notes: 'Rendición de cobros de ruta Punata - Cochabamba',
-      idempotencyKey: `idemp-settl-${Date.now()}`,
+      notes: 'Rendición parcial de cobro de ruta',
+      idempotencyKey: `idemp-settl-part-${Date.now()}`,
     },
   })
-  assert.equal(settlRes.success, true)
-  assert.equal(settlRes.remainingDriverBalanceCents, 0)
-  console.log(`   ✓ Transferencia de custodia completada: ${settlRes.settlementNumber} por Bs ${settlRes.amountCents / 100}.00`)
-  console.log(`   ✓ Saldo restante bajo custodia de Don Juan: Bs ${settlRes.remainingDriverBalanceCents}.00`)
+  assert.equal(settlRes1.success, true)
+  assert.equal(settlRes1.settlementType, 'partial')
+  assert.equal(settlRes1.remainingDriverBalanceCents, 500)
+  console.log(`   ✓ Rendición parcial completada: Bs ${settlRes1.amountCents / 100}.00. Saldo restante bajo custodia: Bs ${settlRes1.remainingDriverBalanceCents / 100}.00`)
+
+  console.log('   Don Juan completa la rendición con los restantes Bs 5.00...')
+  const settlRes2 = await settleDriverCash.run({
+    auth: { uid: 'sec-cbba-deliv' },
+    data: {
+      driverUid: 'chofer-deliv',
+      amountCents: 500,
+      shipmentIds: [ship3.shipment.id],
+      notes: 'Rendición completa final de cobro de ruta',
+      idempotencyKey: `idemp-settl-full-${Date.now()}`,
+    },
+  })
+  assert.equal(settlRes2.success, true)
+  assert.equal(settlRes2.settlementType, 'full')
+  assert.equal(settlRes2.remainingDriverBalanceCents, 0)
+  console.log(`   ✓ Transferencia de custodia completada: ${settlRes2.settlementNumber} por Bs ${settlRes2.amountCents / 100}.00`)
+  console.log(`   ✓ Saldo restante bajo custodia de Don Juan: Bs ${settlRes2.remainingDriverBalanceCents}.00`)
 
   const finalCbbaShift = await db.collection('cash_shifts').doc(cbbaShiftId).get()
   const expectedTotal = 5000 + ship2.shipment.finalAmountCents + ship3.shipment.finalAmountCents

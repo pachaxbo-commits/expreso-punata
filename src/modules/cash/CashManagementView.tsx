@@ -591,9 +591,17 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                                   <span className="text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
                                     Egreso
                                   </span>
+                                ) : mov.type === 'driver_remittance' ? (
+                                  <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                    {mov.settlementType === 'partial' || mov.concept?.includes('parcial') ? 'Rendición Parcial' : 'Rendición Completa'}
+                                  </span>
+                                ) : mov.type === 'cod_income' ? (
+                                  <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                                    COD ingresado a Caja
+                                  </span>
                                 ) : (
                                   <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                    Venta Encomienda
+                                    Cobro Encomienda (Origen)
                                   </span>
                                 )}
                               </td>

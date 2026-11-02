@@ -299,6 +299,7 @@ export interface CashShift {
 export type FinancialMovementType =
   | 'shipment_income'
   | 'cod_income'
+  | 'driver_remittance'
   | 'contribution_income'
   | 'monthly_fee_income'
   | 'expense'
@@ -321,6 +322,7 @@ export interface FinancialMovement {
   status: 'completed' | 'cancelled'
   timestamp: string
   notes?: string
+  settlementType?: 'partial' | 'full'
 }
 
 export type CashMovement = FinancialMovement

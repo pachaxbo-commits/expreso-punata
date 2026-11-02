@@ -400,3 +400,18 @@ export async function getDriverCustodyBalanceThroughBackend(input: GetDriverCust
   const response = await callable(input)
   return response.data
 }
+
+export interface GetShipmentSignatureUrlInput {
+  shipmentId: string
+  storagePath?: string
+}
+
+export async function getShipmentSignatureUrlThroughBackend(input: GetShipmentSignatureUrlInput) {
+  const callable = httpsCallable<GetShipmentSignatureUrlInput, {
+    success: boolean
+    url: string
+    expiresInMinutes: number
+  }>(functions, 'getShipmentSignatureUrl')
+  const response = await callable(input)
+  return response.data
+}

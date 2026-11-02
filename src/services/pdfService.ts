@@ -1,13 +1,27 @@
+import { getShipmentSignatureUrlThroughBackend } from './dispatchService.ts'
 
 /**
  * Resuelve y carga la firma digital como Data URL, admitiendo Base64 en memoria o URL de Firebase Storage.
  */
-async function resolveSignatureDataUrl(deliv: any): Promise<string | null> {
+async function resolveSignatureDataUrl(deliv: any, shipmentId?: string): Promise<string | null> {
+  if (!deliv) return null
+  let url = deliv.signature?.downloadUrl || deliv.signatureUrl
+  if (!url && deliv.signature?.storagePath && shipmentId) {
+    try {
+      const res = await getShipmentSignatureUrlThroughBackend({
+        shipmentId,
+        storagePath: deliv.signature.storagePath,
+      })
+      if (res && res.url) url = res.url
+    } catch (err) {
+      console.warn('[pdfService] Signed URL fallback:', err)
+    }
+  }
   if (!deliv) return null
   if (typeof deliv.signatureDataUrl === 'string' && deliv.signatureDataUrl.startsWith('data:image')) {
     return deliv.signatureDataUrl
   }
-  const url = deliv.signature?.downloadUrl || deliv.signatureUrl
+  if (!url) url = deliv.signature?.downloadUrl || deliv.signatureUrl
   if (url && typeof url === 'string') {
     if (url.startsWith('data:image')) return url
     try {
@@ -964,7 +978,7 @@ export async function generateDeliveryProofPdf(shipment: Shipment): Promise<Blob
   doc.setFont('helvetica', 'bold')
   doc.text('FIRMA MANUSCRITA DIGITAL DEL RECEPTOR', 14, y + 4.5)
 
-  const resolvedSig = await resolveSignatureDataUrl(deliv)
+  const resolvedSig = await resolveSignatureDataUrl(deliv, shipment.id)
   if (resolvedSig) {
     try {
       doc.addImage(resolvedSig, 'PNG', 15, y + 6, 70, 32)
