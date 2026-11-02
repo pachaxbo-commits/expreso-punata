@@ -1054,6 +1054,30 @@ export const closeCashShift = onCall({ cors: true }, async (request) => {
   const actualCashBreakdown = payload.actualCashBreakdown && typeof payload.actualCashBreakdown === 'object'
     ? payload.actualCashBreakdown
     : null
+
+  // Validación autoritativa del desglose de billetes y monedas cuando se proporciona
+  if (actualCashBreakdown) {
+    let breakdownSumCents = 0
+    for (const [key, rawCount] of Object.entries(actualCashBreakdown)) {
+      const denomVal = parseFloat(key.replace(/^[bc]/i, ''))
+      if (isNaN(denomVal) || denomVal <= 0) {
+        continue
+      }
+      const count = parseInt(rawCount, 10) || 0
+      if (count < 0) {
+        throw new HttpsError('invalid-argument', `La cantidad para la denominación Bs ${key} no puede ser negativa.`)
+      }
+      const denomCents = Math.round(denomVal * 100)
+      breakdownSumCents += denomCents * count
+    }
+    if (breakdownSumCents !== actualCashCents) {
+      throw new HttpsError(
+        'invalid-argument',
+        `El desglose de billetes y monedas (Bs ${(breakdownSumCents / 100).toFixed(2)}) no coincide con el efectivo físico declarado (Bs ${(actualCashCents / 100).toFixed(2)}).`
+      )
+    }
+  }
+
   const notes = payload.notes && typeof payload.notes === 'string' ? payload.notes.trim() : ''
 
   const nowIso = new Date().toISOString()
@@ -1186,16 +1210,65 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
   const branchId = payload.branchId && typeof payload.branchId === 'string' ? payload.branchId.trim().toLowerCase() : ''
   const amountCents = Math.round(Number(payload.amountCents) || 0)
   const concept = payload.concept && typeof payload.concept === 'string' ? payload.concept.trim() : ''
-  const category = payload.category && typeof payload.category === 'string' ? payload.category.trim() : 'oficina'
+  const category = payload.category && typeof payload.category === 'string' ? payload.category.trim().toLowerCase() : 'oficina'
   const voucherNumber = payload.voucherNumber && typeof payload.voucherNumber === 'string' ? payload.voucherNumber.trim() : null
+  const idempotencyKey = payload.idempotencyKey && typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey.trim() : null
+  const approvedBy = payload.approvedBy && typeof payload.approvedBy === 'string' ? payload.approvedBy.trim() : null
 
   if (!branchId || amountCents <= 0 || !concept) {
     throw new HttpsError('invalid-argument', 'Debe proporcionar sucursal, monto positivo y concepto del egreso.')
   }
 
+  const validCategories = [
+    'oficina',
+    'limpieza',
+    'refrigerio',
+    'insumos',
+    'combustible',
+    'mantenimiento',
+    'transporte',
+    'viaticos',
+    'servicios_basicos',
+    'repuestos',
+    'alquiler',
+    'otro',
+  ]
+  if (!validCategories.includes(category)) {
+    throw new HttpsError('invalid-argument', `Categoría de egreso '${category}' no válida. Categorías permitidas: ${validCategories.join(', ')}.`)
+  }
+
+  // Límites y autorización para rol 'secretaria'
+  // Monto ordinario máximo sin aprobación superior: Bs 150.00 (15,000 centavos)
+  const isSupervisorOrAdmin = ['encargado_agencia', 'directiva_admin'].includes(callerData.role)
+  if (!isSupervisorOrAdmin && callerData.role === 'secretaria') {
+    if (amountCents > 15000 && !approvedBy) {
+      throw new HttpsError(
+        'permission-denied',
+        'Los egresos superiores a Bs 150.00 requieren el nombre o comprobante de autorización del Encargado de Sucursal o Directiva.'
+      )
+    }
+  }
+
   const nowIso = new Date().toISOString()
 
   return await db.runTransaction(async (transaction) => {
+    // 0. Idempotencia: si ya existe la clave, retornar el movimiento previo
+    if (idempotencyKey) {
+      const idemRef = db.collection('idempotency_keys').doc(`exp_${idempotencyKey}`)
+      const idemDoc = await transaction.get(idemRef)
+      if (idemDoc.exists) {
+        const cached = idemDoc.data() || {}
+        return {
+          success: true,
+          movementId: cached.movementId,
+          amountCents: cached.amountCents,
+          concept: cached.concept,
+          newExpectedCashCents: cached.newExpectedCashCents,
+          cached: true,
+        }
+      }
+    }
+
     // Buscar turno de caja abierto
     const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
     const lockDoc = await transaction.get(lockRef)
@@ -1227,8 +1300,9 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
       category,
       amountCents: -amountCents,
       paymentMethod: 'cash',
-      concept: `Egreso autorizado: ${concept}${voucherNumber ? ` (Comprobante: ${voucherNumber})` : ''}`,
+      concept: `Egreso autorizado: ${concept}${voucherNumber ? ` (Comprobante: ${voucherNumber})` : ''}${approvedBy ? ` [Autorizado por: ${approvedBy}]` : ''}`,
       referenceId: voucherNumber || shiftId,
+      authorizedBy: approvedBy || (isSupervisorOrAdmin ? callerData.fullName : 'Operador'),
       status: 'completed',
       timestamp: nowIso,
       createdAt: FieldValue.serverTimestamp(),
@@ -1243,6 +1317,19 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
       movementsCount: FieldValue.increment(1),
       updatedAt: FieldValue.serverTimestamp(),
     })
+
+    if (idempotencyKey) {
+      const idemRef = db.collection('idempotency_keys').doc(`exp_${idempotencyKey}`)
+      transaction.set(idemRef, {
+        movementId: expenseMovementId,
+        shiftId,
+        branchId,
+        amountCents,
+        concept,
+        newExpectedCashCents: currentExpectedCash - amountCents,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+    }
 
     return {
       success: true,
@@ -1315,6 +1402,42 @@ export const collectShipmentPayment = onCall({ cors: true }, async (request) => 
     const shipmentData = shipmentDoc.data() || {}
     if (shipmentData.paymentStatus === 'paid') {
       throw new HttpsError('failed-precondition', `La encomienda '${trackingCode}' ya se encuentra registrada como pagada.`)
+    }
+
+    // Validación transaccional de sucursal y condición operativa de cobro
+    const originBranch = (shipmentData.originBranchId || '').toLowerCase()
+    const destBranch = (shipmentData.destinationBranchId || '').toLowerCase()
+    const paymentTiming = shipmentData.paymentTiming || 'origin_paid'
+
+    if (paymentTiming === 'origin_pending' || paymentTiming === 'origin_paid') {
+      if (branchId !== originBranch) {
+        throw new HttpsError(
+          'failed-precondition',
+          `El pago pendiente en origen de la encomienda '${trackingCode}' solo puede ser cobrado en la sucursal de origen ('${originBranch.toUpperCase()}').`
+        )
+      }
+    } else if (paymentTiming === 'destination_cod') {
+      if (branchId !== destBranch) {
+        throw new HttpsError(
+          'failed-precondition',
+          `El cobro contraentrega (COD) de la encomienda '${trackingCode}' solo puede realizarse en la sucursal de destino ('${destBranch.toUpperCase()}').`
+        )
+      }
+      // Verificar estado operativo para cobro contraentrega
+      const allowedCodStatuses = ['received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery', 'delivered']
+      if (!allowedCodStatuses.includes(shipmentData.status)) {
+        throw new HttpsError(
+          'failed-precondition',
+          `La encomienda '${trackingCode}' se encuentra en estado '${shipmentData.status}'. No se puede realizar el cobro contraentrega anticipado antes de su arribo a la agencia de destino.`
+        )
+      }
+    }
+
+    if (['cancelled', 'lost', 'returned'].includes(shipmentData.status)) {
+      throw new HttpsError(
+        'failed-precondition',
+        `No es posible cobrar la encomienda '${trackingCode}' porque se encuentra en estado '${shipmentData.status}'.`
+      )
     }
 
     const amountCents = shipmentData.finalAmountCents || 0

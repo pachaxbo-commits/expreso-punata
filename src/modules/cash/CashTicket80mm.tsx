@@ -288,21 +288,41 @@ export const CashTicket80mm: React.FC<CashTicket80mmProps> = ({ shift, onClose }
       {/* Estilos de Impresión Nativa @media print para 80mm / 58mm */}
       <style>{`
         @media print {
+          @page {
+            margin: 0;
+            size: ${ticketWidth === '80mm' ? '80mm auto' : '58mm auto'};
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
           body * {
-            visibility: hidden;
+            visibility: hidden !important;
           }
           #thermal-print-area, #thermal-print-area * {
-            visibility: visible;
+            visibility: visible !important;
           }
           #thermal-print-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: ${ticketWidth === '80mm' ? '76mm' : '54mm'};
-            margin: 0;
-            padding: 2mm;
-            border: none;
-            box-shadow: none;
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: ${ticketWidth === '80mm' ? '74mm' : '52mm'} !important;
+            max-width: ${ticketWidth === '80mm' ? '74mm' : '52mm'} !important;
+            margin: 0 !important;
+            padding: 2mm 3mm !important;
+            border: none !important;
+            box-shadow: none !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            font-size: ${ticketWidth === '80mm' ? '9.5px' : '8px'} !important;
+            line-height: 1.25 !important;
+            overflow: visible !important;
+          }
+          .fixed, .backdrop-blur-sm, [class*="bg-slate-900"] {
+            background: transparent !important;
           }
         }
       `}</style>

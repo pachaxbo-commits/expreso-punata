@@ -13,6 +13,7 @@
     "test:unit": "node --experimental-strip-types --test tests/unit/*.test.ts",
     "test:rules": "firebase emulators:exec --only firestore,auth \"node --test tests/rules/firestoreRules.test.mjs\"",
     "test:functions": "firebase emulators:exec --only firestore,auth \"npm --prefix functions test\"",
+    "test:caja-lifecycle": "firebase emulators:exec --only firestore,auth \"node tests/e2e/runCajaLifecycle.mjs\"",
     "test:e2e": "node tests/e2e/runBrowserVerification.mjs",
     "emulators": "firebase emulators:start --only auth,firestore,storage,functions",
     "admin:bootstrap": "node scripts/bootstrapAdmin.mjs"
