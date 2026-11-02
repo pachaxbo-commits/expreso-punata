@@ -15,37 +15,45 @@ export async function generateShipmentGuidePdf(shipment: Shipment): Promise<Blob
     format: 'a5', // 148 x 210 mm
   })
 
-  // Generar imagen QR a partir del código de guía
+  // Código QR seguro (solo identificador de rastreo sin exponer datos personales ni teléfonos)
   const qrDataUrl = await QRCode.toDataURL(
-    `EXPRESO_PUNATA|GUIA:${shipment.trackingCode}|ORIGEN:${shipment.originCity}|DEST:${shipment.destinationCity}|TOTAL_BS:${(shipment.finalAmountCents / 100).toFixed(2)}`,
+    `https://expreso-punata.pachax.dev/rastreo?guia=${encodeURIComponent(shipment.trackingCode)}`,
     { width: 140, margin: 1 }
   )
 
+  // Franja de aviso de entorno de desarrollo
+  doc.setFillColor(254, 243, 199)
+  doc.rect(0, 0, 148, 5, 'F')
+  doc.setTextColor(146, 64, 14)
+  doc.setFontSize(6.5)
+  doc.setFont('helvetica', 'bold')
+  doc.text('DOCUMENTO DE PRUEBA EN DESARROLLO — SIN VALIDEZ FISCAL / NO OFICIAL', 18, 3.8)
+
   // Header institucional
   doc.setFillColor(6, 78, 59)
-  doc.rect(0, 0, 148, 26, 'F')
+  doc.rect(0, 5, 148, 24, 'F')
 
   doc.setTextColor(250, 204, 21)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
-  doc.text('EXPRESO PUNATA', 10, 11)
+  doc.text('EXPRESO PUNATA', 10, 14)
 
   doc.setFontSize(8)
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'normal')
-  doc.text(EXPRESO_PUNATA_COMPANY.slogan, 10, 17)
-  doc.text(`Telf: ${EXPRESO_PUNATA_COMPANY.phone} — Punata y Cochabamba`, 10, 22)
+  doc.text(EXPRESO_PUNATA_COMPANY.slogan, 10, 20)
+  doc.text(`Telf: ${EXPRESO_PUNATA_COMPANY.phone} — Punata y Cochabamba`, 10, 25)
 
   // Recuadro de Guía
   doc.setFillColor(255, 255, 255)
-  doc.roundedRect(88, 5, 52, 17, 2, 2, 'F')
+  doc.roundedRect(88, 8, 52, 18, 2, 2, 'F')
   doc.setTextColor(6, 78, 59)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
-  doc.text('GUÍA DE ENCOMIENDA', 92, 10)
+  doc.text('GUÍA DE ENCOMIENDA', 92, 13)
   doc.setFontSize(12)
   doc.setTextColor(180, 83, 9)
-  doc.text(shipment.trackingCode, 92, 18)
+  doc.text(shipment.trackingCode, 92, 21)
 
   // Metadatos de Fecha y Operador
   doc.setFontSize(7.5)

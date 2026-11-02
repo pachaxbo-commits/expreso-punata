@@ -85,18 +85,36 @@ service cloud.firestore {
 
     // =========================================================================
     // COLECCIÓN: counters (Generación atómica de números de guía/recibo en backend)
-    // El navegador NO puede escribir o modificar correlativos directamente
+    // El navegador NO puede leer, escribir ni alterar correlativos
     // =========================================================================
     match /counters/{counterId} {
-      allow read: if isAuthenticated();
-      allow write: if false; // Solo Cloud Functions con Admin SDK
+      allow read, write: if false; // Exclusivo de Cloud Functions con Admin SDK
+    }
+
+    // =========================================================================
+    // COLECCIÓN: idempotency_keys (Control de idempotencia del backend)
+    // =========================================================================
+    match /idempotency_keys/{keyId} {
+      allow read, write: if false; // Exclusivo de Cloud Functions con Admin SDK
+    }
+
+    // =========================================================================
+    // COLECCIÓN: financial_movements (Movimientos financieros auditables)
+    // =========================================================================
+    match /financial_movements/{movementId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        isTreasury() ||
+        isAllowedBranch(resource.data.branchId)
+      );
+      allow write: if false; // Solo backend en transacciones atómicas
     }
 
     // =========================================================================
     // COLECCIÓN: shipments (Encomiendas)
     // =========================================================================
     match /shipments/{shipmentId} {
-      // Lectura: secretarias de sucursales permitidas, administradores, tesorería, o chofer asignado
+      // Lectura: secretarias de origen o destino, administradores, tesorería, o conductor asignado
       allow read: if isAuthenticated() && (
         isAdmin() ||
         isTreasury() ||
@@ -105,29 +123,26 @@ service cloud.firestore {
         (isDriver() && resource.data.assignedVehicle.driverUid == request.auth.uid)
       );
 
-      // Creación: secretarias en su propia sucursal de origen
-      allow create: if isCashier() &&
-        isAllowedBranch(request.resource.data.originBranchId) &&
-        request.resource.data.registeredByUid == request.auth.uid &&
-        request.resource.data.trackingCode is string &&
-        request.resource.data.trackingCode.size() > 5;
+      // Creación: TOTALMENTE PROHIBIDA desde clientes / navegadores directos
+      // Toda encomienda y guía debe emitirse exclusivamente mediante Cloud Functions
+      allow create: if false;
 
-      // Actualización de estado y transiciones
+      // Actualización de estado y transiciones autorizadas (solo campos no financieros)
       allow update: if isAuthenticated() && (
         isAdmin() ||
-        (isCashier() && (isAllowedBranch(resource.data.originBranchId) || isAllowedBranch(resource.data.destinationBranchId))) ||
+        (isCashier() && (isAllowedBranch(resource.data.originBranchId) || isAllowedBranch(resource.data.destinationBranchId)) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'storageLocation', 'updatedAt', 'deliveryRecord'])) ||
         (isDriver() && resource.data.assignedVehicle.driverUid == request.auth.uid &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deliveryRecord', 'driverCustody', 'updatedAt']))
       );
 
-      // Eliminación prohibida: Las encomiendas son registros inmutables; solo transiciones de estado
+      // Eliminación prohibida: Las encomiendas son registros inmutables
       allow delete: if false;
 
       // Subcolección: status_logs (Historial auditado independiente)
       match /status_logs/{logId} {
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated() && request.resource.data.operatorUid == request.auth.uid;
-        allow update, delete: if false; // Inmutable append-only
+        allow create, update, delete: if false; // Solo backend append-only
       }
 
       // Subcolección: storage_moves (Historial de traslados físicos entre módulos)

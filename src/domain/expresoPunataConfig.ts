@@ -40,7 +40,10 @@ export const INITIAL_BRANCHES: Branch[] = [
   },
 ]
 
+// TARIFAS REFERENCIALES DE DESARROLLO (NO OFICIALES NI CONFIRMADAS POR EXPRESO PUNATA)
 export const EXPRESO_PUNATA_TARIFFS = {
+  isDevReference: true,
+  notice: 'Valores referenciales de desarrollo — Sujeto a tarifario oficial de Expreso Punata',
   baseFeeBob: 15,
   baseFeeCents: 1500,
   freeWeightKg: 3,

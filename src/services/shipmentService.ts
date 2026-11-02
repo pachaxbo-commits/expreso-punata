@@ -4,6 +4,7 @@ import {
   getDoc,
   query,
   where,
+  or,
   onSnapshot,
   limit,
 } from 'firebase/firestore'
@@ -91,12 +92,19 @@ export function subscribeShipmentsByBranch(
 ): () => void {
   const shipmentsRef = collection(db, 'shipments')
 
-  // Consulta por sucursal de origen o destino
+  // Consulta por sucursal de origen o de llegada/destino (multisucursal compatible con Firestore Rules)
   let q
   if (branchId === 'all') {
     q = query(shipmentsRef, limit(100))
   } else {
-    q = query(shipmentsRef, where('originBranchId', '==', branchId), limit(100))
+    q = query(
+      shipmentsRef,
+      or(
+        where('originBranchId', '==', branchId),
+        where('destinationBranchId', '==', branchId)
+      ),
+      limit(100)
+    )
   }
 
   return onSnapshot(

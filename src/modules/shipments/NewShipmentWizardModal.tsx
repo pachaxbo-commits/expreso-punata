@@ -760,7 +760,10 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
               <div className="bg-[#064e3b] text-white p-4 rounded-xl shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="space-y-0.5 text-xs">
                   <p className="font-bold text-[#facc15] uppercase tracking-wide">
-                    Tarifa Calculada (Centavos Exactos)
+                    Tarifa Estimada (Referencial de Desarrollo)
+                  </p>
+                  <p className="text-emerald-200 text-[10px] italic">
+                    * Importes referenciales sujetos al tarifario formal de Expreso Punata
                   </p>
                   <p className="text-emerald-200 text-[11px]">
                     Base: Bs. 15.00 (hasta 3 kg) • Exceso: {pricing.chargeableExcessWeightKg} kg • Total: {totalWeight} kg

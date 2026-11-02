@@ -8,16 +8,16 @@ if (getApps().length === 0) {
 
 const db = getFirestore()
 
-// Tarifas canónicas oficiales en centavos
-const TARIFFS = {
-  baseFeeCents: 1500, // Bs. 15.00
+// Tarifas referenciales de desarrollo (no oficiales ni confirmadas con Expreso Punata)
+const TARIFFS_DEV_REFERENCE = {
+  baseFeeCents: 1500, // Referencial desarrollo: Bs. 15.00
   freeWeightKg: 3,
-  extraKgRateCents: 200, // Bs. 2.00 por kg adicional
-  homeDeliveryFeeCents: 1200, // Bs. 12.00
+  extraKgRateCents: 200, // Referencial desarrollo: Bs. 2.00 por kg adicional
+  homeDeliveryFeeCents: 1200, // Referencial desarrollo: Bs. 12.00
 }
 
 /**
- * Cloud Function Callable para la creación atómica, segura e idempotente de encomiendas.
+ * Cloud Function Callable para la creación atómica, segura, idempotente y auditable de encomiendas.
  * Utiliza Firebase Admin SDK y transacciones de Firestore.
  */
 export const createShipment = onCall({ cors: true }, async (request) => {
@@ -58,6 +58,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     discountCents = 0,
     prohibitedGoodsNoticeAccepted,
     idempotencyKey,
+    cashShiftId = null,
   } = payload
 
   // 3. Validar sucursal autorizada para el usuario
@@ -96,7 +97,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
   if (!['agency', 'home', 'direct_driver'].includes(deliveryType)) {
     throw new HttpsError('invalid-argument', 'Modalidad de entrega inválida.')
   }
-  if (deliveryType === 'home' && (!deliveryAddress || deliveryAddress.trim().length < 5)) {
+  if (deliveryType === 'home' && (!deliveryAddress || deliveryAddress.trim().length < 4)) {
     throw new HttpsError('invalid-argument', 'Debe especificar la dirección exacta para entrega a domicilio.')
   }
 
@@ -135,11 +136,25 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
   const safeIdempotencyKey = idempotencyKey.trim()
 
+  // Huella de datos para verificar que una misma clave no se use con datos distintos
+  const payloadFingerprint = JSON.stringify({
+    originBranchId,
+    destinationBranchId,
+    deliveryType,
+    senderName: sender.name.trim().toLowerCase(),
+    senderPhone: sender.phone.trim(),
+    recipientName: recipient.name.trim().toLowerCase(),
+    recipientPhone: recipient.phone.trim(),
+    itemCount: items.length,
+    paymentTiming,
+    paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : null,
+  })
+
   // 10. Cálculo canónico del costo en centavos enteros
-  const chargeableExcessWeightKg = Math.max(0, Math.round((totalWeightKg - TARIFFS.freeWeightKg) * 100) / 100)
-  const baseFeeCents = TARIFFS.baseFeeCents
-  const weightSurchargeCents = Math.round(chargeableExcessWeightKg * TARIFFS.extraKgRateCents)
-  const homeDeliveryFeeCents = deliveryType === 'home' ? TARIFFS.homeDeliveryFeeCents : 0
+  const chargeableExcessWeightKg = Math.max(0, Math.round((totalWeightKg - TARIFFS_DEV_REFERENCE.freeWeightKg) * 100) / 100)
+  const baseFeeCents = TARIFFS_DEV_REFERENCE.baseFeeCents
+  const weightSurchargeCents = Math.round(chargeableExcessWeightKg * TARIFFS_DEV_REFERENCE.extraKgRateCents)
+  const homeDeliveryFeeCents = deliveryType === 'home' ? TARIFFS_DEV_REFERENCE.homeDeliveryFeeCents : 0
   const subtotalCents = baseFeeCents + weightSurchargeCents + homeDeliveryFeeCents
   const safeDiscountCents = Math.min(subtotalCents, Math.max(0, Math.round(Number(discountCents) || 0)))
   const finalAmountCents = subtotalCents - safeDiscountCents
@@ -154,7 +169,16 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     // A. Comprobar si ya existe la clave de idempotencia
     const idempDoc = await transaction.get(idempotencyDocRef)
     if (idempDoc.exists) {
-      const existingTrackingCode = idempDoc.data().trackingCode
+      const idempData = idempDoc.data() || {}
+      // Validación de aislamiento de usuario
+      if (idempData.callerUid && idempData.callerUid !== callerUid) {
+        throw new HttpsError('permission-denied', 'Esta clave de idempotencia pertenece a otro usuario.')
+      }
+      // Validación de consistencia de datos
+      if (idempData.payloadFingerprint && idempData.payloadFingerprint !== payloadFingerprint) {
+        throw new HttpsError('invalid-argument', 'Esta clave de idempotencia ya fue utilizada con datos de envío diferentes.')
+      }
+      const existingTrackingCode = idempData.trackingCode
       const existingShipmentDoc = await transaction.get(db.collection('shipments').doc(existingTrackingCode))
       if (existingShipmentDoc.exists) {
         return {
@@ -179,6 +203,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
     const nowIso = new Date().toISOString()
     const isPaid = paymentTiming === 'origin_paid'
+    const movementId = isPaid ? `MOV-${trackingCode}` : null
 
     // C. Ensamblar documento de encomienda con centavos enteros como valor canónico
     const newShipment = {
@@ -227,13 +252,14 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       discountCents: safeDiscountCents,
       finalAmountCents,
 
-      // Condición de cobro
+      // Condición de cobro y movimiento financiero auditable
       paymentTiming,
       paymentStatus: isPaid ? 'paid' : 'pending',
       paymentMethod: isPaid ? paymentMethod : null,
       paidAt: isPaid ? nowIso : null,
       paidCashierUid: isPaid ? callerUid : null,
       paidCashierName: isPaid ? (userProfile.fullName || 'Secretaria') : null,
+      financialMovementId: movementId,
 
       status: 'received',
       registeredByUid: callerUid,
@@ -255,7 +281,28 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       createdAtIso: nowIso,
     }
 
-    // E. Escribir operaciones atómicas en la transacción
+    // E. Registro financiero auditable si fue pagado en origen
+    if (isPaid && movementId) {
+      const financialMovementDocRef = db.collection('financial_movements').doc(movementId)
+      const financialMovement = {
+        id: movementId,
+        trackingCode,
+        operatorUid: callerUid,
+        operatorName: userProfile.fullName || 'Secretaria',
+        branchId: originBranchId,
+        amountCents: finalAmountCents,
+        paymentMethod,
+        concept: 'shipment_origin_payment',
+        status: 'completed',
+        cashShiftId,
+        idempotencyKey: safeIdempotencyKey,
+        createdAt: FieldValue.serverTimestamp(),
+        createdAtIso: nowIso,
+      }
+      transaction.set(financialMovementDocRef, financialMovement)
+    }
+
+    // F. Escribir operaciones atómicas en la transacción
     transaction.set(counterDocRef, {
       branchId: originBranchId,
       branchCode,
@@ -268,8 +315,9 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     transaction.set(initialStatusLogRef, initialStatusLog)
     transaction.set(idempotencyDocRef, {
       trackingCode,
-      createdAt: FieldValue.serverTimestamp(),
       callerUid,
+      payloadFingerprint,
+      createdAt: FieldValue.serverTimestamp(),
     })
 
     return {

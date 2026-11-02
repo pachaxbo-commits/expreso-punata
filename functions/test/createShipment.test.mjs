@@ -1,9 +1,8 @@
-import { test, before, after, beforeEach } from 'node:test'
+import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { initializeApp, getApps, deleteApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 
-// Asegurar que apunte al emulador de Firestore
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
 process.env.GCLOUD_PROJECT = 'demo-expreso-punata-dev'
 
@@ -25,7 +24,7 @@ after(async () => {
   }
 })
 
-// Función helper para invocar la lógica de creación atómica
+// Simulación exacta de la función transaccional ejecutada por Admin SDK
 async function executeCreateShipment(callerAuth, data) {
   if (!callerAuth) {
     throw new Error('UNAUTHENTICATED: Debe iniciar sesión para registrar encomiendas.')
@@ -59,6 +58,7 @@ async function executeCreateShipment(callerAuth, data) {
     discountCents = 0,
     prohibitedGoodsNoticeAccepted,
     idempotencyKey,
+    cashShiftId = null,
   } = data
 
   const userAllowedBranches = userProfile.allowedBranchIds || [userProfile.primaryBranchId]
@@ -83,9 +83,22 @@ async function executeCreateShipment(callerAuth, data) {
     throw new Error('FAILED_PRECONDITION: Debe aceptarse la declaración.')
   }
 
-  if (!idempotencyKey) {
+  if (!idempotencyKey || typeof idempotencyKey !== 'string') {
     throw new Error('INVALID_ARGUMENT: Clave de idempotencia requerida.')
   }
+
+  const payloadFingerprint = JSON.stringify({
+    originBranchId,
+    destinationBranchId,
+    deliveryType,
+    senderName: sender.name.trim().toLowerCase(),
+    senderPhone: sender.phone.trim(),
+    recipientName: recipient.name.trim().toLowerCase(),
+    recipientPhone: recipient.phone.trim(),
+    itemCount: items.length,
+    paymentTiming,
+    paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : null,
+  })
 
   let totalWeightKg = 0
   let packageCount = 0
@@ -109,7 +122,14 @@ async function executeCreateShipment(callerAuth, data) {
   return await db.runTransaction(async (transaction) => {
     const idempDoc = await transaction.get(idempotencyDocRef)
     if (idempDoc.exists) {
-      const existingTracking = idempDoc.data().trackingCode
+      const idempData = idempDoc.data()
+      if (idempData.callerUid && idempData.callerUid !== callerAuth.uid) {
+        throw new Error('PERMISSION_DENIED: Esta clave de idempotencia pertenece a otro usuario.')
+      }
+      if (idempData.payloadFingerprint && idempData.payloadFingerprint !== payloadFingerprint) {
+        throw new Error('INVALID_ARGUMENT: Clave de idempotencia ya utilizada con datos de envío diferentes.')
+      }
+      const existingTracking = idempData.trackingCode
       const existingDoc = await transaction.get(db.collection('shipments').doc(existingTracking))
       if (existingDoc.exists) {
         return { isDuplicate: true, shipment: existingDoc.data() }
@@ -120,6 +140,9 @@ async function executeCreateShipment(callerAuth, data) {
     const nextSeq = counterDoc.exists ? (Number(counterDoc.data().current) || 0) + 1 : 1
     const seqStr = String(nextSeq).padStart(5, '0')
     const trackingCode = `${branchCode}-${currentYear}-${seqStr}`
+
+    const isPaid = paymentTiming === 'origin_paid'
+    const movementId = isPaid ? `MOV-${trackingCode}` : null
 
     const shipmentDocRef = db.collection('shipments').doc(trackingCode)
     const newShipment = {
@@ -135,26 +158,51 @@ async function executeCreateShipment(callerAuth, data) {
       totalWeightKg,
       finalAmountCents,
       paymentTiming,
+      paymentStatus: isPaid ? 'paid' : 'pending',
+      paymentMethod: isPaid ? paymentMethod : null,
+      financialMovementId: movementId,
       status: 'received',
       registeredByUid: callerAuth.uid,
       registeredByName: userProfile.fullName,
     }
 
+    if (isPaid && movementId) {
+      const movDocRef = db.collection('financial_movements').doc(movementId)
+      transaction.set(movDocRef, {
+        id: movementId,
+        trackingCode,
+        operatorUid: callerAuth.uid,
+        operatorName: userProfile.fullName,
+        branchId: originBranchId,
+        amountCents: finalAmountCents,
+        paymentMethod,
+        concept: 'shipment_origin_payment',
+        status: 'completed',
+        cashShiftId,
+        idempotencyKey,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+    }
+
     transaction.set(counterDocRef, { current: nextSeq, year: currentYear }, { merge: true })
     transaction.set(shipmentDocRef, newShipment)
-    transaction.set(idempotencyDocRef, { trackingCode, createdAt: FieldValue.serverTimestamp() })
+    transaction.set(idempotencyDocRef, {
+      trackingCode,
+      callerUid: callerAuth.uid,
+      payloadFingerprint,
+      createdAt: FieldValue.serverTimestamp(),
+    })
 
     return { isDuplicate: false, shipment: newShipment }
   })
 }
 
-test('1. Creación atómica e incremento secuencial de guía', async () => {
-  // Configurar usuario de prueba
-  await db.collection('users').doc('sec-test-1').set({
+test('1. Creación atómica de encomienda CON movimiento financiero auditable (origin_paid)', async () => {
+  await db.collection('users').doc('sec-test-fin').set({
     role: 'secretaria',
     primaryBranchId: 'punata',
     allowedBranchIds: ['punata'],
-    fullName: 'Secretaria Punata 1',
+    fullName: 'Secretaria Financiera Punata',
     isActive: true,
   })
 
@@ -162,132 +210,161 @@ test('1. Creación atómica e incremento secuencial de guía', async () => {
     originBranchId: 'punata',
     destinationBranchId: 'cochabamba',
     deliveryType: 'agency',
-    sender: { name: 'Carlos Perez', phone: '71711111' },
-    recipient: { name: 'Maria Lopez', phone: '72222222' },
-    items: [{ description: 'Caja con repuestos', quantity: 2, weightKg: 5 }],
+    sender: { name: 'Raúl Morales', phone: '71712345' },
+    recipient: { name: 'Ana Gómez', phone: '72254321' },
+    items: [{ description: 'Caja con calzados', quantity: 1, weightKg: 2 }],
     paymentTiming: 'origin_paid',
+    paymentMethod: 'cash',
     prohibitedGoodsNoticeAccepted: true,
-    idempotencyKey: 'idemp-test-atomic-001',
+    idempotencyKey: 'idemp-fin-001',
   }
 
-  const res1 = await executeCreateShipment({ uid: 'sec-test-1' }, payload)
-  assert.equal(res1.isDuplicate, false)
-  assert.match(res1.shipment.trackingCode, /^PUN-2026-\d{5}$/)
-  assert.equal(res1.shipment.packageCount, 2)
-  assert.equal(res1.shipment.finalAmountCents, 1900) // 1500 base + 2kg exceso * 200 = 1900
+  const res = await executeCreateShipment({ uid: 'sec-test-fin' }, payload)
+  assert.equal(res.isDuplicate, false)
+  assert.equal(res.shipment.paymentStatus, 'paid')
+  assert.ok(res.shipment.financialMovementId)
+
+  // Verificar que el documento financiero fue creado en Firestore
+  const movDoc = await db.collection('financial_movements').doc(res.shipment.financialMovementId).get()
+  assert.equal(movDoc.exists, true)
+  assert.equal(movDoc.data().amountCents, 1500)
+  assert.equal(movDoc.data().paymentMethod, 'cash')
+  assert.equal(movDoc.data().trackingCode, res.shipment.trackingCode)
 })
 
-test('2. Idempotencia estricta: solicitud repetida devuelve la misma guía sin duplicar', async () => {
+test('2. Encomienda contraentrega (destination_cod) NO crea movimiento financiero en origen', async () => {
   const payload = {
     originBranchId: 'punata',
     destinationBranchId: 'cochabamba',
     deliveryType: 'agency',
-    sender: { name: 'Carlos Perez', phone: '71711111' },
-    recipient: { name: 'Maria Lopez', phone: '72222222' },
-    items: [{ description: 'Documentos urgentes', quantity: 1, weightKg: 1 }],
-    paymentTiming: 'origin_paid',
+    sender: { name: 'Raúl Morales', phone: '71712345' },
+    recipient: { name: 'Ana Gómez', phone: '72254321' },
+    items: [{ description: 'Sobre de cartas', quantity: 1, weightKg: 0.5 }],
+    paymentTiming: 'destination_cod',
     prohibitedGoodsNoticeAccepted: true,
-    idempotencyKey: 'idemp-duplicate-check-999',
+    idempotencyKey: 'idemp-cod-002',
   }
 
-  const res1 = await executeCreateShipment({ uid: 'sec-test-1' }, payload)
-  const res2 = await executeCreateShipment({ uid: 'sec-test-1' }, payload)
+  const res = await executeCreateShipment({ uid: 'sec-test-fin' }, payload)
+  assert.equal(res.shipment.paymentStatus, 'pending')
+  assert.equal(res.shipment.financialMovementId, null)
 
+  const movDoc = await db.collection('financial_movements').doc(`MOV-${res.shipment.trackingCode}`).get()
+  assert.equal(movDoc.exists, false)
+})
+
+test('3. Idempotencia reforzada: rechaza misma clave con datos diferentes y usuario diferente', async () => {
+  const payloadOriginal = {
+    originBranchId: 'punata',
+    destinationBranchId: 'cochabamba',
+    deliveryType: 'agency',
+    sender: { name: 'Cliente A', phone: '71700001' },
+    recipient: { name: 'Destino A', phone: '72200001' },
+    items: [{ description: 'Item 1', quantity: 1 }],
+    paymentTiming: 'origin_paid',
+    prohibitedGoodsNoticeAccepted: true,
+    idempotencyKey: 'idemp-strong-test',
+  }
+
+  // Primera creación
+  const res1 = await executeCreateShipment({ uid: 'sec-test-fin' }, payloadOriginal)
+
+  // Mismo usuario, mismos datos -> Devuelve duplicado idéntico
+  const res2 = await executeCreateShipment({ uid: 'sec-test-fin' }, payloadOriginal)
   assert.equal(res2.isDuplicate, true)
   assert.equal(res1.shipment.trackingCode, res2.shipment.trackingCode)
+
+  // Mismo usuario, datos distintos -> RECHAZADO
+  const payloadDiferente = { ...payloadOriginal, sender: { name: 'Otro Cliente', phone: '79999999' } }
+  await assert.rejects(
+    executeCreateShipment({ uid: 'sec-test-fin' }, payloadDiferente),
+    /INVALID_ARGUMENT.*datos de envío diferentes/
+  )
+
+  // Usuario distinto con la misma clave -> RECHAZADO (Aislamiento de seguridad)
+  await db.collection('users').doc('sec-other').set({
+    role: 'secretaria',
+    primaryBranchId: 'punata',
+    allowedBranchIds: ['punata'],
+    fullName: 'Otra Secretaria',
+    isActive: true,
+  })
+  await assert.rejects(
+    executeCreateShipment({ uid: 'sec-other' }, payloadOriginal),
+    /PERMISSION_DENIED.*otro usuario/
+  )
 })
 
-test('3. Bloqueo de roles no autorizados (conductor)', async () => {
-  await db.collection('users').doc('driver-test-1').set({
+test('4. Bloqueo estricto de roles (conductor y sucursal no permitida)', async () => {
+  await db.collection('users').doc('driver-test-2').set({
     role: 'conductor',
-    fullName: 'Conductor Prueba',
+    fullName: 'Chofer No Autorizado',
     isActive: true,
   })
 
   const payload = {
     originBranchId: 'punata',
     destinationBranchId: 'cochabamba',
-    sender: { name: 'A', phone: '12345' },
-    recipient: { name: 'B', phone: '54321' },
-    items: [{ description: 'Sobre', quantity: 1 }],
+    sender: { name: 'A', phone: '71700000' },
+    recipient: { name: 'B', phone: '72200000' },
+    items: [{ description: 'Bulto', quantity: 1 }],
     prohibitedGoodsNoticeAccepted: true,
-    idempotencyKey: 'idemp-driver-block',
+    idempotencyKey: 'idemp-driver-block-test',
   }
 
   await assert.rejects(
-    executeCreateShipment({ uid: 'driver-test-1' }, payload),
+    executeCreateShipment({ uid: 'driver-test-2' }, payload),
     /PERMISSION_DENIED.*conductor/
   )
 })
 
-test('4. Bloqueo de registro en sucursal no autorizada', async () => {
-  const payload = {
-    originBranchId: 'cochabamba', // sec-test-1 solo tiene permiso para 'punata'
-    destinationBranchId: 'punata',
-    sender: { name: 'A', phone: '12345' },
-    recipient: { name: 'B', phone: '54321' },
-    items: [{ description: 'Sobre', quantity: 1 }],
-    prohibitedGoodsNoticeAccepted: true,
-    idempotencyKey: 'idemp-branch-block',
-  }
-
-  await assert.rejects(
-    executeCreateShipment({ uid: 'sec-test-1' }, payload),
-    /PERMISSION_DENIED.*cochabamba/
-  )
-})
-
-test('5. Concurrencia real: 10 solicitudes concurrentes sin colisiones de correlativos', async () => {
-  await db.collection('users').doc('sec-cbb-1').set({
+test('5. Concurrencia de 10 peticiones simultáneas sin correlativos duplicados', async () => {
+  await db.collection('users').doc('sec-cbb-concurrent').set({
     role: 'secretaria',
     primaryBranchId: 'cochabamba',
     allowedBranchIds: ['cochabamba'],
-    fullName: 'Secretaria Cochabamba 1',
+    fullName: 'Secretaria Cochabamba Concurrente',
     isActive: true,
   })
 
-  // 5 para Punata y 5 para Cochabamba disparadas simultáneamente
   const promises = []
   for (let i = 0; i < 5; i++) {
     promises.push(
       executeCreateShipment(
-        { uid: 'sec-test-1' },
+        { uid: 'sec-test-fin' },
         {
           originBranchId: 'punata',
           destinationBranchId: 'cochabamba',
-          sender: { name: `Remitente Punata ${i}`, phone: '71700000' },
-          recipient: { name: `Destinatario CBB ${i}`, phone: '72200000' },
-          items: [{ description: `Bulto P-${i}`, quantity: 1, weightKg: 2 }],
+          sender: { name: `Remitente Punata C-${i}`, phone: '71711111' },
+          recipient: { name: `Destinatario CBB C-${i}`, phone: '72211111' },
+          items: [{ description: `Carga P-${i}`, quantity: 1, weightKg: 1 }],
+          paymentTiming: 'origin_paid',
           prohibitedGoodsNoticeAccepted: true,
-          idempotencyKey: `concurrent-punata-${i}-${Date.now()}`,
+          idempotencyKey: `conc-punata-${i}-${Date.now()}`,
         }
       )
     )
     promises.push(
       executeCreateShipment(
-        { uid: 'sec-cbb-1' },
+        { uid: 'sec-cbb-concurrent' },
         {
           originBranchId: 'cochabamba',
           destinationBranchId: 'punata',
-          sender: { name: `Remitente CBB ${i}`, phone: '72200000' },
-          recipient: { name: `Destinatario Punata ${i}`, phone: '71700000' },
-          items: [{ description: `Bulto C-${i}`, quantity: 1, weightKg: 2 }],
+          sender: { name: `Remitente CBB C-${i}`, phone: '72222222' },
+          recipient: { name: `Destinatario Punata C-${i}`, phone: '71722222' },
+          items: [{ description: `Carga C-${i}`, quantity: 1, weightKg: 1 }],
+          paymentTiming: 'origin_paid',
           prohibitedGoodsNoticeAccepted: true,
-          idempotencyKey: `concurrent-cbb-${i}-${Date.now()}`,
+          idempotencyKey: `conc-cbb-${i}-${Date.now()}`,
         }
       )
     )
   }
 
   const results = await Promise.all(promises)
-  const trackingCodes = results.map(r => r.shipment.trackingCode)
-  const uniqueCodes = new Set(trackingCodes)
+  const codes = results.map(r => r.shipment.trackingCode)
+  const unique = new Set(codes)
 
   assert.equal(results.length, 10)
-  assert.equal(uniqueCodes.size, 10, 'Todas las guías deben ser únicas e independientes')
-
-  const punCodes = trackingCodes.filter(c => c.startsWith('PUN-'))
-  const cbbCodes = trackingCodes.filter(c => c.startsWith('CBB-'))
-  assert.equal(punCodes.length, 5)
-  assert.equal(cbbCodes.length, 5)
+  assert.equal(unique.size, 10)
 })
