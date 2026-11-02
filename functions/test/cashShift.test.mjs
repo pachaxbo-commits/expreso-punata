@@ -556,3 +556,294 @@ test('12. COBRO EN VENTANILLA DE ENCOMIENDA PENDIENTE: collectShipmentPayment co
   const shiftDoc = await db.collection('cash_shifts').doc(shiftId).get()
   assert.equal(shiftDoc.data().expectedCashCents, 11500)
 })
+
+
+test('13. RESTRICCIÓN DE SUCURSAL EN COBRO PENDIENTE: collectShipmentPayment en origen_pending rechaza cobro si no es la sucursal de origen', async () => {
+  await createTestUser('sec-origen-pun', 'secretaria', 'punata')
+  await createTestUser('sec-dest-cbba', 'secretaria', 'cochabamba')
+
+  // Crear encomienda origin_pending en Punata
+  await db.collection('shipments').doc('EP-TEST-PEND-1').set({
+    trackingCode: 'EP-TEST-PEND-1',
+    originBranchId: 'punata',
+    destinationBranchId: 'cochabamba',
+    paymentTiming: 'origin_pending',
+    paymentStatus: 'pending',
+    finalAmountCents: 2500,
+    status: 'received',
+  })
+
+  // Abrir turno en Cochabamba
+  await openCashShift.run({
+    auth: { uid: 'sec-dest-cbba', token: { email: 'sec-dest-cbba@expresopunata.com' } },
+    data: { branchId: 'cochabamba', initialCashCents: 5000 },
+  })
+
+  // Secretaria de Cochabamba intenta cobrar el pago que corresponde a origen (Punata) -> debe fallar
+  await assert.rejects(
+    async () => {
+      await collectShipmentPayment.run({
+        auth: { uid: 'sec-dest-cbba', token: { email: 'sec-dest-cbba@expresopunata.com' } },
+        data: {
+          trackingCode: 'EP-TEST-PEND-1',
+          paymentMethod: 'cash',
+          branchId: 'cochabamba',
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'failed-precondition')
+      assert.match(err.message, /solo puede ser cobrado en la sucursal de origen/i)
+      return true
+    }
+  )
+})
+
+test('14. RESTRICCIÓN DE SUCURSAL EN COD: collectShipmentPayment en destination_cod rechaza cobro si no es la sucursal de destino', async () => {
+  await createTestUser('sec-cod-pun', 'secretaria', 'punata')
+
+  // Encomienda COD con destino Cochabamba
+  await db.collection('shipments').doc('EP-TEST-COD-1').set({
+    trackingCode: 'EP-TEST-COD-1',
+    originBranchId: 'punata',
+    destinationBranchId: 'cochabamba',
+    paymentTiming: 'destination_cod',
+    paymentStatus: 'pending',
+    finalAmountCents: 3000,
+    status: 'received_at_dest',
+  })
+
+  // Abrir turno en Punata
+  await openCashShift.run({
+    auth: { uid: 'sec-cod-pun', token: { email: 'sec-cod-pun@expresopunata.com' } },
+    data: { branchId: 'punata', initialCashCents: 5000 },
+  })
+
+  // Intentar cobrar contraentrega en Punata (origen) en lugar de Cochabamba (destino) -> debe fallar
+  await assert.rejects(
+    async () => {
+      await collectShipmentPayment.run({
+        auth: { uid: 'sec-cod-pun', token: { email: 'sec-cod-pun@expresopunata.com' } },
+        data: {
+          trackingCode: 'EP-TEST-COD-1',
+          paymentMethod: 'cash',
+          branchId: 'punata',
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'failed-precondition')
+      assert.match(err.message, /solo puede realizarse en la sucursal de destino/i)
+      return true
+    }
+  )
+})
+
+test('15. COBRO ANTICIPADO DE COD IMPEDIDO: No permite cobrar destination_cod si la encomienda aún no arribó a destino', async () => {
+  await createTestUser('sec-anticipada-cbba', 'secretaria', 'cochabamba')
+
+  // Encomienda COD aún en tránsito
+  await db.collection('shipments').doc('EP-TEST-COD-TRANSIT').set({
+    trackingCode: 'EP-TEST-COD-TRANSIT',
+    originBranchId: 'punata',
+    destinationBranchId: 'cochabamba',
+    paymentTiming: 'destination_cod',
+    paymentStatus: 'pending',
+    finalAmountCents: 4000,
+    status: 'in_transit', // Aún no ha arribado a Cochabamba
+  })
+
+  await openCashShift.run({
+    auth: { uid: 'sec-anticipada-cbba', token: { email: 'sec-anticipada-cbba@expresopunata.com' } },
+    data: { branchId: 'cochabamba', initialCashCents: 5000 },
+  })
+
+  await assert.rejects(
+    async () => {
+      await collectShipmentPayment.run({
+        auth: { uid: 'sec-anticipada-cbba', token: { email: 'sec-anticipada-cbba@expresopunata.com' } },
+        data: {
+          trackingCode: 'EP-TEST-COD-TRANSIT',
+          paymentMethod: 'cash',
+          branchId: 'cochabamba',
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'failed-precondition')
+      assert.match(err.message, /No se puede realizar el cobro contraentrega anticipado/i)
+      return true
+    }
+  )
+})
+
+test('16. COBRO EXITOSO DE COD EN DESTINO: Permite cobrar destination_cod cuando status es received_at_dest', async () => {
+  await createTestUser('sec-cod-ok-cbba', 'secretaria', 'cochabamba')
+
+  await db.collection('shipments').doc('EP-TEST-COD-OK').set({
+    trackingCode: 'EP-TEST-COD-OK',
+    originBranchId: 'punata',
+    destinationBranchId: 'cochabamba',
+    paymentTiming: 'destination_cod',
+    paymentStatus: 'pending',
+    finalAmountCents: 3500,
+    status: 'received_at_dest',
+  })
+
+  const openRes = await openCashShift.run({
+    auth: { uid: 'sec-cod-ok-cbba', token: { email: 'sec-cod-ok-cbba@expresopunata.com' } },
+    data: { branchId: 'cochabamba', initialCashCents: 10000 },
+  })
+
+  const collectRes = await collectShipmentPayment.run({
+    auth: { uid: 'sec-cod-ok-cbba', token: { email: 'sec-cod-ok-cbba@expresopunata.com' } },
+    data: {
+      trackingCode: 'EP-TEST-COD-OK',
+      paymentMethod: 'cash',
+      branchId: 'cochabamba',
+    },
+  })
+
+  assert.equal(collectRes.success, true)
+  assert.equal(collectRes.amountCents, 3500)
+
+  // Verificar que el turno incrementó expectedCashCents y codIncomeCents
+  const shiftDoc = await db.collection('cash_shifts').doc(openRes.shift.id).get()
+  assert.equal(shiftDoc.data().expectedCashCents, 13500)
+  assert.equal(shiftDoc.data().breakdown.codIncomeCents, 3500)
+})
+
+test('17. IDEMPOTENCIA EN REGISTRO DE EGRESO: Petición duplicada con el mismo idempotencyKey devuelve el movimiento previo sin descontar doble', async () => {
+  await createTestUser('sec-idem-exp', 'secretaria', 'punata')
+
+  const openRes = await openCashShift.run({
+    auth: { uid: 'sec-idem-exp', token: { email: 'sec-idem-exp@expresopunata.com' } },
+    data: { branchId: 'punata', initialCashCents: 20000 },
+  })
+
+  const idempotencyKey = 'key-exp-doble-clic-123'
+
+  // Primera llamada: egreso de Bs 20 (2000 cts)
+  const res1 = await registerCashExpense.run({
+    auth: { uid: 'sec-idem-exp', token: { email: 'sec-idem-exp@expresopunata.com' } },
+    data: {
+      branchId: 'punata',
+      amountCents: 2000,
+      concept: 'Compra de cinta de embalaje',
+      category: 'insumos',
+      idempotencyKey,
+    },
+  })
+  assert.equal(res1.success, true)
+  assert.equal(res1.cached, undefined)
+  assert.equal(res1.newExpectedCashCents, 18000)
+
+  // Segunda llamada idéntica (simulando doble clic o reintento de red)
+  const res2 = await registerCashExpense.run({
+    auth: { uid: 'sec-idem-exp', token: { email: 'sec-idem-exp@expresopunata.com' } },
+    data: {
+      branchId: 'punata',
+      amountCents: 2000,
+      concept: 'Compra de cinta de embalaje',
+      category: 'insumos',
+      idempotencyKey,
+    },
+  })
+  assert.equal(res2.success, true)
+  assert.equal(res2.cached, true)
+  assert.equal(res2.movementId, res1.movementId)
+
+  // Verificar en base de datos que el turno solo fue descontado una vez
+  const shiftDoc = await db.collection('cash_shifts').doc(openRes.shift.id).get()
+  assert.equal(shiftDoc.data().expectedCashCents, 18000)
+  assert.equal(shiftDoc.data().breakdown.expensesCents, 2000)
+})
+
+test('18. CONTROL DE PERMISOS EN EGRESOS: Secretaria no puede registrar gasto > Bs 150 sin approvedBy; con approvedBy es aceptado', async () => {
+  await createTestUser('sec-limite-exp', 'secretaria', 'punata')
+
+  await openCashShift.run({
+    auth: { uid: 'sec-limite-exp', token: { email: 'sec-limite-exp@expresopunata.com' } },
+    data: { branchId: 'punata', initialCashCents: 50000 }, // Bs 500
+  })
+
+  // Intento de registrar egreso de Bs 200 (20000 cts) sin aprobación -> debe fallar
+  await assert.rejects(
+    async () => {
+      await registerCashExpense.run({
+        auth: { uid: 'sec-limite-exp', token: { email: 'sec-limite-exp@expresopunata.com' } },
+        data: {
+          branchId: 'punata',
+          amountCents: 20000,
+          concept: 'Mantenimiento urgente de fotocopiadora',
+          category: 'mantenimiento',
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'permission-denied')
+      assert.match(err.message, /requieren el nombre o comprobante de autorización/i)
+      return true
+    }
+  )
+
+  // Con approvedBy -> debe procesarse exitosamente
+  const resOk = await registerCashExpense.run({
+    auth: { uid: 'sec-limite-exp', token: { email: 'sec-limite-exp@expresopunata.com' } },
+    data: {
+      branchId: 'punata',
+      amountCents: 20000,
+      concept: 'Mantenimiento urgente de fotocopiadora',
+      category: 'mantenimiento',
+      approvedBy: 'Nelson Arispe (Administrador)',
+      voucherNumber: 'FAC-8812',
+    },
+  })
+  assert.equal(resOk.success, true)
+  assert.equal(resOk.amountCents, 20000)
+})
+
+test('19. VALIDACIÓN AUTORITATIVA DEL DESGLOSE EN ARQUEO: Falla si desglose de billetes y monedas no coincide con actualCashCents', async () => {
+  await createTestUser('sec-arqueo-val', 'secretaria', 'punata')
+
+  const openRes = await openCashShift.run({
+    auth: { uid: 'sec-arqueo-val', token: { email: 'sec-arqueo-val@expresopunata.com' } },
+    data: { branchId: 'punata', initialCashCents: 10000 },
+  })
+  const shiftId = openRes.shift.id
+
+  // Desglose dice: 1 billete de Bs 100 = Bs 100 (10000 cts), pero se declara actualCashCents = 15000 (Bs 150) -> discrepancia interna -> debe fallar
+  await assert.rejects(
+    async () => {
+      await closeCashShift.run({
+        auth: { uid: 'sec-arqueo-val', token: { email: 'sec-arqueo-val@expresopunata.com' } },
+        data: {
+          shiftId,
+          actualCashCents: 15000,
+          actualCashBreakdown: { '100': 1 }, // Solo suma 10000
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'invalid-argument')
+      assert.match(err.message, /no coincide con el efectivo físico declarado/i)
+      return true
+    }
+  )
+
+  // Con desglose coincidente (1 billete de Bs 100 + 1 de Bs 50 = Bs 150 = 15000 cts) -> éxito
+  const closeRes = await closeCashShift.run({
+    auth: { uid: 'sec-arqueo-val', token: { email: 'sec-arqueo-val@expresopunata.com' } },
+    data: {
+      shiftId,
+      actualCashCents: 15000,
+      actualCashBreakdown: { '100': 1, '50': 1 },
+      notes: 'Arqueo con desglose correcto verificado',
+    },
+  })
+  assert.equal(closeRes.success, true)
+  assert.equal(closeRes.shift.status, 'closed')
+  assert.equal(closeRes.shift.actualCashCents, 15000)
+  assert.equal(closeRes.shift.differenceCents, 5000) // Sobrante de Bs 50
+  assert.equal(closeRes.shift.differenceStatus, 'sobrante')
+})

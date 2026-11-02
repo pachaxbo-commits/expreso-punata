@@ -30,6 +30,8 @@ export interface RegisterExpenseInput {
   concept: string
   category?: string
   voucherNumber?: string
+  idempotencyKey?: string
+  approvedBy?: string
 }
 
 export interface CollectShipmentPaymentInput {

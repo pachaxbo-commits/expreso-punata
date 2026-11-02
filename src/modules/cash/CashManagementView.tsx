@@ -69,6 +69,10 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
   // Filtros de historial
   const [activeSubTab, setActiveSubTab] = useState<'active' | 'history'>('active')
   const [historyBranch, setHistoryBranch] = useState<string>(currentBranch.id)
+  const [historyPage, setHistoryPage] = useState<number>(1)
+  const historyPageSize = 10
+  const totalHistoryPages = Math.max(1, Math.ceil(historyShifts.length / historyPageSize))
+  const paginatedShifts = historyShifts.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize)
 
   // Modales
   const [isOpenShiftModalOpen, setIsOpenShiftModalOpen] = useState(false)
@@ -596,7 +600,10 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                 <span className="text-xs font-bold text-slate-500">Sucursal:</span>
                 <select
                   value={historyBranch}
-                  onChange={(e) => setHistoryBranch(e.target.value)}
+                  onChange={(e) => {
+                    setHistoryBranch(e.target.value)
+                    setHistoryPage(1)
+                  }}
                   className="p-1.5 text-xs font-bold border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
                 >
                   <option value="punata">Agencia Punata</option>
@@ -612,6 +619,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
               No hay turnos registrados en el historial para esta sucursal.
             </div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
@@ -629,8 +637,8 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
-                  {historyShifts.map((sh) => {
-                    const isClosed = sh.status === 'closed'
+                  {paginatedShifts.map((sh) => {
+                      const isClosed = sh.status === 'closed'
                     const diffStatus = sh.differenceStatus || (sh.differenceCents === 0 ? 'conforme' : (sh.differenceCents || 0) > 0 ? 'sobrante' : 'faltante')
 
                     return (
@@ -700,6 +708,39 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                 </tbody>
               </table>
             </div>
+
+            {/* Aviso explícito de límites y paginación */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
+                <span>
+                  Mostrando turnos recientes en tiempo real (Página {Math.min(historyPage, totalHistoryPages)} de {totalHistoryPages} • Total: {historyShifts.length} turnos).
+                  Para períodos históricos pasados o libros contables consolidados, consulte el módulo de Reportes.
+                </span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  disabled={historyPage <= 1}
+                  onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                  className="px-2.5 py-1 text-xs font-bold border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors"
+                >
+                  Anterior
+                </button>
+                <span className="px-2 py-1 font-bold text-slate-700">
+                  {historyPage} / {totalHistoryPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={historyPage >= Math.max(1, Math.ceil(historyShifts.length / historyPageSize))}
+                  onClick={() => setHistoryPage((p) => Math.min(Math.max(1, Math.ceil(historyShifts.length / historyPageSize)), p + 1))}
+                  className="px-2.5 py-1 text-xs font-bold border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+            </>
           )}
         </div>
       )}
@@ -734,8 +775,8 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
       {/* MODAL 3: REGISTRAR EGRESO MENOR */}
       {isExpenseModalOpen && activeShift && (
         <RegisterExpenseModal
-          shift={activeShift}
           currentBranch={currentBranch}
+          currentUserRole={currentUser.role}
           onClose={() => setIsExpenseModalOpen(false)}
           onSuccess={() => {
             setIsExpenseModalOpen(false)
@@ -1243,14 +1284,15 @@ const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ shift, onClose, onSuc
  * =============================================================================
  */
 interface RegisterExpenseModalProps {
-  shift: CashShift
   currentBranch: Branch
+  currentUserRole: string
   onClose: () => void
   onSuccess: () => void
 }
 
 const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
   currentBranch,
+  currentUserRole,
   onClose,
   onSuccess,
 }) => {
@@ -1258,15 +1300,19 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
   const [concept, setConcept] = useState<string>('')
   const [category, setCategory] = useState<string>('oficina')
   const [voucherNumber, setVoucherNumber] = useState<string>('')
+  const [approvedBy, setApprovedBy] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const num = parseFloat(amountBob) || 0
+  const isSecretaria = currentUserRole === 'secretaria'
+  const requiresSupervisorApproval = isSecretaria && num > 150
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
     setErrorMessage(null)
 
-    const num = parseFloat(amountBob) || 0
     if (num <= 0) {
       setErrorMessage('El monto del egreso debe ser mayor a cero.')
       setIsSubmitting(false)
@@ -1279,7 +1325,14 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
       return
     }
 
+    if (requiresSupervisorApproval && !approvedBy.trim()) {
+      setErrorMessage('Los egresos mayores a Bs 150.00 requieren indicar el nombre del Encargado o Administrador que autorizó.')
+      setIsSubmitting(false)
+      return
+    }
+
     const amountCents = Math.round(num * 100)
+    const idempotencyKey = `exp_${currentBranch.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
 
     try {
       await registerCashExpenseThroughBackend({
@@ -1288,6 +1341,8 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
         concept: concept.trim(),
         category,
         voucherNumber: voucherNumber.trim() || undefined,
+        idempotencyKey,
+        approvedBy: approvedBy.trim() || undefined,
       })
       onSuccess()
     } catch (err: unknown) {
@@ -1361,8 +1416,11 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
                 <option value="oficina">Material de Oficina</option>
                 <option value="limpieza">Limpieza y Aseo</option>
                 <option value="transporte">Transporte Menor</option>
+                <option value="refrigerio">Refrigerio / Alimentación</option>
+                <option value="insumos">Insumos y Embalaje</option>
                 <option value="mantenimiento">Mantenimiento</option>
-                <option value="otro">Otro Egreso</option>
+                <option value="servicios_basicos">Servicios Básicos</option>
+                <option value="otro">Otro Egreso Autorizado</option>
               </select>
             </div>
             <div>
@@ -1376,6 +1434,26 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
               />
             </div>
           </div>
+
+          {requiresSupervisorApproval && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+              <div className="flex items-center gap-1.5 text-amber-800 font-bold text-xs">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Egreso superior a Bs 150.00 requiere autorización</span>
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Autorizado por (Encargado o Directiva) *</label>
+                <input
+                  type="text"
+                  required
+                  value={approvedBy}
+                  onChange={(e) => setApprovedBy(e.target.value)}
+                  placeholder="Nombre de quien autorizó el gasto..."
+                  className="w-full p-2 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] text-xs font-semibold"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
             <button
