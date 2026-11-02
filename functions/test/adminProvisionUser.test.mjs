@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
-import { adminProvisionUser } from '../index.js'
+import { adminProvisionUser, adminSendPasswordReset } from '../index.js'
 
 // Inicializar Firebase Admin apuntando a los emuladores locales
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
@@ -246,4 +246,134 @@ test('6. MANEJO DE ESTADOS PARCIALES: Usuario no existente en Auth lanza error v
       return true
     }
   )
+})
+
+test('7. CI ES OPCIONAL: Guarda null cuando no se proporciona y no inventa datos dummy', async () => {
+  let targetAuth
+  try {
+    targetAuth = await auth.createUser({
+      uid: 'operador-sin-ci',
+      email: 'sin-ci@expresopunata.com',
+      displayName: 'Nelson Sin CI',
+    })
+  } catch {
+    targetAuth = await auth.getUser('operador-sin-ci')
+  }
+
+  await db.collection('users').doc('admin-user').set({
+    uid: 'admin-user',
+    role: 'directiva_admin',
+    primaryBranchId: 'punata',
+    allowedBranchIds: ['punata', 'cochabamba'],
+    isActive: true,
+  })
+
+  const req = {
+    auth: {
+      uid: 'admin-user',
+      token: { email: 'admin@expresopunata.com' }
+    },
+    data: {
+      targetUid: 'operador-sin-ci',
+      fullName: 'Nelson Sin CI',
+      phone: '75999279',
+      // ci omitido intencionalmente
+      role: 'directiva_admin',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'],
+      isActive: true,
+    }
+  }
+
+  const res = await adminProvisionUser.run(req)
+  assert.equal(res.success, true)
+  assert.equal(res.profile.ci, null)
+
+  const docSnap = await db.collection('users').doc('operador-sin-ci').get()
+  assert.equal(docSnap.data().ci, null)
+  assert.equal(docSnap.data().phone, '75999279')
+})
+
+test('8. ALTA DE NUEVO OPERADOR: Creación atómica mediante email sin targetUid previo', async () => {
+  await db.collection('users').doc('admin-user').set({
+    uid: 'admin-user',
+    role: 'directiva_admin',
+    primaryBranchId: 'punata',
+    allowedBranchIds: ['punata', 'cochabamba'],
+    isActive: true,
+  })
+
+  const uniqueEmail = `secretaria.cocha.${Date.now()}@expresopunata.com`
+  const req = {
+    auth: {
+      uid: 'admin-user',
+      token: { email: 'admin@expresopunata.com' }
+    },
+    data: {
+      email: uniqueEmail,
+      fullName: 'Secretaria Cochabamba Oficial',
+      phone: '72233445',
+      ci: null,
+      role: 'secretaria',
+      primaryBranchId: 'cochabamba',
+      allowedBranchIds: ['cochabamba'],
+      isActive: true,
+    }
+  }
+
+  const res = await adminProvisionUser.run(req)
+  assert.equal(res.success, true)
+  assert.ok(res.profile.uid)
+  assert.equal(res.profile.email, uniqueEmail)
+  assert.ok(res.passwordResetLink)
+
+  // Verificar que el usuario existe en Firebase Auth
+  const createdAuthUser = await auth.getUser(res.profile.uid)
+  assert.equal(createdAuthUser.email, uniqueEmail)
+  assert.equal(createdAuthUser.customClaims?.role, 'secretaria')
+  assert.equal(createdAuthUser.customClaims?.branchId, 'cochabamba')
+
+  // Verificar en Firestore
+  const createdDoc = await db.collection('users').doc(res.profile.uid).get()
+  assert.equal(createdDoc.exists, true)
+  assert.equal(createdDoc.data().role, 'secretaria')
+})
+
+test('9. adminSendPasswordReset: Genera enlace de restablecimiento y asienta auditoría', async () => {
+  await db.collection('users').doc('admin-user').set({
+    uid: 'admin-user',
+    role: 'directiva_admin',
+    primaryBranchId: 'punata',
+    allowedBranchIds: ['punata', 'cochabamba'],
+    isActive: true,
+  })
+
+  const req = {
+    auth: {
+      uid: 'admin-user',
+      token: { email: 'admin@expresopunata.com' }
+    },
+    data: {
+      email: 'test.reset@expresopunata.com',
+    }
+  }
+
+  // Crear usuario previo en Auth para permitir generar el link
+  try {
+    await auth.createUser({
+      email: 'test.reset@expresopunata.com',
+      displayName: 'Usuario Reset',
+    })
+  } catch {}
+
+  const res = await adminSendPasswordReset.run(req)
+  assert.equal(res.success, true)
+  assert.ok(res.passwordResetLink)
+  assert.ok(res.passwordResetLink.includes('mode=resetPassword') || res.passwordResetLink.includes('apiKey='))
+
+  // Verificar audit log
+  const auditSnap = await db.collection('audit_logs')
+    .where('action', '==', 'PASSWORD_RESET_LINK_REQUESTED')
+    .get()
+  assert.ok(auditSnap.size >= 1)
 })
