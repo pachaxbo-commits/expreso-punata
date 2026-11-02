@@ -7,6 +7,7 @@ import {
   openCashShift,
   closeCashShift,
   registerCashExpense,
+  createExpenseAuthorization,
   collectShipmentPayment,
   createShipment,
 } from '../index.js'
@@ -31,6 +32,7 @@ async function clearCollections() {
     'shipments',
     'counters',
     'idempotency_keys',
+    'expense_authorizations',
     'audit_logs',
     'system_locks',
   ]
@@ -482,6 +484,7 @@ test('11. REGISTRO DE EGRESO AUTORIZADO: Descuenta efectivo disponible y registr
       concept: 'Compra de cinta de embalaje y marcadores',
       category: 'oficina',
       voucherNumber: 'REC-00124',
+      idempotencyKey: 'idem-test-11-valid-key',
     },
   })
 
@@ -713,7 +716,7 @@ test('16. COBRO EXITOSO DE COD EN DESTINO: Permite cobrar destination_cod cuando
   assert.equal(shiftDoc.data().breakdown.codIncomeCents, 3500)
 })
 
-test('17. IDEMPOTENCIA EN REGISTRO DE EGRESO: Petición duplicada con el mismo idempotencyKey devuelve el movimiento previo sin descontar doble', async () => {
+test('17. IDEMPOTENCIA OBLIGATORIA Y VINCULADA AL CONTENIDO EN EGRESOS: Clave repetida con datos idénticos devuelve caché; con datos distintos es rechazada', async () => {
   await createTestUser('sec-idem-exp', 'secretaria', 'punata')
 
   const openRes = await openCashShift.run({
@@ -723,7 +726,7 @@ test('17. IDEMPOTENCIA EN REGISTRO DE EGRESO: Petición duplicada con el mismo i
 
   const idempotencyKey = 'key-exp-doble-clic-123'
 
-  // Primera llamada: egreso de Bs 20 (2000 cts)
+  // 1. Primera llamada: egreso de Bs 20 (2000 cts)
   const res1 = await registerCashExpense.run({
     auth: { uid: 'sec-idem-exp', token: { email: 'sec-idem-exp@expresopunata.com' } },
     data: {
@@ -738,7 +741,7 @@ test('17. IDEMPOTENCIA EN REGISTRO DE EGRESO: Petición duplicada con el mismo i
   assert.equal(res1.cached, undefined)
   assert.equal(res1.newExpectedCashCents, 18000)
 
-  // Segunda llamada idéntica (simulando doble clic o reintento de red)
+  // 2. Segunda llamada idéntica (reintento seguro de red) -> devuelve caché sin doble descuento
   const res2 = await registerCashExpense.run({
     auth: { uid: 'sec-idem-exp', token: { email: 'sec-idem-exp@expresopunata.com' } },
     data: {
@@ -753,21 +756,44 @@ test('17. IDEMPOTENCIA EN REGISTRO DE EGRESO: Petición duplicada con el mismo i
   assert.equal(res2.cached, true)
   assert.equal(res2.movementId, res1.movementId)
 
+  // 3. Tercera llamada: reutilizar la MISMA clave pero alterando el monto o concepto -> RECHAZADA por mismatch
+  await assert.rejects(
+    async () => {
+      await registerCashExpense.run({
+        auth: { uid: 'sec-idem-exp', token: { email: 'sec-idem-exp@expresopunata.com' } },
+        data: {
+          branchId: 'punata',
+          amountCents: 3500, // Monto diferente
+          concept: 'Intento malicioso de alterar monto con misma clave',
+          category: 'insumos',
+          idempotencyKey,
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'already-exists')
+      assert.match(err.message, /clave de idempotencia ya fue utilizada previamente con un monto, concepto o contenido diferente/i)
+      return true
+    }
+  )
+
   // Verificar en base de datos que el turno solo fue descontado una vez
   const shiftDoc = await db.collection('cash_shifts').doc(openRes.shift.id).get()
   assert.equal(shiftDoc.data().expectedCashCents, 18000)
   assert.equal(shiftDoc.data().breakdown.expensesCents, 2000)
 })
 
-test('18. CONTROL DE PERMISOS EN EGRESOS: Secretaria no puede registrar gasto > Bs 150 sin approvedBy; con approvedBy es aceptado', async () => {
+test('18. AUTORIZACIÓN VERDADERA DE EGRESOS > Bs 150: Requiere código emitido por Encargado o Admin; valida operador, monto y un solo uso', async () => {
   await createTestUser('sec-limite-exp', 'secretaria', 'punata')
+  await createTestUser('encargado-punata', 'encargado_agencia', 'punata')
+  await createTestUser('sec-otra-operadora', 'secretaria', 'punata')
 
   await openCashShift.run({
     auth: { uid: 'sec-limite-exp', token: { email: 'sec-limite-exp@expresopunata.com' } },
     data: { branchId: 'punata', initialCashCents: 50000 }, // Bs 500
   })
 
-  // Intento de registrar egreso de Bs 200 (20000 cts) sin aprobación -> debe fallar
+  // 1. Intento sin código de autorización para egreso de Bs 200 -> RECHAZADO
   await assert.rejects(
     async () => {
       await registerCashExpense.run({
@@ -775,75 +801,224 @@ test('18. CONTROL DE PERMISOS EN EGRESOS: Secretaria no puede registrar gasto > 
         data: {
           branchId: 'punata',
           amountCents: 20000,
-          concept: 'Mantenimiento urgente de fotocopiadora',
+          concept: 'Mantenimiento de fotocopiadora',
           category: 'mantenimiento',
+          idempotencyKey: 'idem-sin-auth-code-1',
         },
       })
     },
     (err) => {
       assert.equal(err.code, 'permission-denied')
-      assert.match(err.message, /requieren el nombre o comprobante de autorización/i)
+      assert.match(err.message, /requieren un código de autorización verificable/i)
       return true
     }
   )
 
-  // Con approvedBy -> debe procesarse exitosamente
+  // 2. Encargado de Punata emite autorización formal de hasta Bs 250 para sec-limite-exp
+  const authRes = await createExpenseAuthorization.run({
+    auth: { uid: 'encargado-punata', token: { email: 'encargado-punata@expresopunata.com' } },
+    data: {
+      branchId: 'punata',
+      maxAmountCents: 25000,
+      concept: 'Mantenimiento de fotocopiadora',
+      category: 'mantenimiento',
+      authorizedOperatorUid: 'sec-limite-exp',
+    },
+  })
+  assert.equal(authRes.success, true)
+  const authCode = authRes.authCode
+  assert.match(authCode, /^AUT-EXP-/)
+
+  // 3. Otra operadora intenta usar el código de autorización emitido para otra persona -> RECHAZADA
+  await openCashShift.run({
+    auth: { uid: 'sec-otra-operadora', token: { email: 'sec-otra-operadora@expresopunata.com' } },
+    data: { branchId: 'punata', initialCashCents: 50000 },
+  })
+  await assert.rejects(
+    async () => {
+      await registerCashExpense.run({
+        auth: { uid: 'sec-otra-operadora', token: { email: 'sec-otra-operadora@expresopunata.com' } },
+        data: {
+          branchId: 'punata',
+          amountCents: 20000,
+          concept: 'Mantenimiento de fotocopiadora',
+          category: 'mantenimiento',
+          authorizationCode: authCode,
+          idempotencyKey: 'idem-usurpar-auth-code-123',
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'permission-denied')
+      assert.match(err.message, /Este código de autorización fue emitido para otro operador/i)
+      return true
+    }
+  )
+
+  // 4. Operadora legítima registra el egreso de Bs 200 con el código emitido -> ÉXITO
   const resOk = await registerCashExpense.run({
     auth: { uid: 'sec-limite-exp', token: { email: 'sec-limite-exp@expresopunata.com' } },
     data: {
       branchId: 'punata',
       amountCents: 20000,
-      concept: 'Mantenimiento urgente de fotocopiadora',
+      concept: 'Mantenimiento de fotocopiadora',
       category: 'mantenimiento',
-      approvedBy: 'Nelson Arispe (Administrador)',
+      authorizationCode: authCode,
       voucherNumber: 'FAC-8812',
+      idempotencyKey: 'idem-con-auth-code-ok-123',
     },
   })
   assert.equal(resOk.success, true)
   assert.equal(resOk.amountCents, 20000)
+
+  // 5. Intento de reutilizar el mismo código de autorización por segunda vez -> RECHAZADO (ya consumido)
+  await assert.rejects(
+    async () => {
+      await registerCashExpense.run({
+        auth: { uid: 'sec-limite-exp', token: { email: 'sec-limite-exp@expresopunata.com' } },
+        data: {
+          branchId: 'punata',
+          amountCents: 18000,
+          concept: 'Gasto adicional que excede Bs 150 con el mismo código',
+          category: 'mantenimiento',
+          authorizationCode: authCode,
+          idempotencyKey: 'idem-reuso-auth-code-456',
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'failed-precondition')
+      assert.match(err.message, /no está vigente/i)
+      return true
+    }
+  )
 })
 
-test('19. VALIDACIÓN AUTORITATIVA DEL DESGLOSE EN ARQUEO: Falla si desglose de billetes y monedas no coincide con actualCashCents', async () => {
-  await createTestUser('sec-arqueo-val', 'secretaria', 'punata')
+test('19. VALIDACIÓN ESTRICTA DE ARQUEO: Rechaza denominaciones no autorizadas, cantidades fraccionarias y sumas dispares', async () => {
+  await createTestUser('sec-arqueo-strict', 'secretaria', 'punata')
 
   const openRes = await openCashShift.run({
-    auth: { uid: 'sec-arqueo-val', token: { email: 'sec-arqueo-val@expresopunata.com' } },
+    auth: { uid: 'sec-arqueo-strict', token: { email: 'sec-arqueo-strict@expresopunata.com' } },
     data: { branchId: 'punata', initialCashCents: 10000 },
   })
   const shiftId = openRes.shift.id
 
-  // Desglose dice: 1 billete de Bs 100 = Bs 100 (10000 cts), pero se declara actualCashCents = 15000 (Bs 150) -> discrepancia interna -> debe fallar
+  // 1. Clave desconocida / no boliviana (ej. billete de '300') -> RECHAZADO
   await assert.rejects(
     async () => {
       await closeCashShift.run({
-        auth: { uid: 'sec-arqueo-val', token: { email: 'sec-arqueo-val@expresopunata.com' } },
+        auth: { uid: 'sec-arqueo-strict', token: { email: 'sec-arqueo-strict@expresopunata.com' } },
         data: {
           shiftId,
-          actualCashCents: 15000,
-          actualCashBreakdown: { '100': 1 }, // Solo suma 10000
+          actualCashCents: 10000,
+          actualCashBreakdown: { '300': 1 },
         },
       })
     },
     (err) => {
       assert.equal(err.code, 'invalid-argument')
-      assert.match(err.message, /no coincide con el efectivo físico declarado/i)
+      assert.match(err.message, /Denominación monetaria desconocida o no autorizada: 'Bs 300'/i)
       return true
     }
   )
 
-  // Con desglose coincidente (1 billete de Bs 100 + 1 de Bs 50 = Bs 150 = 15000 cts) -> éxito
+  // 2. Cantidad con decimales / fraccionaria (ej. 1.5 billetes) -> RECHAZADO
+  await assert.rejects(
+    async () => {
+      await closeCashShift.run({
+        auth: { uid: 'sec-arqueo-strict', token: { email: 'sec-arqueo-strict@expresopunata.com' } },
+        data: {
+          shiftId,
+          actualCashCents: 10000,
+          actualCashBreakdown: { '100': 1.5 },
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'invalid-argument')
+      assert.match(err.message, /debe ser un número entero no negativo/i)
+      return true
+    }
+  )
+
+  // 3. Cantidad negativa -> RECHAZADO
+  await assert.rejects(
+    async () => {
+      await closeCashShift.run({
+        auth: { uid: 'sec-arqueo-strict', token: { email: 'sec-arqueo-strict@expresopunata.com' } },
+        data: {
+          shiftId,
+          actualCashCents: 10000,
+          actualCashBreakdown: { '100': -1 },
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'invalid-argument')
+      assert.match(err.message, /debe ser un número entero no negativo/i)
+      return true
+    }
+  )
+
+  // 4. Desglose no coincide con total declarado -> RECHAZADO
+  await assert.rejects(
+    async () => {
+      await closeCashShift.run({
+        auth: { uid: 'sec-arqueo-strict', token: { email: 'sec-arqueo-strict@expresopunata.com' } },
+        data: {
+          shiftId,
+          actualCashCents: 15000, // Bs 150 declarado
+          actualCashBreakdown: { '100': 1 }, // Solo suma Bs 100
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'invalid-argument')
+      assert.match(err.message, /no coincide con el total de efectivo declarado/i)
+      return true
+    }
+  )
+
+  // 5. Desglose boliviano exacto y legítimo -> ÉXITO
   const closeRes = await closeCashShift.run({
-    auth: { uid: 'sec-arqueo-val', token: { email: 'sec-arqueo-val@expresopunata.com' } },
+    auth: { uid: 'sec-arqueo-strict', token: { email: 'sec-arqueo-strict@expresopunata.com' } },
     data: {
       shiftId,
       actualCashCents: 15000,
       actualCashBreakdown: { '100': 1, '50': 1 },
-      notes: 'Arqueo con desglose correcto verificado',
+      notes: 'Arqueo exacto con denominaciones válidas',
     },
   })
   assert.equal(closeRes.success, true)
   assert.equal(closeRes.shift.status, 'closed')
   assert.equal(closeRes.shift.actualCashCents, 15000)
-  assert.equal(closeRes.shift.differenceCents, 5000) // Sobrante de Bs 50
-  assert.equal(closeRes.shift.differenceStatus, 'sobrante')
+  assert.equal(closeRes.shift.differenceCents, 5000)
+})
+
+test('20. IDEMPOTENCIA OBLIGATORIA: registerCashExpense rechaza llamadas sin clave de idempotencia o menor a 8 caracteres', async () => {
+  await createTestUser('sec-sin-idem', 'secretaria', 'punata')
+
+  await openCashShift.run({
+    auth: { uid: 'sec-sin-idem', token: { email: 'sec-sin-idem@expresopunata.com' } },
+    data: { branchId: 'punata', initialCashCents: 10000 },
+  })
+
+  await assert.rejects(
+    async () => {
+      await registerCashExpense.run({
+        auth: { uid: 'sec-sin-idem', token: { email: 'sec-sin-idem@expresopunata.com' } },
+        data: {
+          branchId: 'punata',
+          amountCents: 1000,
+          concept: 'Gasto sin clave',
+          category: 'oficina',
+        },
+      })
+    },
+    (err) => {
+      assert.equal(err.code, 'invalid-argument')
+      assert.match(err.message, /Se requiere una clave de idempotencia obligatoria/i)
+      return true
+    }
+  )
 })

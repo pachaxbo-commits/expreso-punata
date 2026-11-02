@@ -27,7 +27,7 @@ import {
   registerCashExpenseThroughBackend,
   subscribeActiveCashShift,
   subscribeShiftMovements,
-  subscribeBranchShiftHistory,
+  fetchBranchShiftsPage,
 } from '../../services/cashService.ts'
 import { CashTicket80mm } from './CashTicket80mm.tsx'
 
@@ -66,13 +66,14 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
   const [movementSearch, setMovementSearch] = useState('')
   const [movementFilterMethod, setMovementFilterMethod] = useState<'all' | PaymentMethod | 'expense'>('all')
 
-  // Filtros de historial
+  // Filtros de historial y paginación real de Firestore mediante cursores
   const [activeSubTab, setActiveSubTab] = useState<'active' | 'history'>('active')
   const [historyBranch, setHistoryBranch] = useState<string>(currentBranch.id)
   const [historyPage, setHistoryPage] = useState<number>(1)
+  const [cursorStack, setCursorStack] = useState<(any | null)[]>([null])
+  const [hasNextPage, setHasNextPage] = useState<boolean>(false)
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false)
   const historyPageSize = 10
-  const totalHistoryPages = Math.max(1, Math.ceil(historyShifts.length / historyPageSize))
-  const paginatedShifts = historyShifts.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize)
 
   // Modales
   const [isOpenShiftModalOpen, setIsOpenShiftModalOpen] = useState(false)
@@ -118,17 +119,47 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
     return () => unsubscribe()
   }, [activeShift?.id])
 
-  // 3. Suscripción al historial de turnos de la sucursal
+  // 3. Consulta paginada real de turnos de la sucursal mediante cursores (orderBy openedAt desc + startAfter)
+  const loadHistoryPage = async (pageIndex: number, cursor: any | null) => {
+    setIsLoadingHistory(true)
+    try {
+      const res = await fetchBranchShiftsPage(historyBranch, historyPageSize, cursor)
+      setHistoryShifts(res.shifts)
+      setHasNextPage(res.hasMore)
+      if (res.lastDoc) {
+        setCursorStack((prev) => {
+          const next = [...prev]
+          next[pageIndex] = res.lastDoc
+          return next
+        })
+      }
+    } catch (err) {
+      console.error('Error al cargar historial paginado de turnos:', err)
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
+
   useEffect(() => {
-    const unsubscribe = subscribeBranchShiftHistory(
-      historyBranch,
-      (shifts) => {
-        setHistoryShifts(shifts)
-      },
-      (err) => console.error('Error al suscribir a historial:', err)
-    )
-    return () => unsubscribe()
+    setHistoryPage(1)
+    setCursorStack([null])
+    loadHistoryPage(1, null)
   }, [historyBranch])
+
+  const handleNextPage = () => {
+    const nextCursor = cursorStack[historyPage]
+    const nextPage = historyPage + 1
+    setHistoryPage(nextPage)
+    loadHistoryPage(nextPage, nextCursor)
+  }
+
+  const handlePrevPage = () => {
+    if (historyPage <= 1) return
+    const prevPage = historyPage - 1
+    const prevCursor = cursorStack[prevPage - 1] || null
+    setHistoryPage(prevPage)
+    loadHistoryPage(prevPage, prevCursor)
+  }
 
   // Filtrado de movimientos
   const filteredMovements = useMemo(() => {
@@ -637,7 +668,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
-                  {paginatedShifts.map((sh) => {
+                  {historyShifts.map((sh) => {
                       const isClosed = sh.status === 'closed'
                     const diffStatus = sh.differenceStatus || (sh.differenceCents === 0 ? 'conforme' : (sh.differenceCents || 0) > 0 ? 'sobrante' : 'faltante')
 
@@ -709,34 +740,31 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
               </table>
             </div>
 
-            {/* Aviso explícito de límites y paginación */}
+            {/* Aviso explícito de límites y paginación con cursores del servidor */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
                 <span>
-                  Mostrando turnos recientes en tiempo real (Página {Math.min(historyPage, totalHistoryPages)} de {totalHistoryPages} • Total: {historyShifts.length} turnos).
-                  Para períodos históricos pasados o libros contables consolidados, consulte el módulo de Reportes.
+                  Turnos de caja (Página {historyPage} • {historyShifts.length} registros). Paginación autoritativa en Firestore con cursores (startAfter). Para balances consolidados, consulte Reportes.
                 </span>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
-                  disabled={historyPage <= 1}
-                  onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                  disabled={historyPage <= 1 || isLoadingHistory}
+                  onClick={handlePrevPage}
                   className="px-2.5 py-1 text-xs font-bold border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors"
                 >
                   Anterior
                 </button>
-                <span className="px-2 py-1 font-bold text-slate-700">
-                  {historyPage} / {totalHistoryPages}
-                </span>
+                <span className="px-2 py-1 font-bold text-slate-700">Página {historyPage}</span>
                 <button
                   type="button"
-                  disabled={historyPage >= Math.max(1, Math.ceil(historyShifts.length / historyPageSize))}
-                  onClick={() => setHistoryPage((p) => Math.min(Math.max(1, Math.ceil(historyShifts.length / historyPageSize)), p + 1))}
+                  disabled={!hasNextPage || isLoadingHistory}
+                  onClick={handleNextPage}
                   className="px-2.5 py-1 text-xs font-bold border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-colors"
                 >
-                  Siguiente
+                  {isLoadingHistory ? 'Cargando...' : 'Siguiente'}
                 </button>
               </div>
             </div>
@@ -1002,10 +1030,21 @@ const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ shift, onClose, onSuc
     setErrorMessage(null)
 
     try {
+      let cleanBreakdown: Record<string, number> | undefined = undefined
+      if (useDenominations) {
+        cleanBreakdown = {}
+        for (const [k, v] of Object.entries(denominations)) {
+          const countInt = Math.max(0, Math.round(Number(v) || 0))
+          if (countInt > 0) {
+            cleanBreakdown[k] = countInt
+          }
+        }
+      }
+
       const res = await closeCashShiftThroughBackend({
         shiftId: shift.id,
         actualCashCents: countedCashCents,
-        actualCashBreakdown: useDenominations ? denominations : undefined,
+        actualCashBreakdown: cleanBreakdown,
         notes: notes.trim(),
       })
       onSuccess(res.shift)
@@ -1300,7 +1339,11 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
   const [concept, setConcept] = useState<string>('')
   const [category, setCategory] = useState<string>('oficina')
   const [voucherNumber, setVoucherNumber] = useState<string>('')
-  const [approvedBy, setApprovedBy] = useState<string>('')
+  const [authorizationCode, setAuthorizationCode] = useState<string>('')
+  // Clave de idempotencia única y ESTABLE durante todos los reintentos de este formulario
+  const [idempotencyKey] = useState<string>(
+    () => `exp_${currentBranch.id}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -1325,14 +1368,13 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
       return
     }
 
-    if (requiresSupervisorApproval && !approvedBy.trim()) {
-      setErrorMessage('Los egresos mayores a Bs 150.00 requieren indicar el nombre del Encargado o Administrador que autorizó.')
+    if (requiresSupervisorApproval && !authorizationCode.trim()) {
+      setErrorMessage('Los egresos mayores a Bs 150.00 requieren un Código de Autorización emitido por Encargado de Agencia o Directiva.')
       setIsSubmitting(false)
       return
     }
 
     const amountCents = Math.round(num * 100)
-    const idempotencyKey = `exp_${currentBranch.id}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
 
     try {
       await registerCashExpenseThroughBackend({
@@ -1342,7 +1384,7 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
         category,
         voucherNumber: voucherNumber.trim() || undefined,
         idempotencyKey,
-        approvedBy: approvedBy.trim() || undefined,
+        authorizationCode: authorizationCode.trim() || undefined,
       })
       onSuccess()
     } catch (err: unknown) {
@@ -1439,18 +1481,21 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
               <div className="flex items-center gap-1.5 text-amber-800 font-bold text-xs">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>Egreso superior a Bs 150.00 requiere autorización</span>
+                <span>Egreso mayor a Bs 150.00 requiere autorización verificable</span>
               </div>
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Autorizado por (Encargado o Directiva) *</label>
+                <label className="font-bold text-slate-700 block mb-1">Código de Autorización (AUT-EXP-...) *</label>
                 <input
                   type="text"
                   required
-                  value={approvedBy}
-                  onChange={(e) => setApprovedBy(e.target.value)}
-                  placeholder="Nombre de quien autorizó el gasto..."
-                  className="w-full p-2 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] text-xs font-semibold"
+                  value={authorizationCode}
+                  onChange={(e) => setAuthorizationCode(e.target.value.toUpperCase())}
+                  placeholder="Ej. AUT-EXP-2026-XXXX..."
+                  className="w-full p-2 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] text-xs font-mono font-bold uppercase"
                 />
+                <p className="text-[10px] text-amber-700 mt-1">
+                  Emitido por Encargado de Agencia o Directiva desde el sistema. Válido por 24 horas.
+                </p>
               </div>
             </div>
           )}

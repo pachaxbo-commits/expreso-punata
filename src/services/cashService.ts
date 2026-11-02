@@ -3,8 +3,12 @@ import {
   doc,
   query,
   where,
+  orderBy,
+  startAfter,
+  getDocs,
   onSnapshot,
   limit,
+  type QueryDocumentSnapshot,
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions, auth } from '../firebase/config.ts'
@@ -24,14 +28,22 @@ export interface CloseCashShiftInput {
   notes?: string
 }
 
+export interface CreateExpenseAuthorizationInput {
+  branchId: string
+  maxAmountCents: number
+  concept: string
+  category?: string
+  authorizedOperatorUid: string
+}
+
 export interface RegisterExpenseInput {
   branchId: string
   amountCents: number
   concept: string
   category?: string
   voucherNumber?: string
-  idempotencyKey?: string
-  approvedBy?: string
+  idempotencyKey: string // Obligatorio y vinculado al contenido
+  authorizationCode?: string // Requerido si monto > Bs 150 para secretarias
 }
 
 export interface CollectShipmentPaymentInput {
@@ -84,6 +96,31 @@ export async function closeCashShiftThroughBackend(input: CloseCashShiftInput): 
     console.error('[cashService] Error al cerrar turno de caja:', err)
     const errorObj = err as { code?: string; message?: string }
     const msg = errorObj.message || 'Error al cerrar el turno de caja.'
+    throw new Error(msg)
+  }
+}
+
+/**
+ * Emite una autorización formal de egreso extraordinario (Encargado o Directiva Admin).
+ */
+export async function createExpenseAuthorizationThroughBackend(input: CreateExpenseAuthorizationInput): Promise<{
+  success: boolean
+  authCode: string
+  authorization: any
+}> {
+  if (!auth.currentUser) {
+    throw new Error('Debe iniciar sesión para emitir una autorización de egreso.')
+  }
+
+  const callable = httpsCallable<CreateExpenseAuthorizationInput, any>(functions, 'createExpenseAuthorization')
+
+  try {
+    const res = await callable(input)
+    return res.data
+  } catch (err: unknown) {
+    console.error('[cashService] Error al emitir autorización de egreso:', err)
+    const errorObj = err as { code?: string; message?: string }
+    const msg = errorObj.message || 'Error al emitir autorización de egreso.'
     throw new Error(msg)
   }
 }
@@ -316,4 +353,62 @@ export function subscribeBranchShiftHistory(
       if (onError) onError(err)
     }
   )
+}
+
+/**
+ * Consulta paginada real de turnos de caja basada en cursores (startAfter) y orderBy('openedAt', 'desc').
+ * Permite paginación infinita / hacia adelante de manera determinística en Firestore.
+ */
+export async function fetchBranchShiftsPage(
+  branchId: string,
+  pageSize = 15,
+  cursorDoc?: QueryDocumentSnapshot | null
+): Promise<{
+  shifts: CashShift[]
+  lastDoc: QueryDocumentSnapshot | null
+  hasMore: boolean
+}> {
+  const shiftsRef = collection(db, 'cash_shifts')
+  let q
+
+  if (branchId === 'all') {
+    if (cursorDoc) {
+      q = query(shiftsRef, orderBy('openedAt', 'desc'), startAfter(cursorDoc), limit(pageSize))
+    } else {
+      q = query(shiftsRef, orderBy('openedAt', 'desc'), limit(pageSize))
+    }
+  } else {
+    if (cursorDoc) {
+      q = query(
+        shiftsRef,
+        where('branchId', '==', branchId),
+        orderBy('openedAt', 'desc'),
+        startAfter(cursorDoc),
+        limit(pageSize)
+      )
+    } else {
+      q = query(
+        shiftsRef,
+        where('branchId', '==', branchId),
+        orderBy('openedAt', 'desc'),
+        limit(pageSize)
+      )
+    }
+  }
+
+  const snap = await getDocs(q)
+  const shifts: CashShift[] = []
+  snap.forEach((d) => {
+    const data = d.data() as CashShift
+    shifts.push({
+      ...data,
+      id: d.id,
+      shiftNumber: data.shiftNumber || d.id,
+    })
+  })
+
+  const lastDoc = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null
+  const hasMore = snap.docs.length === pageSize
+
+  return { shifts, lastDoc, hasMore }
 }

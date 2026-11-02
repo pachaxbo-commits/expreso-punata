@@ -1055,25 +1055,51 @@ export const closeCashShift = onCall({ cors: true }, async (request) => {
     ? payload.actualCashBreakdown
     : null
 
-  // Validación autoritativa del desglose de billetes y monedas cuando se proporciona
-  if (actualCashBreakdown) {
-    let breakdownSumCents = 0
-    for (const [key, rawCount] of Object.entries(actualCashBreakdown)) {
-      const denomVal = parseFloat(key.replace(/^[bc]/i, ''))
-      if (isNaN(denomVal) || denomVal <= 0) {
-        continue
-      }
-      const count = parseInt(rawCount, 10) || 0
-      if (count < 0) {
-        throw new HttpsError('invalid-argument', `La cantidad para la denominación Bs ${key} no puede ser negativa.`)
-      }
-      const denomCents = Math.round(denomVal * 100)
-      breakdownSumCents += denomCents * count
+  // Configuración estricta de denominaciones bolivianas oficiales en centavos
+  const VALID_BOLIVIAN_DENOMINATIONS = {
+    '200': 20000,
+    '100': 10000,
+    '50': 5000,
+    '20': 2000,
+    '10': 1000,
+    '5': 500,
+    '2': 200,
+    '1': 100,
+    '0.5': 50,
+    '0.2': 20,
+    '0.1': 10,
+  }
+
+  // Validación autoritativa estricta del desglose de billetes y monedas cuando se proporciona
+  if (actualCashBreakdown !== null && actualCashBreakdown !== undefined) {
+    if (typeof actualCashBreakdown !== 'object' || Array.isArray(actualCashBreakdown)) {
+      throw new HttpsError('invalid-argument', 'El desglose de efectivo debe ser un objeto de denominaciones bolivianas.')
     }
+
+    let breakdownSumCents = 0
+    for (const key of Object.keys(actualCashBreakdown)) {
+      if (!(key in VALID_BOLIVIAN_DENOMINATIONS)) {
+        throw new HttpsError(
+          'invalid-argument',
+          `Denominación monetaria desconocida o no autorizada: 'Bs ${key}'. Solo se aceptan denominaciones bolivianas oficiales (200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1).`
+        )
+      }
+
+      const count = actualCashBreakdown[key]
+      if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
+        throw new HttpsError(
+          'invalid-argument',
+          `La cantidad para la denominación 'Bs ${key}' debe ser un número entero no negativo, recibido: ${JSON.stringify(count)}.`
+        )
+      }
+
+      breakdownSumCents += VALID_BOLIVIAN_DENOMINATIONS[key] * count
+    }
+
     if (breakdownSumCents !== actualCashCents) {
       throw new HttpsError(
         'invalid-argument',
-        `El desglose de billetes y monedas (Bs ${(breakdownSumCents / 100).toFixed(2)}) no coincide con el efectivo físico declarado (Bs ${(actualCashCents / 100).toFixed(2)}).`
+        `El desglose de billetes y monedas (Bs ${(breakdownSumCents / 100).toFixed(2)}) no coincide con el total de efectivo declarado (Bs ${(actualCashCents / 100).toFixed(2)}).`
       )
     }
   }
@@ -1182,6 +1208,107 @@ export const closeCashShift = onCall({ cors: true }, async (request) => {
 })
 
 /**
+ * Parámetro provisional del umbral para egresos que requieren aprobación superior (Bs 150.00).
+ * En la siguiente etapa será configurable dinámicamente por la Administración de Expreso Punata.
+ */
+export const PROVISIONAL_EXPENSE_APPROVAL_THRESHOLD_CENTS = 15000
+
+/**
+ * =============================================================================
+ * CLOUD FUNCTION: createExpenseAuthorization (Autorización Formal de Egreso Extraordinario)
+ * =============================================================================
+ * Permite a un Encargado de Agencia o Directiva Admin emitir una autorización
+ * verificable en base de datos para que una secretaria ejecute un egreso > Bs 150.
+ */
+export const createExpenseAuthorization = onCall({ cors: true }, async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para autorizar un egreso.')
+  }
+
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists) {
+    throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
+  }
+  const callerData = callerDoc.data() || {}
+  if (!callerData.isActive) {
+    throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
+  }
+
+  const allowedRoles = ['encargado_agencia', 'directiva_admin']
+  if (!allowedRoles.includes(callerData.role)) {
+    throw new HttpsError('permission-denied', 'Solo Encargados de Agencia o Directiva pueden autorizar egresos extraordinarios.')
+  }
+
+  const payload = request.data || {}
+  const branchId = payload.branchId && typeof payload.branchId === 'string' ? payload.branchId.trim().toLowerCase() : ''
+  const maxAmountCents = Math.round(Number(payload.maxAmountCents) || 0)
+  const concept = payload.concept && typeof payload.concept === 'string' ? payload.concept.trim() : ''
+  const category = payload.category && typeof payload.category === 'string' ? payload.category.trim().toLowerCase() : 'otro'
+  const authorizedOperatorUid = payload.authorizedOperatorUid && typeof payload.authorizedOperatorUid === 'string' ? payload.authorizedOperatorUid.trim() : ''
+
+  if (!branchId || maxAmountCents <= 0 || !concept || !authorizedOperatorUid) {
+    throw new HttpsError('invalid-argument', 'Debe proporcionar sucursal, monto máximo positivo, concepto y el UID del operador autorizado.')
+  }
+
+  if (callerData.role === 'encargado_agencia') {
+    const allowedBranches = callerData.allowedBranchIds || [callerData.primaryBranchId]
+    if (!allowedBranches.includes(branchId)) {
+      throw new HttpsError('permission-denied', `No tiene autorización para emitir aprobaciones en la sucursal '${branchId}'.`)
+    }
+  }
+
+  // Verificar que el operador a autorizar exista y esté activo
+  const operatorDoc = await db.collection('users').doc(authorizedOperatorUid).get()
+  if (!operatorDoc.exists || !operatorDoc.data().isActive) {
+    throw new HttpsError('failed-precondition', 'El operador designado a autorizar no existe o se encuentra inactivo.')
+  }
+
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString()
+  const authCode = `AUT-EXP-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`
+
+  const authRecord = {
+    id: authCode,
+    authCode,
+    branchId,
+    maxAmountCents,
+    concept,
+    category,
+    authorizedOperatorUid,
+    authorizedOperatorName: operatorDoc.data().fullName || 'Operador',
+    approverUid: callerUid,
+    approverName: callerData.fullName || 'Encargado',
+    approverRole: callerData.role,
+    status: 'approved',
+    createdAt: now.toISOString(),
+    expiresAt,
+    createdAtServer: FieldValue.serverTimestamp(),
+  }
+
+  await db.collection('expense_authorizations').doc(authCode).set(authRecord)
+
+  // Auditoría
+  await db.collection('audit_logs').doc().set({
+    entityType: 'expense_authorization',
+    entityId: authCode,
+    action: 'EXPENSE_AUTHORIZATION_CREATED',
+    performedByUid: callerUid,
+    performedByName: callerData.fullName || 'Encargado',
+    branchId,
+    maxAmountCents,
+    authorizedOperatorUid,
+    timestamp: FieldValue.serverTimestamp(),
+  })
+
+  return {
+    success: true,
+    authCode,
+    authorization: authRecord,
+  }
+})
+
+/**
  * =============================================================================
  * CLOUD FUNCTION: registerCashExpense (Registro Seguro de Egreso de Caja)
  * =============================================================================
@@ -1212,8 +1339,13 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
   const concept = payload.concept && typeof payload.concept === 'string' ? payload.concept.trim() : ''
   const category = payload.category && typeof payload.category === 'string' ? payload.category.trim().toLowerCase() : 'oficina'
   const voucherNumber = payload.voucherNumber && typeof payload.voucherNumber === 'string' ? payload.voucherNumber.trim() : null
-  const idempotencyKey = payload.idempotencyKey && typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey.trim() : null
-  const approvedBy = payload.approvedBy && typeof payload.approvedBy === 'string' ? payload.approvedBy.trim() : null
+  const idempotencyKey = payload.idempotencyKey && typeof payload.idempotencyKey === 'string' ? payload.idempotencyKey.trim() : ''
+  const authorizationCode = payload.authorizationCode && typeof payload.authorizationCode === 'string' ? payload.authorizationCode.trim().toUpperCase() : null
+
+  // 1. Idempotencia OBLIGATORIA
+  if (!idempotencyKey || idempotencyKey.length < 8) {
+    throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia obligatoria (mínimo 8 caracteres) para registrar egresos.')
+  }
 
   if (!branchId || amountCents <= 0 || !concept) {
     throw new HttpsError('invalid-argument', 'Debe proporcionar sucursal, monto positivo y concepto del egreso.')
@@ -1237,39 +1369,94 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
     throw new HttpsError('invalid-argument', `Categoría de egreso '${category}' no válida. Categorías permitidas: ${validCategories.join(', ')}.`)
   }
 
-  // Límites y autorización para rol 'secretaria'
-  // Monto ordinario máximo sin aprobación superior: Bs 150.00 (15,000 centavos)
+  // 2. Límites y autorización verificable para rol 'secretaria'
   const isSupervisorOrAdmin = ['encargado_agencia', 'directiva_admin'].includes(callerData.role)
-  if (!isSupervisorOrAdmin && callerData.role === 'secretaria') {
-    if (amountCents > 15000 && !approvedBy) {
-      throw new HttpsError(
-        'permission-denied',
-        'Los egresos superiores a Bs 150.00 requieren el nombre o comprobante de autorización del Encargado de Sucursal o Directiva.'
-      )
-    }
+  const requiresSupervisorApproval = !isSupervisorOrAdmin && callerData.role === 'secretaria' && amountCents > PROVISIONAL_EXPENSE_APPROVAL_THRESHOLD_CENTS
+
+  if (requiresSupervisorApproval && !authorizationCode) {
+    throw new HttpsError(
+      'permission-denied',
+      `Los egresos superiores a Bs ${(PROVISIONAL_EXPENSE_APPROVAL_THRESHOLD_CENTS / 100).toFixed(2)} requieren un código de autorización verificable emitido por Encargado de Sucursal o Directiva.`
+    )
   }
 
   const nowIso = new Date().toISOString()
 
   return await db.runTransaction(async (transaction) => {
-    // 0. Idempotencia: si ya existe la clave, retornar el movimiento previo
-    if (idempotencyKey) {
-      const idemRef = db.collection('idempotency_keys').doc(`exp_${idempotencyKey}`)
-      const idemDoc = await transaction.get(idemRef)
-      if (idemDoc.exists) {
-        const cached = idemDoc.data() || {}
-        return {
-          success: true,
-          movementId: cached.movementId,
-          amountCents: cached.amountCents,
-          concept: cached.concept,
-          newExpectedCashCents: cached.newExpectedCashCents,
-          cached: true,
-        }
+    // 0. Idempotencia vinculada al contenido (huella digital SHA-256)
+    const payloadFingerprint = crypto
+      .createHash('sha256')
+      .update(JSON.stringify({
+        callerUid,
+        branchId,
+        amountCents,
+        category,
+        concept: concept.toLowerCase().trim(),
+        voucherNumber: voucherNumber ? voucherNumber.toLowerCase().trim() : null,
+      }))
+      .digest('hex')
+
+    const idemRef = db.collection('idempotency_keys').doc(`exp_${idempotencyKey}`)
+    const idemDoc = await transaction.get(idemRef)
+    if (idemDoc.exists) {
+      const cached = idemDoc.data() || {}
+      if (cached.payloadFingerprint !== payloadFingerprint) {
+        throw new HttpsError(
+          'already-exists',
+          'La clave de idempotencia ya fue utilizada previamente con un monto, concepto o contenido diferente.'
+        )
+      }
+      return {
+        success: true,
+        movementId: cached.movementId,
+        amountCents: cached.amountCents,
+        concept: cached.concept,
+        newExpectedCashCents: cached.newExpectedCashCents,
+        cached: true,
       }
     }
 
-    // Buscar turno de caja abierto
+    // 1. Validar autorización verificable del supervisor si aplica
+    let approverInfo = {
+      approverUid: callerUid,
+      approverName: callerData.fullName || 'Operador',
+      approverRole: callerData.role,
+      authorizationCode: null,
+    }
+
+    if (requiresSupervisorApproval) {
+      const authRef = db.collection('expense_authorizations').doc(authorizationCode)
+      const authDoc = await transaction.get(authRef)
+      if (!authDoc.exists) {
+        throw new HttpsError('failed-precondition', `El código de autorización '${authorizationCode}' no existe en el sistema.`)
+      }
+      const authData = authDoc.data() || {}
+      if (authData.status !== 'approved') {
+        throw new HttpsError('failed-precondition', `El código de autorización '${authorizationCode}' no está vigente (estado: ${authData.status}).`)
+      }
+      if (authData.branchId !== branchId) {
+        throw new HttpsError('failed-precondition', `El código de autorización fue emitido para la sucursal '${authData.branchId}', no para '${branchId}'.`)
+      }
+      if (authData.authorizedOperatorUid !== callerUid) {
+        throw new HttpsError('permission-denied', 'Este código de autorización fue emitido para otro operador y no puede ser usado por su cuenta.')
+      }
+      if (authData.maxAmountCents < amountCents) {
+        throw new HttpsError('failed-precondition', `El monto del egreso (Bs ${(amountCents / 100).toFixed(2)}) supera el monto máximo autorizado (Bs ${(authData.maxAmountCents / 100).toFixed(2)}).`)
+      }
+      if (authData.expiresAt && authData.expiresAt < nowIso) {
+        throw new HttpsError('failed-precondition', `El código de autorización ha expirado el ${authData.expiresAt}.`)
+      }
+
+      approverInfo = {
+        approverUid: authData.approverUid,
+        approverName: authData.approverName,
+        approverRole: authData.approverRole,
+        authorizationCode,
+        authRef,
+      }
+    }
+
+    // 2. Buscar turno de caja abierto (TODAS las lecturas antes de las escrituras)
     const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
     const lockDoc = await transaction.get(lockRef)
     if (!lockDoc.exists || lockDoc.data().status !== 'open' || !lockDoc.data().shiftId) {
@@ -1289,6 +1476,18 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
       throw new HttpsError('failed-precondition', `El egreso (Bs ${(amountCents / 100).toFixed(2)}) supera el efectivo disponible en caja (Bs ${(currentExpectedCash / 100).toFixed(2)}).`)
     }
 
+    // --- A PARTIR DE AQUÍ INICIAN TODAS LAS ESCRITURAS DE LA TRANSACCIÓN ---
+    if (requiresSupervisorApproval && approverInfo.authRef) {
+      // Consumir transaccionalmente la autorización para impedir reutilización
+      transaction.update(approverInfo.authRef, {
+        status: 'used',
+        usedByUid: callerUid,
+        usedAt: nowIso,
+        usedAmountCents: amountCents,
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+    }
+
     const expenseMovementId = `MOV-EXP-${shiftId}-${Date.now().toString(36)}`
     const expenseMovement = {
       id: expenseMovementId,
@@ -1300,9 +1499,12 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
       category,
       amountCents: -amountCents,
       paymentMethod: 'cash',
-      concept: `Egreso autorizado: ${concept}${voucherNumber ? ` (Comprobante: ${voucherNumber})` : ''}${approvedBy ? ` [Autorizado por: ${approvedBy}]` : ''}`,
+      concept: `Egreso autorizado: ${concept}${voucherNumber ? ` (Comprobante: ${voucherNumber})` : ''}`,
       referenceId: voucherNumber || shiftId,
-      authorizedBy: approvedBy || (isSupervisorOrAdmin ? callerData.fullName : 'Operador'),
+      authorizedByUid: approverInfo.approverUid,
+      authorizedByName: approverInfo.approverName,
+      authorizedByRole: approverInfo.approverRole,
+      authorizationCode: approverInfo.authorizationCode,
       status: 'completed',
       timestamp: nowIso,
       createdAt: FieldValue.serverTimestamp(),
@@ -1318,18 +1520,36 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
       updatedAt: FieldValue.serverTimestamp(),
     })
 
-    if (idempotencyKey) {
-      const idemRef = db.collection('idempotency_keys').doc(`exp_${idempotencyKey}`)
-      transaction.set(idemRef, {
-        movementId: expenseMovementId,
-        shiftId,
-        branchId,
-        amountCents,
-        concept,
-        newExpectedCashCents: currentExpectedCash - amountCents,
-        createdAt: FieldValue.serverTimestamp(),
-      })
-    }
+    // Guardar clave de idempotencia vinculada a huella de contenido
+    transaction.set(idemRef, {
+      idempotencyKey,
+      payloadFingerprint,
+      movementId: expenseMovementId,
+      shiftId,
+      branchId,
+      operatorUid: callerUid,
+      amountCents,
+      concept,
+      newExpectedCashCents: currentExpectedCash - amountCents,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+
+    // Auditoría
+    transaction.set(db.collection('audit_logs').doc(), {
+      entityType: 'financial_movement',
+      entityId: expenseMovementId,
+      action: 'CASH_EXPENSE_REGISTERED',
+      performedByUid: callerUid,
+      performedByName: callerData.fullName || 'Operador',
+      authorizedByUid: approverInfo.approverUid,
+      authorizedByName: approverInfo.approverName,
+      branchId,
+      amountCents,
+      concept,
+      category,
+      authorizationCode: approverInfo.authorizationCode,
+      timestamp: FieldValue.serverTimestamp(),
+    })
 
     return {
       success: true,
