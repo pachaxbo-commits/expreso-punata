@@ -30,7 +30,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
   const callerUid = request.auth.uid
 
-  // 2. Obtener y validar perfil del usuario llamador
+  // 2. Obtener y validar perfil del usuario llamador (autoritativo desde Firestore)
   const userDoc = await db.collection('users').doc(callerUid).get()
   if (!userDoc.exists) {
     throw new HttpsError('permission-denied', 'El usuario no tiene perfil registrado en el sistema.')
@@ -140,21 +140,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
   const safeIdempotencyKey = idempotencyKey.trim()
 
-  // Huella de datos para verificar que una misma clave no se use con datos distintos
-  const payloadFingerprint = JSON.stringify({
-    originBranchId,
-    destinationBranchId,
-    deliveryType,
-    senderName: sender.name.trim().toLowerCase(),
-    senderPhone: sender.phone.trim(),
-    recipientName: recipient.name.trim().toLowerCase(),
-    recipientPhone: recipient.phone.trim(),
-    itemCount: items.length,
-    paymentTiming,
-    paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : null,
-  })
-
-  // 10. Validación estricta de descuentos (Requisito 3)
+  // 10. Validación estricta de descuentos
   // Descuentos arbitrarios desde ventanilla están bloqueados. Solo Directiva / Admin puede aplicar descuentos.
   const rawDiscount = Number(discountCents) || 0
   if (rawDiscount < 0) {
@@ -173,14 +159,41 @@ export const createShipment = onCall({ cors: true }, async (request) => {
   const safeDiscountCents = Math.min(subtotalCents, Math.round(rawDiscount))
   const finalAmountCents = subtotalCents - safeDiscountCents
 
-  // 12. Regla de cobro seguro y consistencia financiera (Requisito 3)
-  const isPaid = paymentTiming === 'origin_paid'
-  const isEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST)
-  const hasValidShift = Boolean(cashShiftId && cashShiftId !== 'PENDING_SHIFT_DEV')
+  // Huella de datos exhaustiva para protección de idempotencia completa
+  const payloadFingerprint = JSON.stringify({
+    originBranchId,
+    destinationBranchId,
+    deliveryType,
+    deliveryAddress: deliveryType === 'home' ? (deliveryAddress || '').trim().toLowerCase() : null,
+    sender: {
+      name: sender.name.trim().toLowerCase(),
+      phone: sender.phone.trim(),
+      docNumber: sender.docNumber ? sender.docNumber.trim() : null,
+    },
+    recipient: {
+      name: recipient.name.trim().toLowerCase(),
+      phone: recipient.phone.trim(),
+      docNumber: recipient.docNumber ? recipient.docNumber.trim() : null,
+    },
+    items: items.map(it => ({
+      description: it.description.trim().toLowerCase(),
+      quantity: Number(it.quantity) || 1,
+      weightKg: Number(it.weightKg) || 0,
+      packaging: it.packaging || 'paquete',
+      isFragile: Boolean(it.isFragile),
+      isPerishable: Boolean(it.isPerishable),
+    })),
+    packageCount,
+    totalWeightKg,
+    discountCents: safeDiscountCents,
+    finalAmountCents,
+    declaredValueTotal: Number(payload.declaredValueTotal) || 0,
+    paymentTiming,
+    paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : null,
+  })
 
-  // En Cloud real, mientras no exista caja formal (Fase 7), si no hay un turno de caja válido
-  // se marca paymentStatus: 'pending' (pendiente de cobro en caja) y NO se crea un movimiento financiero fantasma
-  const isDefinitivePayment = isPaid && (hasValidShift || isEmulator)
+  // 12. Regla de cobro seguro y consistencia financiera
+  const isPaid = paymentTiming === 'origin_paid'
 
   // 13. Ejecución atómica en transacción Firestore
   const branchCode = originBranchId === 'punata' ? 'PUN' : 'CBB'
@@ -209,7 +222,32 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       }
     }
 
-    // B. Leer y avanzar correlativo anual por sucursal
+    // B. Validación estricta del turno de caja en la misma transacción
+    let isDefinitivePayment = false
+    let movementId = null
+    let effectiveShiftId = null
+
+    if (isPaid && cashShiftId) {
+      const shiftDocRef = db.collection('cash_shifts').doc(cashShiftId)
+      const shiftDoc = await transaction.get(shiftDocRef)
+      if (!shiftDoc.exists) {
+        throw new HttpsError('failed-precondition', `El turno de caja '${cashShiftId}' no existe en el sistema.`)
+      }
+      const shiftData = shiftDoc.data() || {}
+      if (shiftData.status !== 'open') {
+        throw new HttpsError('failed-precondition', `El turno de caja '${cashShiftId}' no está abierto (estado actual: ${shiftData.status}).`)
+      }
+      if (shiftData.operatorUid !== callerUid) {
+        throw new HttpsError('permission-denied', `El turno de caja '${cashShiftId}' pertenece a otro operador.`)
+      }
+      if (shiftData.branchId !== originBranchId) {
+        throw new HttpsError('permission-denied', `El turno de caja '${cashShiftId}' no corresponde a la sucursal de origen '${originBranchId}'.`)
+      }
+      isDefinitivePayment = true
+      effectiveShiftId = cashShiftId
+    }
+
+    // C. Leer y avanzar correlativo anual por sucursal
     const counterDoc = await transaction.get(counterDocRef)
     let nextSeq = 1
     if (counterDoc.exists) {
@@ -219,13 +257,15 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
     const seqPadded = String(nextSeq).padStart(5, '0')
     const trackingCode = `${branchCode}-${currentYear}-${seqPadded}`
-    const movementId = isDefinitivePayment ? `MOV-${trackingCode}` : null
+    if (isDefinitivePayment) {
+      movementId = `MOV-${trackingCode}`
+    }
+
     const shipmentDocRef = db.collection('shipments').doc(trackingCode)
     const initialStatusLogRef = shipmentDocRef.collection('status_logs').doc()
-
     const nowIso = new Date().toISOString()
 
-    // C. Construir documento canónico de encomienda
+    // D. Construir documento canónico de encomienda
     const newShipment = {
       id: trackingCode,
       trackingCode,
@@ -288,7 +328,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       createdAtIso: nowIso,
     }
 
-    // D. Registrar log inicial de auditoría
+    // E. Registrar log inicial de auditoría
     const initialStatusLog = {
       status: 'received',
       operatorUid: callerUid,
@@ -299,9 +339,8 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       createdAtIso: nowIso,
     }
 
-    // E. Registro financiero auditable si fue pagado efectivamente con turno
-    if (isDefinitivePayment && movementId) {
-      const effectiveShiftId = cashShiftId || 'PENDING_SHIFT_DEV'
+    // F. Registro financiero auditable si fue pagado efectivamente con turno validado
+    if (isDefinitivePayment && movementId && effectiveShiftId) {
       const financialMovementDocRef = db.collection('financial_movements').doc(movementId)
       const financialMovement = {
         id: movementId,
@@ -314,10 +353,8 @@ export const createShipment = onCall({ cors: true }, async (request) => {
         concept: 'shipment_origin_payment',
         status: 'completed',
         cashShiftId: effectiveShiftId,
-        reconciliationStatus: cashShiftId ? 'shift_assigned' : 'pending_shift_opening',
-        auditNotice: cashShiftId
-          ? 'Asignado a turno de caja formal'
-          : 'Cobro registrado en emulador local de desarrollo sin turno formal',
+        reconciliationStatus: 'shift_assigned',
+        auditNotice: 'Asignado a turno de caja formal verificado',
         idempotencyKey: safeIdempotencyKey,
         createdAt: FieldValue.serverTimestamp(),
         createdAtIso: nowIso,
@@ -325,7 +362,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       transaction.set(financialMovementDocRef, financialMovement)
     }
 
-    // F. Escribir operaciones atómicas en la transacción
+    // G. Escribir operaciones atómicas en la transacción
     transaction.set(counterDocRef, {
       branchId: originBranchId,
       branchCode,
@@ -375,7 +412,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
   const callerUid = request.auth.uid
   const callerEmail = request.auth.token.email || ''
 
-  // 2. Validar que el llamador sea un directiva_admin activo
+  // 2. Validar que el llamador sea un directiva_admin activo (autoritativo desde Firestore)
   const callerDoc = await db.collection('users').doc(callerUid).get()
   if (!callerDoc.exists) {
     throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
@@ -424,7 +461,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
 
   const safeTargetUid = targetUid.trim()
 
-  // 3. Verificar que el usuario exista en Firebase Authentication (siempre que no estemos en emulador offline aislado sin auth)
+  // 3. Verificar que el usuario exista en Firebase Authentication
   let targetAuthUser = null
   try {
     targetAuthUser = await authAdmin.getUser(safeTargetUid)
@@ -450,10 +487,12 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     assignedVehiclePlate: role === 'conductor' ? assignedVehiclePlate || '' : null,
     assignedMobileNumber: role === 'conductor' ? assignedMobileNumber || '' : null,
     isActive: Boolean(isActive),
+    syncStatus: 'syncing',
     updatedAt: FieldValue.serverTimestamp(),
     updatedAtIso: nowIso,
   }
 
+  // Escribir perfil en Firestore
   await db.runTransaction(async (transaction) => {
     const existingDoc = await transaction.get(targetUserRef)
     if (!existingDoc.exists) {
@@ -462,22 +501,6 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
       profileData.createdReason = 'admin_provisioned'
     }
     transaction.set(targetUserRef, profileData, { merge: true })
-
-    transaction.set(auditDocRef, {
-      id: auditDocRef.id,
-      entityType: 'user_profile',
-      entityId: safeTargetUid,
-      action: existingDoc.exists ? 'USER_PROFILE_UPDATED' : 'USER_PROFILE_PROVISIONED',
-      performedByUid: callerUid,
-      performedByEmail: callerEmail,
-      details: {
-        role,
-        primaryBranchId,
-        isActive: Boolean(isActive),
-      },
-      timestamp: FieldValue.serverTimestamp(),
-      timestampIso: nowIso,
-    })
   })
 
   // 4. Sincronizar Custom Claims en Firebase Authentication
@@ -493,8 +516,62 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     if (!profileData.isActive) {
       await authAdmin.revokeRefreshTokens(safeTargetUid)
     }
+
+    // Actualizar estado de sincronización exitosa en Firestore y log de auditoría
+    await db.runTransaction(async (transaction) => {
+      transaction.update(targetUserRef, {
+        syncStatus: 'synced',
+        claimsSyncedAt: FieldValue.serverTimestamp(),
+        claimsSyncedAtIso: new Date().toISOString(),
+      })
+      transaction.set(auditDocRef, {
+        id: auditDocRef.id,
+        entityType: 'user_profile',
+        entityId: safeTargetUid,
+        action: 'USER_PROFILE_PROVISIONED_AND_SYNCED',
+        performedByUid: callerUid,
+        performedByEmail: callerEmail,
+        details: {
+          role,
+          primaryBranchId,
+          isActive: Boolean(isActive),
+          claimsSynced: true,
+        },
+        timestamp: FieldValue.serverTimestamp(),
+        timestampIso: new Date().toISOString(),
+      })
+    })
   } catch (claimErr) {
-    console.warn(`[adminProvisionUser] Advertencia al asignar custom claims para ${safeTargetUid}:`, claimErr)
+    console.error(`[adminProvisionUser] Fallo crítico al sincronizar custom claims para ${safeTargetUid}:`, claimErr)
+
+    // Reconciliación: Registrar fallo explícito en Firestore y auditoría
+    try {
+      await targetUserRef.set({
+        syncStatus: 'failed',
+        syncError: claimErr.message,
+        isActive: false, // Forzar inactivo por seguridad hasta reconciliación
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+
+      await db.collection('audit_logs').add({
+        entityType: 'user_profile',
+        entityId: safeTargetUid,
+        action: 'USER_CLAIMS_SYNC_FAILED',
+        performedByUid: callerUid,
+        performedByEmail: callerEmail,
+        error: claimErr.message,
+        timestamp: FieldValue.serverTimestamp(),
+        timestampIso: new Date().toISOString(),
+      })
+    } catch (auditErr) {
+      console.error('[adminProvisionUser] Error al registrar fallo en auditoría:', auditErr)
+    }
+
+    // NO declarar éxito si la sincronización falló
+    throw new HttpsError(
+      'internal',
+      `Fallo crítico al sincronizar Custom Claims en Firebase Authentication: ${claimErr.message}. El usuario no fue habilitado.`
+    )
   }
 
   return {
@@ -502,6 +579,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     message: 'Perfil de usuario aprovisionado y claims sincronizados exitosamente.',
     profile: {
       ...profileData,
+      syncStatus: 'synced',
       createdAt: nowIso,
       updatedAt: nowIso,
     },

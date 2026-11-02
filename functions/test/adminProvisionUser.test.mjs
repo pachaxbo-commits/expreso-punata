@@ -35,7 +35,6 @@ beforeEach(async () => {
 })
 
 test('1. SEGURIDAD: Bootstrap público eliminado (rechaza intento de apropiación incluso con BD vacía)', async () => {
-  // Cuando la colección 'users' está vacía, un atacante no puede auto-aprovisionarse como admin
   const req = {
     auth: {
       uid: 'atacante-aleatorio',
@@ -58,13 +57,11 @@ test('1. SEGURIDAD: Bootstrap público eliminado (rechaza intento de apropiació
     }
   )
 
-  // Verificar que la BD permanece completamente vacía
   const userDoc = await db.collection('users').doc('atacante-aleatorio').get()
   assert.equal(userDoc.exists, false)
 })
 
 test('2. Administrador activo puede aprovisionar secretarias y sincronizar Custom Claims', async () => {
-  // Setup: Crear cuenta en Auth Emulator y admin en la BD
   let testTargetUser
   try {
     testTargetUser = await auth.createUser({
@@ -73,7 +70,6 @@ test('2. Administrador activo puede aprovisionar secretarias y sincronizar Custo
       displayName: 'María Secretaria Punata',
     })
   } catch (err) {
-    // Si ya existe en el emulador, obtenerlo
     testTargetUser = await auth.getUser('sec-punata-uid')
   }
 
@@ -107,12 +103,14 @@ test('2. Administrador activo puede aprovisionar secretarias y sincronizar Custo
   const res = await adminProvisionUser.run(req)
   assert.equal(res.success, true)
   assert.equal(res.profile.role, 'secretaria')
+  assert.equal(res.profile.syncStatus, 'synced')
 
   // Verificar documento en Firestore
   const secDoc = await db.collection('users').doc('sec-punata-uid').get()
   assert.equal(secDoc.exists, true)
   assert.equal(secDoc.data().role, 'secretaria')
   assert.equal(secDoc.data().primaryBranchId, 'punata')
+  assert.equal(secDoc.data().syncStatus, 'synced')
 
   // Verificar Custom Claims en Firebase Authentication
   const updatedAuthUser = await auth.getUser('sec-punata-uid')
@@ -155,7 +153,7 @@ test('4. Usuario inactivo es rechazado automáticamente', async () => {
   await db.collection('users').doc('admin-inactive').set({
     uid: 'admin-inactive',
     role: 'directiva_admin',
-    isActive: false // Inactivo
+    isActive: false
   })
 
   const req = {
@@ -181,7 +179,7 @@ test('4. Usuario inactivo es rechazado automáticamente', async () => {
   )
 })
 
-test('5. Desactivación de usuario: sincroniza isActive=false en claims', async () => {
+test('5. Desactivación de usuario: sincroniza isActive=false en claims y revoca tokens', async () => {
   try {
     await auth.createUser({
       uid: 'usuario-a-desactivar',
@@ -216,4 +214,36 @@ test('5. Desactivación de usuario: sincroniza isActive=false en claims', async 
 
   const authUser = await auth.getUser('usuario-a-desactivar')
   assert.equal(authUser.customClaims?.isActive, false)
+})
+
+test('6. MANEJO DE ESTADOS PARCIALES: Usuario no existente en Auth lanza error visible y no declara éxito', async () => {
+  await db.collection('users').doc('admin-user').set({
+    uid: 'admin-user',
+    role: 'directiva_admin',
+    isActive: true
+  })
+
+  const req = {
+    auth: {
+      uid: 'admin-user',
+      token: { email: 'admin@expreso-punata.bo' }
+    },
+    data: {
+      targetUid: 'uid-que-no-existe-en-auth',
+      fullName: 'Usuario Fantasma',
+      ci: '3333333',
+      role: 'secretaria',
+      primaryBranchId: 'punata',
+      isActive: true,
+    }
+  }
+
+  // Debe rechazar con error not-found o internal sin declarar éxito
+  await assert.rejects(
+    async () => adminProvisionUser.run(req),
+    (err) => {
+      assert.ok(err.code === 'not-found' || err.code === 'internal')
+      return true
+    }
+  )
 })

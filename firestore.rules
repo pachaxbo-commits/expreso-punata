@@ -12,55 +12,48 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
     
-    function getUserRole() {
-      return ('role' in request.auth.token && request.auth.token.role != null)
-        ? request.auth.token.role 
-        : (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && ('role' in getUserData()) ? getUserData().role : null);
-    }
-    
-    function getUserBranch() {
-      return ('branchId' in request.auth.token && request.auth.token.branchId != null)
-        ? request.auth.token.branchId
-        : (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && ('primaryBranchId' in getUserData()) ? getUserData().primaryBranchId : null);
-    }
-    
+    // El documento en Firestore es la fuente autoritativa de verdad
     function isActive() {
-      return isAuthenticated() && (
-        ('isActive' in request.auth.token && request.auth.token.isActive == true) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         ('isActive' in getUserData()) && getUserData().isActive == true)
-      );
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        ('isActive' in getUserData()) &&
+        getUserData().isActive == true &&
+        (!('isActive' in request.auth.token) || request.auth.token.isActive == true);
     }
-
-    function isAllowedBranch(branchId) {
-      return isActive() && (isAdmin() || isTreasury() || (
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-          ('primaryBranchId' in getUserData() && getUserData().primaryBranchId == branchId) ||
-          ('allowedBranchIds' in getUserData() && branchId in getUserData().allowedBranchIds)
-        )
-      ));
+    
+    // Rol autoritativo desde Firestore
+    function getUserRole() {
+      return ('role' in getUserData()) ? getUserData().role : ('role' in request.auth.token ? request.auth.token.role : null);
+    }
+    
+    // Sucursal autoritativa desde Firestore
+    function getUserBranch() {
+      return ('primaryBranchId' in getUserData()) ? getUserData().primaryBranchId : ('branchId' in request.auth.token ? request.auth.token.branchId : null);
     }
 
     function isAdmin() {
-      return isActive() && getUserRole() == 'directiva_admin';
+      return getUserRole() == 'directiva_admin';
     }
 
     function isTreasury() {
-      return isActive() && (getUserRole() == 'tesoreria' || isAdmin());
+      return getUserRole() == 'tesoreria' || isAdmin();
     }
 
     function isAgencyManager() {
-      return isActive() && (getUserRole() == 'encargado_agencia' || isAdmin());
+      return getUserRole() == 'encargado_agencia' || isAdmin();
     }
 
     function isCashier() {
-      return isActive() && (
-        getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin']
-      );
+      return getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin'];
     }
 
     function isDriver() {
-      return isActive() && getUserRole() == 'conductor';
+      return getUserRole() == 'conductor';
+    }
+
+    function isBranchAllowed(branchId) {
+      return ('primaryBranchId' in getUserData() && getUserData().primaryBranchId == branchId) ||
+             ('allowedBranchIds' in getUserData() && branchId in getUserData().allowedBranchIds);
     }
 
     function isValidStatusTransition(oldStatus, newStatus) {
@@ -76,17 +69,17 @@ service cloud.firestore {
     // COLECCIÓN: branches (Sucursales: Punata y Cochabamba)
     // =========================================================================
     match /branches/{branchId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isActive();
+      allow write: if isActive() && isAdmin();
       
       // Subcolección: shelves y modules (Almacenamiento Físico)
       match /shelves/{shelfId} {
-        allow read: if isAuthenticated();
-        allow write: if isAgencyManager() && isAllowedBranch(branchId);
+        allow read: if isActive();
+        allow write: if isActive() && isAgencyManager() && isBranchAllowed(branchId);
         
         match /modules/{moduleId} {
-          allow read: if isAuthenticated();
-          allow write: if isCashier() && isAllowedBranch(branchId);
+          allow read: if isActive();
+          allow write: if isActive() && isCashier() && isBranchAllowed(branchId);
         }
       }
     }
@@ -95,15 +88,14 @@ service cloud.firestore {
     // COLECCIÓN: users (Perfiles, Roles y Sucursales Asignadas)
     // =========================================================================
     match /users/{userId} {
-      // Cada usuario puede leer su propio perfil; directiva puede leer todos
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin() || isAgencyManager());
-      // Solo Directiva / Admin puede crear o modificar roles y permisos de usuarios
-      allow write: if false; // Bloquea autocreación y escalación desde navegador (Admin SDK exclusivo)
+      // Cada usuario puede leer su propio perfil; directiva y encargados activos pueden leer otros
+      allow read: if isAuthenticated() && (request.auth.uid == userId || (isActive() && (isAdmin() || isAgencyManager())));
+      // Solo Cloud Functions con Admin SDK puede crear o modificar perfiles
+      allow write: if false;
     }
 
     // =========================================================================
-    // COLECCIÓN: counters (Generación atómica de números de guía/recibo en backend)
-    // El navegador NO puede leer, escribir ni alterar correlativos
+    // COLECCIÓN: counters (Generación atómica de números de guía en backend)
     // =========================================================================
     match /counters/{counterId} {
       allow read, write: if false; // Exclusivo de Cloud Functions con Admin SDK
@@ -120,10 +112,10 @@ service cloud.firestore {
     // COLECCIÓN: financial_movements (Movimientos financieros auditables)
     // =========================================================================
     match /financial_movements/{movementId} {
-      allow read: if isAuthenticated() && (
+      allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        isAllowedBranch(resource.data.branchId)
+        ((isCashier() || isAgencyManager()) && isBranchAllowed(resource.data.branchId))
       );
       allow write: if false; // Solo backend en transacciones atómicas
     }
@@ -132,17 +124,18 @@ service cloud.firestore {
     // COLECCIÓN: shipments (Encomiendas)
     // =========================================================================
     match /shipments/{shipmentId} {
-      // Lectura: secretarias de origen o destino, administradores, tesorería, o conductor asignado
-      allow read: if isAuthenticated() && (
+      // Lectura: secretarias de origen o destino autorizadas, admin, tesorería, o conductor asignado
+      allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        isAllowedBranch(resource.data.originBranchId) ||
-        isAllowedBranch(resource.data.destinationBranchId) ||
+        ((isCashier() || isAgencyManager()) && (
+          isBranchAllowed(resource.data.originBranchId) ||
+          isBranchAllowed(resource.data.destinationBranchId)
+        )) ||
         (isDriver() && ('assignedVehicle' in resource.data) && resource.data.assignedVehicle.driverUid == request.auth.uid)
       );
 
       // Creación: TOTALMENTE PROHIBIDA desde clientes / navegadores directos
-      // Toda encomienda y guía debe emitirse exclusivamente mediante Cloud Functions
       allow create: if false;
 
       // Actualización autorizada:
@@ -152,7 +145,7 @@ service cloud.firestore {
           'finalAmountCents', 'shippingFeeCents', 'weightSurchargeCents', 'homeDeliveryFeeCents',
           'discountCents', 'trackingCode', 'id', 'idempotencyKey', 'registeredByUid', 'financialMovementId', 'createdAt'
         ])) ||
-        (isCashier() && (isAllowedBranch(resource.data.originBranchId) || isAllowedBranch(resource.data.destinationBranchId)) &&
+        (isCashier() && (isBranchAllowed(resource.data.originBranchId) || isBranchAllowed(resource.data.destinationBranchId)) &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'storageLocation', 'updatedAt', 'deliveryRecord']) &&
          isValidStatusTransition(resource.data.status, request.resource.data.status) &&
          (request.resource.data.status != 'delivered' || (request.resource.data.deliveryRecord != null && request.resource.data.deliveryRecord.receivedByName is string))) ||
@@ -162,19 +155,38 @@ service cloud.firestore {
          (request.resource.data.status != 'delivered' || (request.resource.data.deliveryRecord != null && request.resource.data.deliveryRecord.receivedByName is string)))
       );
 
-      // Eliminación prohibida: Las encomiendas son registros inmutables
+      // Eliminación prohibida: Las encomiendas son inmutables
       allow delete: if false;
 
       // Subcolección: status_logs (Historial auditado independiente)
       match /status_logs/{logId} {
-        allow read: if isAuthenticated();
+        allow read: if isActive() && (
+          isAdmin() ||
+          isTreasury() ||
+          ((isCashier() || isAgencyManager()) && (
+            isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.originBranchId) ||
+            isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.destinationBranchId)
+          )) ||
+          (isDriver() && ('assignedVehicle' in get(/databases/$(database)/documents/shipments/$(shipmentId)).data) &&
+           get(/databases/$(database)/documents/shipments/$(shipmentId)).data.assignedVehicle.driverUid == request.auth.uid)
+        );
         allow create, update, delete: if false; // Solo backend append-only
       }
 
       // Subcolección: storage_moves (Historial de traslados físicos entre módulos)
       match /storage_moves/{moveId} {
-        allow read: if isAuthenticated();
-        allow create: if isCashier();
+        allow read: if isActive() && (
+          isAdmin() ||
+          isTreasury() ||
+          ((isCashier() || isAgencyManager()) && (
+            isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.originBranchId) ||
+            isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.destinationBranchId)
+          ))
+        );
+        allow create: if isActive() && isCashier() && (
+          isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.originBranchId) ||
+          isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.destinationBranchId)
+        );
         allow update, delete: if false; // Inmutable append-only
       }
     }
@@ -183,9 +195,20 @@ service cloud.firestore {
     // COLECCIÓN: manifests (Despachos y Manifiestos de Carga)
     // =========================================================================
     match /manifests/{manifestId} {
-      allow read: if isAuthenticated();
-      allow create: if isCashier() && isAllowedBranch(request.resource.data.originBranchId);
-      allow update: if isCashier() || (isDriver() && resource.data.driverUid == request.auth.uid);
+      allow read: if isActive() && (
+        isAdmin() ||
+        isTreasury() ||
+        ((isCashier() || isAgencyManager()) && (
+          isBranchAllowed(resource.data.originBranchId) ||
+          isBranchAllowed(resource.data.destinationBranchId)
+        )) ||
+        (isDriver() && resource.data.driverUid == request.auth.uid)
+      );
+      allow create: if isActive() && isCashier() && isBranchAllowed(request.resource.data.originBranchId);
+      allow update: if isActive() && (
+        (isCashier() && isBranchAllowed(resource.data.originBranchId)) ||
+        (isDriver() && resource.data.driverUid == request.auth.uid)
+      );
       allow delete: if false;
     }
 
@@ -194,21 +217,22 @@ service cloud.firestore {
     // =========================================================================
     match /cash_shifts/{shiftId} {
       // Secretaria lee su propio turno; encargados y tesorería ven los de su sucursal o global
-      allow read: if isAuthenticated() && (
+      allow read: if isActive() && (
         resource.data.operatorUid == request.auth.uid ||
-        isAgencyManager() && isAllowedBranch(resource.data.branchId) ||
-        isTreasury()
+        (isAgencyManager() && isBranchAllowed(resource.data.branchId)) ||
+        isTreasury() ||
+        isAdmin()
       );
 
       // Apertura de turno
-      allow create: if isCashier() &&
+      allow create: if isActive() && isCashier() &&
         request.resource.data.operatorUid == request.auth.uid &&
-        isAllowedBranch(request.resource.data.branchId) &&
+        isBranchAllowed(request.resource.data.branchId) &&
         request.resource.data.status == 'open' &&
         request.resource.data.initialCash >= 0;
 
       // Cierre de turno: solo el mismo operador mientras está abierto, o administrador
-      allow update: if isAuthenticated() && (
+      allow update: if isActive() && (
         (resource.data.operatorUid == request.auth.uid && resource.data.status == 'open') ||
         isAdmin()
       );
@@ -217,8 +241,16 @@ service cloud.firestore {
 
       // Subcolección: movements (Movimientos de caja del turno)
       match /movements/{movementId} {
-        allow read: if isAuthenticated();
-        allow create: if isCashier() && get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.status == 'open';
+        allow read: if isActive() && (
+          get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.operatorUid == request.auth.uid ||
+          (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.branchId)) ||
+          isTreasury() ||
+          isAdmin()
+        );
+        allow create: if isActive() && isCashier() &&
+          get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.status == 'open' &&
+          get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.operatorUid == request.auth.uid &&
+          isBranchAllowed(get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.branchId);
         allow update, delete: if false; // Movimientos financieros inmutables append-only
       }
     }
@@ -227,14 +259,14 @@ service cloud.firestore {
     // COLECCIÓN: fixed_assets (Inventario / Bienes Fijos de Expreso Punata)
     // =========================================================================
     match /fixed_assets/{assetId} {
-      allow read: if isAuthenticated() && !isDriver();
-      allow create: if isAgencyManager() || isTreasury();
-      allow update: if isAgencyManager() || isTreasury();
-      allow delete: if false; // Solo bajas lógicas autorizadas
+      allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury() || isCashier());
+      allow create: if isActive() && (isAgencyManager() || isTreasury() || isAdmin());
+      allow update: if isActive() && (isAgencyManager() || isTreasury() || isAdmin());
+      allow delete: if false;
 
       match /audit_logs/{auditId} {
-        allow read: if isAuthenticated() && !isDriver();
-        allow create: if isAgencyManager() || isTreasury();
+        allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury());
+        allow create: if isActive() && (isAgencyManager() || isTreasury() || isAdmin());
         allow update, delete: if false;
       }
     }
@@ -243,36 +275,44 @@ service cloud.firestore {
     // COLECCIONES SINDICALES: members, dues, workers, worker_payments, expenses
     // =========================================================================
     match /union_members/{memberId} {
-      allow read: if isAuthenticated() && !isDriver();
-      allow write: if isTreasury();
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
+      allow write: if isActive() && (isTreasury() || isAdmin());
     }
 
     match /union_dues/{dueId} {
-      allow read: if isAuthenticated() && !isDriver();
-      allow write: if isTreasury();
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
+      allow write: if isActive() && (isTreasury() || isAdmin());
 
       match /payments/{paymentId} {
-        allow read: if isAuthenticated() && !isDriver();
-        allow create: if isTreasury();
-        allow update, delete: if false; // Pagos inmutables
+        allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
+        allow create: if isActive() && (isTreasury() || isAdmin());
+        allow update, delete: if false;
       }
     }
 
     match /union_workers/{workerId} {
-      allow read: if isTreasury();
-      allow write: if isTreasury();
+      allow read: if isActive() && (isTreasury() || isAdmin());
+      allow write: if isActive() && (isTreasury() || isAdmin());
     }
 
     match /union_worker_payments/{paymentId} {
-      allow read: if isTreasury();
-      allow create: if isTreasury();
+      allow read: if isActive() && (isTreasury() || isAdmin());
+      allow create: if isActive() && (isTreasury() || isAdmin());
       allow update, delete: if false;
     }
 
     match /union_expenses/{expenseId} {
-      allow read: if isTreasury();
-      allow create: if isTreasury();
+      allow read: if isActive() && (isTreasury() || isAdmin());
+      allow create: if isActive() && (isTreasury() || isAdmin());
       allow update, delete: if false;
+    }
+
+    // =========================================================================
+    // COLECCIÓN: audit_logs (Logs de auditoría inmutables)
+    // =========================================================================
+    match /audit_logs/{auditId} {
+      allow read: if isActive() && isAdmin();
+      allow write: if false; // Exclusivo de Cloud Functions con Admin SDK
     }
 
     // =========================================================================
