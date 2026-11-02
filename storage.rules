@@ -1,0 +1,40 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserRole() {
+      return request.auth.token.role;
+    }
+    
+    function isStaff() {
+      return isAuthenticated() && (
+        getUserRole() in ['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']
+      );
+    }
+    
+    function isDriver() {
+      return isAuthenticated() && getUserRole() == 'conductor';
+    }
+
+    // Comprobantes de encomiendas y firmas de entrega
+    match /shipments/{shipmentId}/{fileName} {
+      allow read: if isStaff() || isDriver();
+      allow write: if isStaff() || (isDriver() && fileName.matches('delivery_.*'));
+    }
+
+    // Fotos de inventario de bienes fijos
+    match /assets/{assetId}/{fileName} {
+      allow read: if isStaff();
+      allow write: if isAuthenticated() && (getUserRole() in ['encargado_agencia', 'directiva_admin', 'tesoreria']);
+    }
+
+    // Por defecto: denegar todo
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

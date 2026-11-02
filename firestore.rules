@@ -1,0 +1,243 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Funciones auxiliares de autenticación y autorización
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function getUserRole() {
+      return request.auth.token.role != null 
+        ? request.auth.token.role 
+        : (exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? getUserData().role : null);
+    }
+    
+    function getUserBranch() {
+      return request.auth.token.branchId != null
+        ? request.auth.token.branchId
+        : (exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? getUserData().primaryBranchId : null);
+    }
+    
+    function isAllowedBranch(branchId) {
+      return isAdmin() || isTreasury() || (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        (branchId in getUserData().allowedBranchIds || branchId == getUserData().primaryBranchId)
+      );
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'directiva_admin';
+    }
+
+    function isTreasury() {
+      return isAuthenticated() && (getUserRole() == 'tesoreria' || isAdmin());
+    }
+
+    function isAgencyManager() {
+      return isAuthenticated() && (getUserRole() == 'encargado_agencia' || isAdmin());
+    }
+
+    function isCashier() {
+      return isAuthenticated() && (
+        getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin']
+      );
+    }
+
+    function isDriver() {
+      return isAuthenticated() && getUserRole() == 'conductor';
+    }
+
+    // =========================================================================
+    // COLECCIÓN: branches (Sucursales: Punata y Cochabamba)
+    // =========================================================================
+    match /branches/{branchId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+      
+      // Subcolección: shelves y modules (Almacenamiento Físico)
+      match /shelves/{shelfId} {
+        allow read: if isAuthenticated();
+        allow write: if isAgencyManager() && isAllowedBranch(branchId);
+        
+        match /modules/{moduleId} {
+          allow read: if isAuthenticated();
+          allow write: if isCashier() && isAllowedBranch(branchId);
+        }
+      }
+    }
+
+    // =========================================================================
+    // COLECCIÓN: users (Perfiles, Roles y Sucursales Asignadas)
+    // =========================================================================
+    match /users/{userId} {
+      // Cada usuario puede leer su propio perfil; directiva puede leer todos
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin() || isAgencyManager());
+      // Solo Directiva / Admin puede crear o modificar roles y permisos de usuarios
+      allow create, update: if isAdmin();
+      allow delete: if false; // Prohibido eliminar usuarios; solo desactivación lógica
+    }
+
+    // =========================================================================
+    // COLECCIÓN: counters (Generación atómica de números de guía/recibo)
+    // =========================================================================
+    match /counters/{counterId} {
+      allow read: if isAuthenticated();
+      allow write: if isCashier() || isTreasury();
+    }
+
+    // =========================================================================
+    // COLECCIÓN: shipments (Encomiendas)
+    // =========================================================================
+    match /shipments/{shipmentId} {
+      // Lectura: secretarias de sucursales permitidas, administradores, tesorería, o chofer asignado
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        isTreasury() ||
+        isAllowedBranch(resource.data.originBranchId) ||
+        isAllowedBranch(resource.data.destinationBranchId) ||
+        (isDriver() && resource.data.assignedVehicle.driverUid == request.auth.uid)
+      );
+
+      // Creación: secretarias en su propia sucursal de origen
+      allow create: if isCashier() &&
+        isAllowedBranch(request.resource.data.originBranchId) &&
+        request.resource.data.registeredByUid == request.auth.uid &&
+        request.resource.data.trackingCode is string &&
+        request.resource.data.trackingCode.size() > 5;
+
+      // Actualización de estado y transiciones
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (isCashier() && (isAllowedBranch(resource.data.originBranchId) || isAllowedBranch(resource.data.destinationBranchId))) ||
+        (isDriver() && resource.data.assignedVehicle.driverUid == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deliveryRecord', 'driverCustody', 'updatedAt']))
+      );
+
+      // Eliminación prohibida: Las encomiendas son registros inmutables; solo transiciones de estado
+      allow delete: if false;
+
+      // Subcolección: status_logs (Historial auditado independiente)
+      match /status_logs/{logId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && request.resource.data.operatorUid == request.auth.uid;
+        allow update, delete: if false; // Inmutable append-only
+      }
+
+      // Subcolección: storage_moves (Historial de traslados físicos entre módulos)
+      match /storage_moves/{moveId} {
+        allow read: if isAuthenticated();
+        allow create: if isCashier();
+        allow update, delete: if false; // Inmutable append-only
+      }
+    }
+
+    // =========================================================================
+    // COLECCIÓN: manifests (Despachos y Manifiestos de Carga)
+    // =========================================================================
+    match /manifests/{manifestId} {
+      allow read: if isAuthenticated();
+      allow create: if isCashier() && isAllowedBranch(request.resource.data.originBranchId);
+      allow update: if isCashier() || (isDriver() && resource.data.driverUid == request.auth.uid);
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // COLECCIÓN: cash_shifts (Turnos de Caja por Secretaria)
+    // =========================================================================
+    match /cash_shifts/{shiftId} {
+      // Secretaria lee su propio turno; encargados y tesorería ven los de su sucursal o global
+      allow read: if isAuthenticated() && (
+        resource.data.operatorUid == request.auth.uid ||
+        isAgencyManager() && isAllowedBranch(resource.data.branchId) ||
+        isTreasury()
+      );
+
+      // Apertura de turno
+      allow create: if isCashier() &&
+        request.resource.data.operatorUid == request.auth.uid &&
+        isAllowedBranch(request.resource.data.branchId) &&
+        request.resource.data.status == 'open' &&
+        request.resource.data.initialCash >= 0;
+
+      // Cierre de turno: solo el mismo operador mientras está abierto, o administrador
+      allow update: if isAuthenticated() && (
+        (resource.data.operatorUid == request.auth.uid && resource.data.status == 'open') ||
+        isAdmin()
+      );
+
+      allow delete: if false; // Inmutable
+
+      // Subcolección: movements (Movimientos de caja del turno)
+      match /movements/{movementId} {
+        allow read: if isAuthenticated();
+        allow create: if isCashier() && get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.status == 'open';
+        allow update, delete: if false; // Movimientos financieros inmutables append-only
+      }
+    }
+
+    // =========================================================================
+    // COLECCIÓN: fixed_assets (Inventario / Bienes Fijos del Sindicato)
+    // =========================================================================
+    match /fixed_assets/{assetId} {
+      allow read: if isAuthenticated() && !isDriver();
+      allow create: if isAgencyManager() || isTreasury();
+      allow update: if isAgencyManager() || isTreasury();
+      allow delete: if false; // Solo bajas lógicas autorizadas
+
+      match /audit_logs/{auditId} {
+        allow read: if isAuthenticated() && !isDriver();
+        allow create: if isAgencyManager() || isTreasury();
+        allow update, delete: if false;
+      }
+    }
+
+    // =========================================================================
+    // COLECCIONES SINDICALES: members, dues, workers, worker_payments, expenses
+    // =========================================================================
+    match /union_members/{memberId} {
+      allow read: if isAuthenticated() && !isDriver();
+      allow write: if isTreasury();
+    }
+
+    match /union_dues/{dueId} {
+      allow read: if isAuthenticated() && !isDriver();
+      allow write: if isTreasury();
+
+      match /payments/{paymentId} {
+        allow read: if isAuthenticated() && !isDriver();
+        allow create: if isTreasury();
+        allow update, delete: if false; // Pagos inmutables
+      }
+    }
+
+    match /union_workers/{workerId} {
+      allow read: if isTreasury();
+      allow write: if isTreasury();
+    }
+
+    match /union_worker_payments/{paymentId} {
+      allow read: if isTreasury();
+      allow create: if isTreasury();
+      allow update, delete: if false;
+    }
+
+    match /union_expenses/{expenseId} {
+      allow read: if isTreasury();
+      allow create: if isTreasury();
+      allow update, delete: if false;
+    }
+
+    // =========================================================================
+    // REGLA POR DEFECTO: DENEGAR TODO ACCESO NO ESPECIFICADO
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
