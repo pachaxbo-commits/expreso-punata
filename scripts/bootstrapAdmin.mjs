@@ -7,7 +7,7 @@ import { getAuth } from 'firebase-admin/auth'
  * Inicialización controlada del Administrador Inicial (Directiva Admin).
  * 
  * Uso:
- * node scripts/bootstrapAdmin.mjs --uid <FIREBASE_AUTH_UID> --email <CORREO> [--fullName <NOMBRE>] [--ci <CI>] [--phone <TELEFONO>] [--force]
+ * node scripts/bootstrapAdmin.mjs --uid <FIREBASE_AUTH_UID> --email <CORREO> --fullName <NOMBRE> --ci <CI> --phone <TELEFONO> [--force]
  */
 
 function parseArgs() {
@@ -34,15 +34,15 @@ async function runBootstrap() {
   const {
     uid,
     email,
-    fullName = 'Directiva Expreso Punata',
-    ci = '1020304-CB',
-    phone = '71700000',
+    fullName,
+    ci,
+    phone,
     force = false,
   } = params
 
   if (!uid || typeof uid !== 'string' || !uid.trim()) {
     console.error('[BOOTSTRAP ERROR] El parámetro --uid es obligatorio.')
-    console.error('Uso: node scripts/bootstrapAdmin.mjs --uid <AUTH_UID> --email <CORREO>')
+    console.error('Uso: npm run admin:bootstrap -- --uid <UID> --email <CORREO> --fullName <NOMBRE> --ci <CI> --phone <TELEFONO>')
     process.exit(1)
   }
 
@@ -51,8 +51,26 @@ async function runBootstrap() {
     process.exit(1)
   }
 
+  if (!fullName || typeof fullName !== 'string' || !fullName.trim()) {
+    console.error('[BOOTSTRAP ERROR] El parámetro --fullName es obligatorio (no se admiten nombres genéricos por defecto).')
+    process.exit(1)
+  }
+
+  if (!ci || typeof ci !== 'string' || !ci.trim()) {
+    console.error('[BOOTSTRAP ERROR] El parámetro --ci es obligatorio (no se admiten identificadores ficticios por defecto).')
+    process.exit(1)
+  }
+
+  if (!phone || typeof phone !== 'string' || !phone.trim()) {
+    console.error('[BOOTSTRAP ERROR] El parámetro --phone es obligatorio (no se admiten números ficticios por defecto).')
+    process.exit(1)
+  }
+
   const safeUid = uid.trim()
   const safeEmail = email.trim().toLowerCase()
+  const safeFullName = fullName.trim()
+  const safeCi = ci.trim()
+  const safePhone = phone.trim()
 
   const projectId = process.env.VITE_FIREBASE_PROJECT_ID || 'expreso-punata-dev'
 
@@ -103,15 +121,16 @@ async function runBootstrap() {
   const profileData = {
     uid: safeUid,
     email: authUser.email || safeEmail,
-    fullName: fullName.trim(),
-    ci: ci.trim(),
-    phone: phone.trim(),
+    fullName: safeFullName,
+    ci: safeCi,
+    phone: safePhone,
     role: 'directiva_admin',
     primaryBranchId: 'punata',
     allowedBranchIds: ['punata', 'cochabamba'],
     assignedVehiclePlate: null,
     assignedMobileNumber: null,
     isActive: true,
+    syncStatus: 'synced',
     createdReason: 'cli_bootstrap_authorized',
     updatedAt: FieldValue.serverTimestamp(),
     updatedAtIso: nowIso,
@@ -134,6 +153,7 @@ async function runBootstrap() {
       performedBy: 'PACHAX_CLI_TOOL',
       details: {
         email: safeEmail,
+        fullName: safeFullName,
         role: 'directiva_admin',
         primaryBranchId: 'punata',
         allowedBranchIds: ['punata', 'cochabamba'],
@@ -156,7 +176,7 @@ async function runBootstrap() {
   console.log('[BOOTSTRAP EXITOSO] Administrador Inicial Aprovisionado')
   console.log(`- UID:              ${safeUid}`)
   console.log(`- Correo:           ${safeEmail}`)
-  console.log(`- Nombre:           ${fullName}`)
+  console.log(`- Nombre:           ${safeFullName}`)
   console.log(`- Rol:              directiva_admin`)
   console.log(`- Sucursales:       Punata y Cochabamba (Acceso Global)`)
   console.log(`- Custom Claims:    role=directiva_admin, branchId=punata, isActive=true`)

@@ -43,10 +43,11 @@ test('1. Acceso no autenticado es denegado por defecto (fail-closed)', async () 
   await assertFails(getDoc(doc(unauthDb, 'fixed_assets', 'asset-1')))
   await assertFails(getDoc(doc(unauthDb, 'counters', 'PUN_2026')))
   await assertFails(getDoc(doc(unauthDb, 'financial_movements', 'MOV-001')))
+  await assertFails(getDoc(doc(unauthDb, 'branches', 'punata')))
+  await assertFails(getDoc(doc(unauthDb, 'manifests', 'MAN-001')))
 })
 
 test('2. Creación directa de encomiendas desde el cliente está BLOQUEADA (solo Cloud Functions)', async () => {
-  // Crear perfil de secretaria en contexto administrativo
   await testEnv.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'users', 'sec-punata'), {
       role: 'secretaria',
@@ -124,7 +125,6 @@ test('2. Creación directa de encomiendas desde el cliente está BLOQUEADA (solo
 })
 
 test('3. Secretaria de Cochabamba puede LEER encomiendas con destino a su sucursal', async () => {
-  // Simular encomienda creada por backend desde Punata hacia Cochabamba
   await testEnv.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'users', 'sec-cbb'), {
       role: 'secretaria',
@@ -150,7 +150,6 @@ test('3. Secretaria de Cochabamba puede LEER encomiendas con destino a su sucurs
   })
   const cbbDb = cbbContext.firestore()
 
-  // Secretaria de Cochabamba debe poder leer la encomienda entrante
   await assertSucceeds(getDoc(doc(cbbDb, 'shipments', 'PUN-2026-00001')))
 })
 
@@ -227,9 +226,7 @@ test('5. Conductor solo puede actualizar entregas en encomiendas asignadas', asy
   await assertFails(deleteDoc(doc(driverDb, 'shipments', 'PUN-2026-00010')))
 })
 
-
-test('6. Creación y modificación directa de perfiles de usuario desde el cliente está BLOQUEADA (Admin SDK exclusivo)', async () => {
-  // Setup: Crear secretaria en contexto con reglas desactivadas
+test('6. Creación y modificación directa de perfiles de usuario desde el cliente está BLOQUEADA', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'users', 'sec-punata'), {
       role: 'secretaria',
@@ -243,17 +240,18 @@ test('6. Creación y modificación directa de perfiles de usuario desde el clien
   const secContext = testEnv.authenticatedContext('sec-punata', {
     role: 'secretaria',
     branchId: 'punata',
+    isActive: true,
   })
   const secDb = secContext.firestore()
 
-  // 1. Intento de la secretaria de auto-asignarse rol 'directiva_admin' -> DEBE FALLAR
+  // Intento de la secretaria de auto-asignarse rol 'directiva_admin' -> DEBE FALLAR
   await assertFails(
     updateDoc(doc(secDb, 'users', 'sec-punata'), {
       role: 'directiva_admin',
     })
   )
 
-  // 2. Intento de crear un nuevo usuario desde el navegador -> DEBE FALLAR
+  // Intento de crear un nuevo usuario desde el navegador -> DEBE FALLAR
   await assertFails(
     setDoc(doc(secDb, 'users', 'nuevo-admin-hacker'), {
       role: 'directiva_admin',
@@ -261,7 +259,6 @@ test('6. Creación y modificación directa de perfiles de usuario desde el clien
     })
   )
 
-  // 3. Intento de usuario no autenticado de escribir en users -> DEBE FALLAR
   const unauthDb = testEnv.unauthenticatedContext().firestore()
   await assertFails(
     setDoc(doc(unauthDb, 'users', 'unauth-user'), {
@@ -269,7 +266,6 @@ test('6. Creación y modificación directa de perfiles de usuario desde el clien
     })
   )
 })
-
 
 test('7. Transiciones ilegítimas de estado de encomienda son BLOQUEADAS', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
@@ -294,7 +290,7 @@ test('7. Transiciones ilegítimas de estado de encomienda son BLOQUEADAS', async
   })
   const secDb = secContext.firestore()
 
-  // Transición ilegal: received -> delivered directo (salto de ruta sin llegada ni entrega) -> DEBE FALLAR
+  // Transición ilegal: received -> delivered directo -> DEBE FALLAR
   await assertFails(
     updateDoc(doc(secDb, 'shipments', 'PUN-2026-TRANS-1'), {
       status: 'delivered',
@@ -333,10 +329,142 @@ test('8. Usuarios inactivos son BLOQUEADOS de leer y operar en el sistema', asyn
   })
   const inactDb = inactContext.firestore()
 
-  // Intento de actualización por usuaria inactiva -> DEBE FALLAR
   await assertFails(
     updateDoc(doc(inactDb, 'shipments', 'PUN-2026-INACT-1'), {
       status: 'in_warehouse'
     })
   )
+})
+
+test('9. SEGURIDAD AUTORITATIVA: Token antiguo con claim isActive=true pero perfil en BD isActive=false es BLOQUEADO', async () => {
+  // Simular que el usuario fue desactivado en Firestore pero su JWT token todavía afirma isActive: true
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'user-token-stale'), {
+      role: 'secretaria',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata'],
+      isActive: false, // DESACTIVADO EN BASE DE DATOS
+      fullName: 'Operador Suspendido',
+    })
+    await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-STALE-1'), {
+      trackingCode: 'PUN-2026-STALE-1',
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      status: 'received',
+    })
+  })
+
+  // Token JWT residual emitido antes de la suspensión
+  const staleAuthContext = testEnv.authenticatedContext('user-token-stale', {
+    role: 'secretaria',
+    branchId: 'punata',
+    isActive: true, // Claim obsoleto
+  })
+  const staleDb = staleAuthContext.firestore()
+
+  // La lectura y la escritura DEBEN SER DENEGADAS porque el documento en Firestore es autoritativo
+  await assertFails(getDoc(doc(staleDb, 'shipments', 'PUN-2026-STALE-1')))
+  await assertFails(
+    updateDoc(doc(staleDb, 'shipments', 'PUN-2026-STALE-1'), {
+      status: 'in_warehouse',
+    })
+  )
+})
+
+test('10. SEGURIDAD AUTORITATIVA: Token antiguo con claim role=directiva_admin pero perfil rebajado a secretaria es BLOQUEADO', async () => {
+  // Simular que el usuario fue rebajado de admin a secretaria en Firestore
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'user-demoted'), {
+      role: 'secretaria', // REBAJADO EN FIRESTORE
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata'],
+      isActive: true,
+      fullName: 'Ex Directivo',
+    })
+    await setDoc(doc(context.firestore(), 'users', 'otro-usuario'), {
+      role: 'conductor',
+      fullName: 'Conductor Otro',
+      isActive: true,
+    })
+  })
+
+  // Token obsoleto que aún dice directiva_admin
+  const demotedContext = testEnv.authenticatedContext('user-demoted', {
+    role: 'directiva_admin', // Claim obsoleto
+    branchId: 'punata',
+    isActive: true,
+  })
+  const demotedDb = demotedContext.firestore()
+
+  // Intento de leer perfil de otro usuario (solo permitido a admin activo en Firestore) -> DEBE FALLAR
+  await assertFails(getDoc(doc(demotedDb, 'users', 'otro-usuario')))
+})
+
+test('11. ACCESO CRUZADO ENTRE SUCURSALES ES BLOQUEADO', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'sec-cbb-cross'), {
+      role: 'secretaria',
+      primaryBranchId: 'cochabamba',
+      allowedBranchIds: ['cochabamba'], // Solo Cochabamba
+      isActive: true,
+      fullName: 'Secretaria Cochabamba',
+    })
+    // Turno de caja de Punata
+    await setDoc(doc(context.firestore(), 'cash_shifts', 'shift-punata-1'), {
+      branchId: 'punata',
+      operatorUid: 'sec-punata-1',
+      status: 'open',
+    })
+    // Manifiesto con origen y destino exclusivos de Punata
+    await setDoc(doc(context.firestore(), 'manifests', 'MAN-PUN-01'), {
+      originBranchId: 'punata',
+      destinationBranchId: 'punata',
+    })
+  })
+
+  const crossContext = testEnv.authenticatedContext('sec-cbb-cross', {
+    role: 'secretaria',
+    branchId: 'cochabamba',
+    isActive: true,
+  })
+  const crossDb = crossContext.firestore()
+
+  // Secretaria de Cochabamba no puede leer turnos de caja de Punata
+  await assertFails(getDoc(doc(crossDb, 'cash_shifts', 'shift-punata-1')))
+  // Secretaria de Cochabamba no puede leer manifiestos de Punata
+  await assertFails(getDoc(doc(crossDb, 'manifests', 'MAN-PUN-01')))
+})
+
+test('12. Conductor no asignado NO puede leer status_logs de encomienda ajena', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'driver-ajeno'), {
+      role: 'conductor',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'],
+      isActive: true,
+      fullName: 'Conductor No Asignado',
+    })
+    await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-AUDIT-1'), {
+      trackingCode: 'PUN-2026-AUDIT-1',
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      status: 'in_delivery',
+      assignedVehicle: {
+        driverUid: 'driver-asignado-oficial',
+      },
+    })
+    await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-AUDIT-1', 'status_logs', 'log-1'), {
+      note: 'Inspección confidencial',
+    })
+  })
+
+  const driverContext = testEnv.authenticatedContext('driver-ajeno', {
+    role: 'conductor',
+    branchId: 'punata',
+    isActive: true,
+  })
+  const driverDb = driverContext.firestore()
+
+  // Conductor ajeno no puede leer el status_log de la encomienda
+  await assertFails(getDoc(doc(driverDb, 'shipments', 'PUN-2026-AUDIT-1', 'status_logs', 'log-1')))
 })
