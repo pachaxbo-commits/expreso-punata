@@ -22,6 +22,7 @@ import { DEV_SHIPMENTS, DEV_ASSETS, DEV_MEMBERS } from '../fixtures/devFixtures'
 import { formatCurrencyBob } from '../domain/parcelEngine'
 import { subscribeShipmentsByBranch, fetchShipmentByTrackingCode } from '../services/shipmentService'
 import { printShipmentGuidePdf } from '../services/pdfService'
+import { isEmulatedEnvironment } from '../firebase/config'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
 import type { Shipment } from '../types'
 
@@ -67,7 +68,7 @@ export const AppContent: React.FC = () => {
     }
   }, [searchTerm, realShipments])
 
-  if (!userProfile) {
+  if (!userProfile || userProfile.isActive === false) {
     return <LoginView />
   }
 
@@ -85,7 +86,9 @@ export const AppContent: React.FC = () => {
   ].filter(t => t.visible)
 
   // Encomiendas a listar (prioriza registros de Firestore Emulator)
-  const displayedShipments = realShipments.length > 0 ? realShipments : DEV_SHIPMENTS
+  // En entorno Cloud o cuando el backend está conectado, mostramos exclusivamente datos reales de Firestore (0 si está vacío).
+  // Los fixtures DEV_SHIPMENTS solo se usan si estamos en emulador local aislado y sin conexión.
+  const displayedShipments = backendConnected || !isEmulatedEnvironment ? realShipments : DEV_SHIPMENTS
 
   const filteredShipments = displayedShipments.filter(s => {
     if (statusFilter !== 'all' && s.status !== statusFilter) return false

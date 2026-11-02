@@ -79,8 +79,7 @@ service cloud.firestore {
       // Cada usuario puede leer su propio perfil; directiva puede leer todos
       allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin() || isAgencyManager());
       // Solo Directiva / Admin puede crear o modificar roles y permisos de usuarios
-      allow create, update: if isAdmin();
-      allow delete: if false; // Prohibido eliminar usuarios; solo desactivación lógica
+      allow write: if false; // Bloquea autocreación y escalación desde navegador (Admin SDK exclusivo)
     }
 
     // =========================================================================

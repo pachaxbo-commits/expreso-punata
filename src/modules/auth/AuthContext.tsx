@@ -6,12 +6,13 @@ import {
   User as FirebaseUser,
 } from 'firebase/auth'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { auth, db } from '../../firebase/config'
+import { auth, db, isEmulatedEnvironment } from '../../firebase/config'
 import type { UserProfile, UserRole } from '../../types'
 
 interface AuthContextType {
   currentUser: FirebaseUser | null
   userProfile: UserProfile | null
+  authError: string | null
   currentBranchId: string
   setCurrentBranchId: (branchId: string) => void
   isLoading: boolean
@@ -25,7 +26,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null)
+  const [authError, setAuthError] = useState<string | null>(null)
+
+  // En entorno Cloud o Producción, nunca se restauran perfiles simulados de localStorage
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
+    if (!isEmulatedEnvironment) return null
     try {
       const saved = localStorage.getItem('expreso_punata_user_profile')
       return saved ? JSON.parse(saved) : null
@@ -33,64 +38,106 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return null
     }
   })
+
   const [currentBranchId, setCurrentBranchId] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('expreso_punata_user_profile')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if (parsed.primaryBranchId) return parsed.primaryBranchId
-      }
-    } catch {}
+    if (isEmulatedEnvironment) {
+      try {
+        const saved = localStorage.getItem('expreso_punata_user_profile')
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          if (parsed.primaryBranchId) return parsed.primaryBranchId
+        }
+      } catch {}
+    }
     return 'punata'
   })
+
   const [isLoading, setIsLoading] = useState(true)
 
   const saveProfile = (p: UserProfile | null) => {
     setUserProfile(p)
-    if (p) {
-      try {
-        localStorage.setItem('expreso_punata_user_profile', JSON.stringify(p))
-      } catch {}
+    if (isEmulatedEnvironment) {
+      if (p) {
+        try {
+          localStorage.setItem('expreso_punata_user_profile', JSON.stringify(p))
+        } catch {}
+      } else {
+        localStorage.removeItem('expreso_punata_user_profile')
+      }
     } else {
       localStorage.removeItem('expreso_punata_user_profile')
     }
   }
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async user => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user)
+      setAuthError(null)
+
       if (user) {
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid))
           if (userDoc.exists()) {
             const data = userDoc.data() as UserProfile
-            setUserProfile(data)
-            if (data.primaryBranchId) {
-              setCurrentBranchId(data.primaryBranchId)
+
+            // 1. Verificación de cuenta inactiva
+            if (data.isActive === false) {
+              setAuthError('Su cuenta de usuario se encuentra inactiva. Comuníquese con la administración de Expreso Punata.')
+              setUserProfile(null)
+              saveProfile(null)
+            } else {
+              // 2. Usuario activo con perfil legítimo en Firestore
+              setUserProfile(data)
+              if (data.primaryBranchId) {
+                setCurrentBranchId(data.primaryBranchId)
+              }
+              if (isEmulatedEnvironment) {
+                saveProfile(data)
+              }
             }
           } else {
-            // Perfil por defecto si no existe en desarrollo
-            const defaultProfile: UserProfile = {
-              uid: user.uid,
-              fullName: user.displayName || user.email?.split('@')[0] || 'Operador Punata',
-              ci: '1234567-CB',
-              phone: '71798765',
-              role: 'secretaria',
-              primaryBranchId: 'punata',
-              allowedBranchIds: ['punata', 'cochabamba'],
-              isActive: true,
-              createdAt: new Date().toISOString(),
+            // 3. Usuario autenticado sin perfil registrado en Firestore
+            if (isEmulatedEnvironment) {
+              // Exclusivo de emulador local para desarrollo ágil offline
+              const defaultProfile: UserProfile = {
+                uid: user.uid,
+                fullName: user.displayName || user.email?.split('@')[0] || 'Operador Local Emulador',
+                ci: '1234567-CB',
+                phone: '71798765',
+                role: 'secretaria',
+                primaryBranchId: 'punata',
+                allowedBranchIds: ['punata', 'cochabamba'],
+                isActive: true,
+                createdAt: new Date().toISOString(),
+              }
+              try {
+                await setDoc(doc(db, 'users', user.uid), defaultProfile)
+              } catch {}
+              setUserProfile(defaultProfile)
+              saveProfile(defaultProfile)
+            } else {
+              // En entorno Cloud Real: PROHIBIDO autocrear perfiles privilegiados desde el cliente
+              console.warn('[Auth Seguridad] Usuario autenticado sin perfil en Firestore:', user.uid)
+              setAuthError('Su cuenta no tiene un perfil operativo asignado en Expreso Punata. Contacte a la administración para habilitar su sucursal y rol.')
+              setUserProfile(null)
+              saveProfile(null)
             }
-            await setDoc(doc(db, 'users', user.uid), defaultProfile)
-            setUserProfile(defaultProfile)
           }
         } catch (e) {
-          console.error('Error al cargar perfil:', e)
+          console.error('[Auth Error] Error al verificar perfil en Firestore:', e)
+          setAuthError('Error de verificación de perfil. Verifique su conexión al sistema.')
+          setUserProfile(null)
+          saveProfile(null)
         }
       } else {
-        // En desarrollo local, mantener perfil simulado si ya fue seleccionado
-        if (!localStorage.getItem('expreso_punata_user_profile')) {
+        // Usuario no autenticado
+        if (!isEmulatedEnvironment) {
           saveProfile(null)
+        } else {
+          // Mantener perfil simulado en emuladores solo si ya existía para testing de vistas
+          if (!localStorage.getItem('expreso_punata_user_profile')) {
+            saveProfile(null)
+          }
         }
       }
       setIsLoading(false)
@@ -101,6 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, pass: string) => {
     setIsLoading(true)
+    setAuthError(null)
     try {
       await signInWithEmailAndPassword(auth, email, pass)
     } finally {
@@ -112,22 +160,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await fbSignOut(auth)
     } catch {}
+    setAuthError(null)
     saveProfile(null)
   }
 
-  // Permite simular rápidamente los 5 roles en entorno de desarrollo local
+  // Permite simular rápidamente roles ÚNICAMENTE en entorno de emuladores locales
   const devSwitchRole = async (role: UserRole, branchId = 'punata') => {
+    if (!isEmulatedEnvironment) {
+      const securityErr = 'Simulación de roles rechazada: esta función está estrictamente deshabilitada en entornos Cloud y producción.'
+      console.error(`[Seguridad] ${securityErr}`)
+      setAuthError(securityErr)
+      throw new Error(securityErr)
+    }
+
     const devUid = currentUser ? currentUser.uid : `dev-${role}-${branchId}`
     const updated: UserProfile = {
       uid: devUid,
-      fullName: role === 'secretaria'
-        ? (branchId === 'punata' ? 'María Secretaria (Punata)' : 'Elena Secretaria (Cochabamba)')
-        : `Usuario ${role.toUpperCase().replace('_', ' ')}`,
+      fullName:
+        role === 'secretaria'
+          ? branchId === 'punata'
+            ? 'María Secretaria (Punata)'
+            : 'Elena Secretaria (Cochabamba)'
+          : `Usuario ${role.toUpperCase().replace('_', ' ')}`,
       ci: '7654321-CB',
       phone: '70011223',
       role,
       primaryBranchId: branchId,
-      allowedBranchIds: role === 'directiva_admin' || role === 'tesoreria' ? ['punata', 'cochabamba'] : [branchId],
+      allowedBranchIds:
+        role === 'directiva_admin' || role === 'tesoreria' ? ['punata', 'cochabamba'] : [branchId],
       assignedVehiclePlate: role === 'conductor' ? '2345-TGB' : undefined,
       assignedMobileNumber: role === 'conductor' ? 'M-14' : undefined,
       isActive: true,
@@ -147,7 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const hasRole = (roles: UserRole[]) => {
-    if (!userProfile) return false
+    if (!userProfile || userProfile.isActive === false) return false
     return roles.includes(userProfile.role) || userProfile.role === 'directiva_admin'
   }
 
@@ -156,6 +216,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         currentUser,
         userProfile,
+        authError,
         currentBranchId,
         setCurrentBranchId,
         isLoading,
