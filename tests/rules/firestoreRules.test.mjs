@@ -588,3 +588,34 @@ test('15. CONDUCTOR ASIGNADO: Puede leer su propio manifiesto pero no el de otro
   // Conductor no asignado NO puede leer manifiesto ajeno
   await assertFails(getDoc(doc(driverOtroDb, 'manifests', 'MAN-MIO')))
 })
+
+test('16. CUSTODIA DE CONDUCTORES: Lectura autorizada; escritura directa desde el cliente está BLOQUEADA', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'chofer-custodia'), {
+      role: 'conductor',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'],
+      isActive: true,
+      fullName: 'Chofer Custodia',
+    })
+    await setDoc(doc(context.firestore(), 'driver_custody_accounts', 'chofer-custodia'), {
+      driverUid: 'chofer-custodia',
+      cashUnderCustodyCents: 5000,
+      pendingRemittanceCents: 5000,
+    })
+  })
+
+  const driverDb = testEnv.authenticatedContext('chofer-custodia', { role: 'conductor', isActive: true }).firestore()
+  const unauthDb = testEnv.unauthenticatedContext().firestore()
+
+  // Conductor puede leer su propia cuenta de custodia
+  await assertSucceeds(getDoc(doc(driverDb, 'driver_custody_accounts', 'chofer-custodia')))
+
+  // Escritura directa bloqueada desde el cliente
+  await assertFails(updateDoc(doc(driverDb, 'driver_custody_accounts', 'chofer-custodia'), {
+    pendingRemittanceCents: 0,
+  }))
+
+  // No autenticado es bloqueado
+  await assertFails(getDoc(doc(unauthDb, 'driver_custody_accounts', 'chofer-custodia')))
+})

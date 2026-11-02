@@ -141,11 +141,23 @@ export interface DriverCustodyRecord {
   reconciledShiftId?: string
 }
 
+export interface DeliverySignatureMetadata {
+  storagePath: string
+  downloadUrl?: string
+  mimeType: string
+  sizeBytes: number
+  sha256?: string
+  uploadedAtIso?: string
+  verified?: boolean
+}
+
 export interface ParcelDeliveryRecord {
   deliveredAt: string
   deliveredAtIso?: string
   deliveredByUid: string
   deliveredByName: string
+  deliveredByRole?: string
+  deliveryChannel?: 'agency_counter' | 'route_delivery'
   receivedByName: string
   receivedByDocType?: string
   receivedByDocNumber?: string
@@ -153,11 +165,14 @@ export interface ParcelDeliveryRecord {
   recipientRelationship: 'titular' | 'familiar' | 'apoderado' | 'empleado' | 'otro'
   authorizationNote?: string
   authorizedChangeReason?: string
+  signature?: DeliverySignatureMetadata
   signatureDataUrl?: string
   signatureUrl?: string
   photoEvidenceUrl?: string
   deliveryNotes?: string
   branchId?: string
+  collectedByDriverUid?: string
+  collectedAmountCents?: number
 }
 
 export interface Shipment {
@@ -457,6 +472,33 @@ export interface DriverDirectoryEntry {
   isActive: boolean
 }
 
+export interface DriverCustodyAccount {
+  driverUid: string
+  driverName: string
+  cashUnderCustodyCents: number
+  pendingRemittanceCents: number
+  totalCollectedCents: number
+  totalRemittedCents: number
+  lastActivityAtIso?: string
+  updatedAtIso?: string
+}
+
+export interface DriverCustodyRecord {
+  id: string
+  driverUid: string
+  driverName: string
+  type: 'route_collection' | 'remittance_to_cashier' | 'adjustment'
+  shipmentId?: string
+  trackingCode?: string
+  amountCents: number
+  amountBob: number
+  paymentMethod: 'cash'
+  status: 'pending_remittance' | 'partially_remitted' | 'reconciled'
+  remittedAmountCents: number
+  settlementIds: string[]
+  createdAtIso: string
+}
+
 export interface DriverSettlement {
   id: string
   settlementNumber: string
@@ -469,7 +511,10 @@ export interface DriverSettlement {
   amountCents: number
   amountBob?: number
   paymentMethod: string
+  previousDriverBalanceCents?: number
+  remainingDriverBalanceCents?: number
   notes?: string
+  reconciledShipmentIds?: string[]
   shipmentIds: string[]
   createdAtIso: string
 }

@@ -33,7 +33,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
-  currentUser: _currentUser,
+  currentUser,
   currentBranch,
   initialShipment,
   availableShipments = [],
@@ -222,11 +222,17 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
     }
   }
 
-  // Lista de encomiendas entregables en la sucursal actual
-  const deliverableShipments = availableShipments.filter(s =>
-    s.destinationBranchId === currentBranch.id &&
-    ['received_at_dest', 'stored', 'in_delivery', 'ready_for_pickup'].includes(s.status)
-  )
+  const isDriver = currentUser?.role === 'conductor'
+
+  // Lista de encomiendas entregables (ventanilla de sucursal o conductor en ruta)
+  const deliverableShipments = availableShipments.filter(s => {
+    if (isDriver) {
+      const isAssigned = s.assignedVehicle?.driverUid === currentUser.uid
+      return isAssigned && ['in_transit', 'dispatched', 'received_at_dest', 'stored'].includes(s.status)
+    }
+    return s.destinationBranchId === currentBranch.id &&
+      ['received_at_dest', 'stored', 'in_delivery', 'ready_for_pickup'].includes(s.status)
+  })
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm overflow-y-auto">
@@ -239,10 +245,12 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-extrabold text-[#facc15] tracking-tight">
-                ENTREGA FINAL DE ENCOMIENDA
+                {isDriver ? 'ENTREGA EN RUTA • CONDUCTOR' : 'ENTREGA FINAL DE ENCOMIENDA'}
               </h2>
               <p className="text-xs text-emerald-100">
-                Agencia {currentBranch.name} • Verificación de identidad y firma manuscrita
+                {isDriver
+                  ? 'Entrega en trayecto • Verificación, firma digital y custodia de fondos'
+                  : `Agencia ${currentBranch.name} • Verificación de identidad y firma manuscrita`}
               </p>
             </div>
           </div>

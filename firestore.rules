@@ -186,6 +186,34 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    // COLECCIÓN: driver_custody_accounts (Libro de Saldos de Custodia de Choferes)
+    // =========================================================================
+    match /driver_custody_accounts/{driverUid} {
+      allow read: if isActive() && (
+        isAdmin() ||
+        isTreasury() ||
+        isAgencyManager() ||
+        isCashier() ||
+        (isDriver() && request.auth.uid == driverUid)
+      );
+      allow write: if false; // Exclusivo de transacciones backend en Cloud Functions
+    }
+
+    // =========================================================================
+    // COLECCIÓN: driver_custody_records (Asientos de Cobros en Ruta y Remesas)
+    // =========================================================================
+    match /driver_custody_records/{recordId} {
+      allow read: if isActive() && (
+        isAdmin() ||
+        isTreasury() ||
+        isAgencyManager() ||
+        isCashier() ||
+        (isDriver() && resource.data.driverUid == request.auth.uid)
+      );
+      allow write: if false; // Exclusivo de transacciones backend en Cloud Functions
+    }
+
+    // =========================================================================
     // COLECCIÓN: driver_settlements (Liquidaciones de fondos en custodia de conductores)
     // =========================================================================
     match /driver_settlements/{settlementId} {
@@ -193,6 +221,7 @@ service cloud.firestore {
         isAdmin() ||
         isTreasury() ||
         isAgencyManager() ||
+        isCashier() ||
         (isDriver() && resource.data.driverUid == request.auth.uid)
       );
       allow write: if false; // Solo Cloud Function settleDriverCash

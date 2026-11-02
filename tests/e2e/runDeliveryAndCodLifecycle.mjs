@@ -1,5 +1,6 @@
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
 process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
+process.env.FIREBASE_STORAGE_EMULATOR_HOST = '127.0.0.1:9199'
 
 const projectId = process.env.GCLOUD_PROJECT || 'expreso-punata-dev'
 process.env.GCLOUD_PROJECT = projectId
@@ -25,6 +26,7 @@ const {
   assignShipmentStorage,
   deliverShipment,
   settleDriverCash,
+  getDriverCustodyBalance,
   listActiveDrivers,
   manageShelf,
 } = await import('../../functions/index.js')
@@ -90,7 +92,7 @@ async function runDeliveryLifecycle() {
   assert.equal(punShift.success, true)
   console.log(`   ✓ Turno Punata: ${punShift.shift.id}\n`)
 
-  // 2. Registrar dos encomiendas: 1 Pagada en origen y 1 Contraentrega COD
+  // 2. Registrar tres encomiendas: 1 Pagada en origen, 1 Contraentrega ventanilla y 1 Contraentrega en ruta
   console.log('2. Registrando encomiendas en ventanilla Punata...')
   const ship1 = await createShipment.run({
     auth: { uid: 'sec-punata-deliv' },
@@ -99,11 +101,11 @@ async function runDeliveryLifecycle() {
       destinationBranchId: 'cochabamba',
       sender: { name: 'María Flores', phone: '71000001', docType: 'CI', docNumber: '3456789' },
       recipient: { name: 'Julia Zambrana', phone: '72000002', docType: 'CI', docNumber: '4567890' },
-      items: [{ description: 'Caja con calzados artesanales', quantity: 1, packaging: 'caja' }],
+      items: [{ description: 'Documentos legales y ropa', quantity: 1, packaging: 'sobre' }],
       packageCount: 1,
-      totalWeightKg: 2.0,
+      totalWeightKg: 1.5,
       paymentTiming: 'origin_paid',
-      paymentMethod: 'cash',
+      cashShiftId: punShift.shift.id,
       prohibitedGoodsNoticeAccepted: true,
       idempotencyKey: `idemp-s1-${Date.now()}`,
     },
@@ -125,7 +127,24 @@ async function runDeliveryLifecycle() {
       idempotencyKey: `idemp-s2-${Date.now()}`,
     },
   })
-  console.log(`   ✓ Encomienda 2: ${ship2.trackingCode} (COD contraentrega Bs 39.00)\n`)
+  console.log(`   ✓ Encomienda 2: ${ship2.trackingCode} (COD contraentrega ventanilla Bs 39.00)`)
+
+  const ship3 = await createShipment.run({
+    auth: { uid: 'sec-punata-deliv' },
+    data: {
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      sender: { name: 'Ferretería Valle Central', phone: '75000005', docType: 'NIT', docNumber: '33445566' },
+      recipient: { name: 'Ing. Gonzalo Morales', phone: '76000006', docType: 'CI', docNumber: '55443322' },
+      items: [{ description: 'Válvula de presión hidráulica', quantity: 1, packaging: 'caja' }],
+      packageCount: 1,
+      totalWeightKg: 5.0,
+      paymentTiming: 'destination_cod',
+      prohibitedGoodsNoticeAccepted: true,
+      idempotencyKey: `idemp-s3-${Date.now()}`,
+    },
+  })
+  console.log(`   ✓ Encomienda 3: ${ship3.trackingCode} (COD contraentrega en ruta Bs 30.00)\n`)
 
   // 3. Crear vehículo y despachar manifiesto
   console.log('3. Creando vehículo y despachando manifiesto oficial...')
@@ -153,8 +172,8 @@ async function runDeliveryLifecycle() {
       destinationBranchId: 'cochabamba',
       vehicleId: vehRes.vehicleId,
       driverUid: 'chofer-deliv',
-      shipmentIds: [ship1.shipment.id, ship2.shipment.id],
-      departureNotes: 'Salida de las 14:00 con carga consolidada',
+      shipmentIds: [ship1.shipment.id, ship2.shipment.id, ship3.shipment.id],
+      departureNotes: 'Salida con carga consolidada',
     },
   })
   console.log(`   ✓ Manifiesto emitido: ${manifestRes.manifestNumber}\n`)
@@ -165,13 +184,40 @@ async function runDeliveryLifecycle() {
     auth: { uid: 'chofer-deliv' },
     data: {
       manifestId: manifestRes.manifestId,
-      notes: '3 bultos verificados y asegurados en cabina',
+      notes: '4 bultos verificados y asegurados en cabina',
     },
   })
   assert.equal(custRes.driverCustodyStatus, 'accepted')
   console.log(`   ✓ Custodia aceptada por el chofer titular.\n`)
 
-  // 5. Recepción formal en Cochabamba
+  const testSignaturePng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mNk+M9QzwAEjDAGYzUAAIpCA/54h55cAAAAAElFTkSuQmCC'
+
+  // 4b. Don Juan entrega Encomienda 3 en ruta y cobra COD de Bs 30.00 en efectivo
+  console.log('4b. Don Juan entrega Encomienda 3 en ruta al Ing. Gonzalo Morales y cobra COD...')
+  const routeDeliv = await deliverShipment.run({
+    auth: { uid: 'chofer-deliv' },
+    data: {
+      shipmentId: ship3.shipment.id,
+      receivedByName: 'Ing. Gonzalo Morales',
+      receivedByDocType: 'CI',
+      receivedByDocNumber: '55443322',
+      recipientRelationship: 'titular',
+      signatureDataUrl: testSignaturePng,
+      paymentMethod: 'cash',
+    },
+  })
+  assert.equal(routeDeliv.success, true)
+  assert.equal(routeDeliv.deliveryChannel, 'route_delivery')
+  assert.equal(routeDeliv.paymentCollected, true)
+
+  const custodyCheck = await getDriverCustodyBalance.run({
+    auth: { uid: 'chofer-deliv' },
+    data: {},
+  })
+  assert.equal(custodyCheck.account.pendingRemittanceCents, ship3.shipment.finalAmountCents)
+  console.log(`   ✓ Encomienda 3 entregada en ruta. Saldo bajo custodia del chofer: Bs ${custodyCheck.account.pendingRemittanceCents / 100}.00\n`)
+
+  // 5. Recepción formal en Cochabamba de las encomiendas 1 y 2
   console.log('5. Secretaria Cochabamba recibe manifiesto en destino...')
   const recRes = await receiveDispatchManifest.run({
     auth: { uid: 'sec-cbba-deliv' },
@@ -179,69 +225,66 @@ async function runDeliveryLifecycle() {
       manifestId: manifestRes.manifestId,
       receptionNotes: 'Arribo a Cochabamba conforme',
       receivedShipments: [
-        { shipmentId: ship1.shipment.id, receivedPackages: 1, condition: 'good' },
-        { shipmentId: ship2.shipment.id, receivedPackages: 2, condition: 'good' },
+        { shipmentId: ship1.shipment.id, receivedPackages: 1, verifiedPackages: 1, discrepancyType: 'none' },
+        { shipmentId: ship2.shipment.id, receivedPackages: 2, verifiedPackages: 2, discrepancyType: 'none' },
+        { shipmentId: ship3.shipment.id, receivedPackages: 1, verifiedPackages: 1, discrepancyType: 'none' },
       ],
     },
   })
   assert.equal(recRes.success, true)
   console.log(`   ✓ Manifiesto recibido conforme en Cochabamba.\n`)
 
-  // 6. Almacenamiento físico dinámico
+  // 6. Almacenamiento dinámico de encomiendas recibidas en ventanilla
   console.log('6. Ubicando encomiendas físicamente en almacén dinámico...')
-  const stor1 = await assignShipmentStorage.run({
+  const st1 = await assignShipmentStorage.run({
     auth: { uid: 'sec-cbba-deliv' },
     data: {
       shipmentId: ship1.shipment.id,
       shelfId: 'ESTANTE-A',
-      shelfName: 'Estante A - General',
+      shelfName: 'Estante A',
       moduleId: 'MOD-3',
       moduleNumber: 3,
-      position: 'Bandeja central',
     },
   })
-  assert.equal(stor1.success, true)
-  console.log(`   ✓ Encomienda 1 guardada en Estante A / Módulo 3`)
+  assert.equal(st1.success, true)
 
-  const stor2 = await assignShipmentStorage.run({
+  const st2 = await assignShipmentStorage.run({
     auth: { uid: 'sec-cbba-deliv' },
     data: {
       shipmentId: ship2.shipment.id,
       shelfId: 'ESTANTE-C',
-      shelfName: 'Estante C - Cargas Pesadas',
+      shelfName: 'Estante C',
       moduleId: 'MOD-1',
       moduleNumber: 1,
-      position: 'Suelo pallet 1',
     },
   })
-  assert.equal(stor2.success, true)
-  console.log(`   ✓ Encomienda 2 guardada en Estante C / Módulo 1\n`)
+  assert.equal(st2.success, true)
+  console.log('   ✓ Encomienda 1 guardada en Estante A / Módulo 3')
+  console.log('   ✓ Encomienda 2 guardada en Estante C / Módulo 1\n')
 
-  // 7. ENTREGA FINAL 1: Encomienda pagada en origen
+  // 7. Entrega final de Encomienda 1 (Pagada en origen)
   console.log('7. Entregando Encomienda 1 a doña Julia Zambrana con firma manuscrita...')
-  const dummySignature = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
   const deliv1 = await deliverShipment.run({
     auth: { uid: 'sec-cbba-deliv' },
     data: {
       shipmentId: ship1.shipment.id,
       receivedByName: 'Julia Zambrana',
       receivedByDocType: 'CI',
-      receivedByDocNumber: '4567890 Cbba',
+      receivedByDocNumber: '4567890',
       recipientRelationship: 'titular',
-      signatureDataUrl: dummySignature,
+      signatureDataUrl: testSignaturePng,
     },
   })
   assert.equal(deliv1.success, true)
-  assert.equal(deliv1.status, 'delivered')
-  assert.equal(deliv1.paymentCollected, false) // Ya pagado
+  assert.equal(deliv1.paymentCollected, false)
 
-  // Verificar que la ubicación física fue liberada
   const postDeliv1 = await db.collection('shipments').doc(ship1.shipment.id).get()
   assert.equal(postDeliv1.data().status, 'delivered')
   assert.equal(postDeliv1.data().storageLocation, null)
-  console.log(`   ✓ Encomienda 1 entregada conforme. Almacén liberado.\n`)
+  assert.ok(postDeliv1.data().deliveryRecord.signature.storagePath.includes('signatures/signature_'))
+  console.log('   ✓ Encomienda 1 entregada conforme. Almacén liberado y firma resguardada en Storage.\n')
 
-  // 8. ENTREGA FINAL 2: Encomienda contraentrega COD en ventanilla
+  // 8. Intentar entregar Encomienda 2 (COD) SIN turno de caja en destino
   console.log('8. Intentando entregar Encomienda 2 (COD) SIN turno de caja en destino (debe fallar)...')
   await assert.rejects(async () => {
     await deliverShipment.run({
@@ -253,7 +296,7 @@ async function runDeliveryLifecycle() {
         receivedByDocNumber: '5890123',
         recipientRelationship: 'empleado',
         authorizationNote: 'Chofer de Auto Repuestos Cochabamba con autorización',
-        signatureDataUrl: dummySignature,
+        signatureDataUrl: testSignaturePng,
         paymentMethod: 'cash',
       },
     })
@@ -263,7 +306,7 @@ async function runDeliveryLifecycle() {
     return true
   })
 
-  // Secretaria abre caja en Cochabamba con Bs 50
+  // Abrir turno de caja en Cochabamba
   console.log('   Abriendo turno de caja en Cochabamba con Bs 50.00...')
   const cbbaShift = await openCashShift.run({
     auth: { uid: 'sec-cbba-deliv' },
@@ -283,7 +326,7 @@ async function runDeliveryLifecycle() {
       receivedByDocNumber: '5890123',
       recipientRelationship: 'empleado',
       authorizationNote: 'Chofer de Auto Repuestos Cochabamba con autorización',
-      signatureDataUrl: dummySignature,
+      signatureDataUrl: testSignaturePng,
       paymentMethod: 'cash',
     },
   })
@@ -295,28 +338,32 @@ async function runDeliveryLifecycle() {
   assert.equal(postDeliv2.data().paymentStatus, 'paid')
   assert.equal(postDeliv2.data().paidShiftId, cbbaShiftId)
 
-  // Verificar turno de caja con ingreso COD
   const updatedCbbaShift = await db.collection('cash_shifts').doc(cbbaShiftId).get()
   assert.equal(updatedCbbaShift.data().breakdown.codIncomeCents, ship2.shipment.finalAmountCents)
   assert.equal(updatedCbbaShift.data().expectedCashCents, 5000 + ship2.shipment.finalAmountCents)
   console.log(`   ✓ Encomienda 2 entregada. COD de Bs 39.00 ingresado a caja. Total esperado: Bs ${(5000 + ship2.shipment.finalAmountCents) / 100}.00\n`)
 
-  // 9. RENDICIÓN DE CONDUCTOR: Don Juan rinde Bs 30.00 en caja
+  // 9. RENDICIÓN DE CONDUCTOR: Don Juan rinde en caja de Cochabamba los Bs 30.00 cobrados en ruta
   console.log('9. Don Juan Conductor rinde Bs 30.00 en caja de Cochabamba...')
   const settlRes = await settleDriverCash.run({
     auth: { uid: 'sec-cbba-deliv' },
     data: {
       driverUid: 'chofer-deliv',
-      amountCents: 3000,
+      amountCents: ship3.shipment.finalAmountCents,
+      shipmentIds: [ship3.shipment.id],
       notes: 'Rendición de cobros de ruta Punata - Cochabamba',
+      idempotencyKey: `idemp-settl-${Date.now()}`,
     },
   })
   assert.equal(settlRes.success, true)
-  console.log(`   ✓ Liquidación generada: ${settlRes.settlementNumber} por Bs 30.00`)
+  assert.equal(settlRes.remainingDriverBalanceCents, 0)
+  console.log(`   ✓ Transferencia de custodia completada: ${settlRes.settlementNumber} por Bs ${settlRes.amountCents / 100}.00`)
+  console.log(`   ✓ Saldo restante bajo custodia de Don Juan: Bs ${settlRes.remainingDriverBalanceCents}.00`)
 
   const finalCbbaShift = await db.collection('cash_shifts').doc(cbbaShiftId).get()
-  const expectedTotal = 5000 + ship2.shipment.finalAmountCents + 3000
+  const expectedTotal = 5000 + ship2.shipment.finalAmountCents + ship3.shipment.finalAmountCents
   assert.equal(finalCbbaShift.data().expectedCashCents, expectedTotal)
+  assert.equal(finalCbbaShift.data().breakdown.driverRemittanceCents, ship3.shipment.finalAmountCents)
   console.log(`   ✓ Caja Cochabamba actualizada con remesa de conductor. Total esperado: Bs ${expectedTotal / 100}.00\n`)
 
   // 10. Directorio de conductores y estantes
@@ -328,21 +375,24 @@ async function runDeliveryLifecycle() {
   const dirEntry = await db.collection('driver_directory').doc('chofer-deliv').get()
   assert.equal(dirEntry.exists, true)
   assert.equal(dirEntry.data().assignedMobileNumber, '07')
-  console.log(`   ✓ Directorio operativo de conductores verificado: ${driversRes.drivers.length} activos`)
 
   const shelvesRes = await manageShelf.run({
     auth: { uid: 'sec-cbba-deliv' },
-    data: { branchId: 'cochabamba', action: 'get_or_seed' },
+    data: { branchId: 'cochabamba', action: 'list' },
   })
   assert.equal(shelvesRes.success, true)
+  assert.equal(shelvesRes.shelves.length, 3)
+  console.log(`   ✓ Directorio operativo de conductores verificado: ${driversRes.drivers.length} activos`)
   console.log(`   ✓ Catálogo dinámico de estantes verificado: ${shelvesRes.shelves.length} estantes en Cochabamba\n`)
 
   console.log('=================================================================')
-  console.log('   ¡ENTREGA 3 COMPLETA Y VERIFICADA DE EXTREMO A EXTREMO!       ')
-  console.log('=================================================================\n')
+  console.log('   ¡ESTABILIZACIÓN DE ENTREGA 3 Y CUSTODIA 100% VERIFICADA!       ')
+  console.log('=================================================================')
 }
 
-runDeliveryLifecycle().catch((err) => {
-  console.error('ERROR EN PRUEBA DE CICLO ENTREGA 3:', err)
-  process.exit(1)
-})
+runDeliveryLifecycle()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error('ERROR EN PRUEBA DE ENTREGA Y COD:', err)
+    process.exit(1)
+  })

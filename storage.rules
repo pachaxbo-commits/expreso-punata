@@ -45,13 +45,14 @@ service firebase.storage {
       );
     }
 
-    // Comprobantes de encomiendas y firmas de entrega restringidos por sucursal y asignación
-    match /shipments/{shipmentId}/{fileName} {
+    // Comprobantes de encomiendas y firmas de entrega (restringidos a imágenes < 2MB)
+    match /shipments/{shipmentId}/{allPaths=**} {
       allow read: if canAccessShipment(shipmentId);
       allow write: if canAccessShipment(shipmentId) && (
         getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'] ||
-        (getUserRole() == 'conductor' && fileName.matches('delivery_.*'))
-      );
+        (getUserRole() == 'conductor')
+      ) && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
     }
 
     // Fotos de inventario de bienes fijos
