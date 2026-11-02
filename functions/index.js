@@ -439,15 +439,12 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     isActive = true,
   } = payload
 
-  if (!targetUid || typeof targetUid !== 'string' || !targetUid.trim()) {
-    throw new HttpsError('invalid-argument', 'El targetUid del usuario es obligatorio.')
-  }
   if (!fullName || typeof fullName !== 'string' || !fullName.trim()) {
     throw new HttpsError('invalid-argument', 'El nombre completo es obligatorio.')
   }
-  if (!ci || typeof ci !== 'string' || !ci.trim()) {
-    throw new HttpsError('invalid-argument', 'El número de CI es obligatorio.')
-  }
+
+  // CI opcional: se guarda como null si no se ingresa; nunca inventar valores ficticios
+  const safeCi = ci && typeof ci === 'string' && ci.trim() ? ci.trim() : null
 
   const validRoles = ['secretaria', 'conductor', 'encargado_agencia', 'tesoreria', 'directiva_admin']
   if (!validRoles.includes(role)) {
@@ -459,15 +456,71 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     throw new HttpsError('invalid-argument', `Sucursal primaria inválida: '${primaryBranchId}'.`)
   }
 
-  const safeTargetUid = targetUid.trim()
-
-  // 3. Verificar que el usuario exista en Firebase Authentication
+  let safeTargetUid = targetUid && typeof targetUid === 'string' && targetUid.trim() ? targetUid.trim() : null
   let targetAuthUser = null
-  try {
-    targetAuthUser = await authAdmin.getUser(safeTargetUid)
-  } catch (err) {
-    if (err.code === 'auth/user-not-found') {
-      throw new HttpsError('not-found', `El usuario con UID '${safeTargetUid}' no existe en Firebase Authentication.`)
+  let generatedResetLink = null
+
+  // 3. Resolución / Creación en Firebase Authentication
+  if (!safeTargetUid) {
+    // Alta de nuevo usuario a través de correo electrónico
+    const email = payload.email
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      throw new HttpsError('invalid-argument', 'Para dar de alta a un nuevo usuario se requiere un correo electrónico válido.')
+    }
+    const safeEmail = email.trim().toLowerCase()
+
+    if (!phone || typeof phone !== 'string' || !phone.trim()) {
+      throw new HttpsError('invalid-argument', 'El número de teléfono es obligatorio para registrar un nuevo operador.')
+    }
+
+    try {
+      targetAuthUser = await authAdmin.getUserByEmail(safeEmail)
+      safeTargetUid = targetAuthUser.uid
+    } catch (err) {
+      if (err.code === 'auth/user-not-found') {
+        // Generar contraseña aleatoria temporal de alta entropía (nunca almacenada ni expuesta)
+        const tempPassword = 'Ep_' + Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 6) + '!9A'
+        targetAuthUser = await authAdmin.createUser({
+          email: safeEmail,
+          displayName: fullName.trim(),
+          password: tempPassword,
+          disabled: !Boolean(isActive),
+        })
+        safeTargetUid = targetAuthUser.uid
+      } else {
+        throw err
+      }
+    }
+  } else {
+    // Usuario existente por UID
+    try {
+      targetAuthUser = await authAdmin.getUser(safeTargetUid)
+    } catch (err) {
+      if (err.code === 'auth/user-not-found') {
+        throw new HttpsError('not-found', `El usuario con UID '${safeTargetUid}' no existe en Firebase Authentication.`)
+      }
+      throw err
+    }
+  }
+
+  // Generar link de restablecimiento de contraseña para el nuevo o modificado usuario si tiene email
+  if (targetAuthUser && targetAuthUser.email) {
+    try {
+      generatedResetLink = await authAdmin.generatePasswordResetLink(targetAuthUser.email)
+    } catch (linkErr) {
+      console.warn('[adminProvisionUser] No se pudo generar enlace de restablecimiento:', linkErr.message)
+    }
+  }
+
+  // Sincronizar estado disabled y displayName en Firebase Auth
+  if (targetAuthUser) {
+    try {
+      await authAdmin.updateUser(safeTargetUid, {
+        disabled: !Boolean(isActive),
+        displayName: fullName.trim(),
+      })
+    } catch (authUpErr) {
+      console.warn('[adminProvisionUser] Error al actualizar estado en Auth:', authUpErr.message)
     }
   }
 
@@ -475,17 +528,19 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
   const targetUserRef = db.collection('users').doc(safeTargetUid)
   const auditDocRef = db.collection('audit_logs').doc()
 
+  const safePhone = phone && typeof phone === 'string' && phone.trim() ? phone.trim() : ''
+
   const profileData = {
     uid: safeTargetUid,
-    email: targetAuthUser?.email || payload.email || '',
+    email: targetAuthUser?.email || (payload.email ? payload.email.trim().toLowerCase() : ''),
     fullName: fullName.trim(),
-    ci: ci.trim(),
-    phone: (phone || '').trim(),
+    ci: safeCi,
+    phone: safePhone,
     role,
     primaryBranchId,
     allowedBranchIds: Array.isArray(allowedBranchIds) && allowedBranchIds.length > 0 ? allowedBranchIds : [primaryBranchId],
-    assignedVehiclePlate: role === 'conductor' ? assignedVehiclePlate || '' : null,
-    assignedMobileNumber: role === 'conductor' ? assignedMobileNumber || '' : null,
+    assignedVehiclePlate: role === 'conductor' ? (assignedVehiclePlate || '') : null,
+    assignedMobileNumber: role === 'conductor' ? (assignedMobileNumber || '') : null,
     isActive: Boolean(isActive),
     syncStatus: 'syncing',
     updatedAt: FieldValue.serverTimestamp(),
@@ -499,6 +554,11 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
       profileData.createdAt = FieldValue.serverTimestamp()
       profileData.createdAtIso = nowIso
       profileData.createdReason = 'admin_provisioned'
+    } else {
+      const existingData = existingDoc.data() || {}
+      if (!safePhone && existingData.phone) {
+        profileData.phone = existingData.phone
+      }
     }
     transaction.set(targetUserRef, profileData, { merge: true })
   })
@@ -532,9 +592,12 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
         performedByUid: callerUid,
         performedByEmail: callerEmail,
         details: {
+          email: profileData.email,
+          fullName: profileData.fullName,
           role,
           primaryBranchId,
           isActive: Boolean(isActive),
+          ciProvided: safeCi !== null,
           claimsSynced: true,
         },
         timestamp: FieldValue.serverTimestamp(),
@@ -577,11 +640,72 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
   return {
     success: true,
     message: 'Perfil de usuario aprovisionado y claims sincronizados exitosamente.',
+    passwordResetLink: generatedResetLink,
     profile: {
       ...profileData,
       syncStatus: 'synced',
       createdAt: nowIso,
       updatedAt: nowIso,
     },
+  }
+})
+
+/**
+ * Cloud Function Callable para solicitar / generar enlace de restablecimiento de contraseña.
+ * Protegido exclusivamente para directiva_admin.
+ */
+export const adminSendPasswordReset = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para solicitar restablecimiento de contraseñas.')
+  }
+
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists) {
+    throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
+  }
+  const callerData = callerDoc.data() || {}
+  if (!callerData.isActive || callerData.role !== 'directiva_admin') {
+    throw new HttpsError('permission-denied', 'Solo la Directiva / Administración puede solicitar restablecimiento de contraseñas.')
+  }
+
+  const payload = request.data || {}
+  let userEmail = payload.email && typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : ''
+  const targetUid = payload.targetUid && typeof payload.targetUid === 'string' ? payload.targetUid.trim() : null
+
+  if (!userEmail && targetUid) {
+    try {
+      const user = await authAdmin.getUser(targetUid)
+      userEmail = user.email || ''
+    } catch (err) {
+      throw new HttpsError('not-found', `No se encontró usuario en Auth con UID '${targetUid}'.`)
+    }
+  }
+
+  if (!userEmail) {
+    throw new HttpsError('invalid-argument', 'Se requiere el correo electrónico del usuario.')
+  }
+
+  try {
+    const link = await authAdmin.generatePasswordResetLink(userEmail)
+
+    await db.collection('audit_logs').add({
+      entityType: 'user_profile',
+      entityId: targetUid || userEmail,
+      action: 'PASSWORD_RESET_LINK_REQUESTED',
+      performedByUid: callerUid,
+      performedByEmail: request.auth.token?.email || callerData.email || '',
+      details: { email: userEmail },
+      timestamp: FieldValue.serverTimestamp(),
+      timestampIso: new Date().toISOString(),
+    })
+
+    return {
+      success: true,
+      email: userEmail,
+      passwordResetLink: link,
+    }
+  } catch (err) {
+    throw new HttpsError('internal', `Error al generar enlace de restablecimiento: ${err.message}`)
   }
 })

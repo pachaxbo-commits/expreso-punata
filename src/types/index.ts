@@ -14,7 +14,8 @@ export type UserRole =
 export interface UserProfile {
   uid: string
   fullName: string
-  ci: string
+  ci?: string | null
+  email?: string
   phone: string
   role: UserRole
   primaryBranchId: string
@@ -22,8 +23,25 @@ export interface UserProfile {
   assignedVehiclePlate?: string
   assignedMobileNumber?: string
   isActive: boolean
-  createdAt: string
+  createdAt?: string
+  createdAtIso?: string
+  updatedAtIso?: string
   lastLoginAt?: string
+  syncStatus?: 'syncing' | 'synced' | 'failed'
+  createdReason?: string
+}
+
+export interface UserAuditLog {
+  id?: string
+  entityType: string
+  entityId: string
+  action: string
+  performedBy?: string
+  performedByUid?: string
+  performedByEmail?: string
+  details?: Record<string, any>
+  timestamp?: any
+  timestampIso?: string
 }
 
 export interface Branch {

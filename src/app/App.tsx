@@ -24,14 +24,18 @@ import { subscribeShipmentsByBranch, fetchShipmentByTrackingCode } from '../serv
 import { printShipmentGuidePdf } from '../services/pdfService'
 import { isEmulatedEnvironment } from '../firebase/config'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
+import { UserManagementView } from '../modules/users/UserManagementView'
+import { UserProfileModal } from '../modules/users/UserProfileModal'
 import type { Shipment } from '../types'
 
 export const AppContent: React.FC = () => {
   const { userProfile, signOut, currentBranchId, setCurrentBranchId, hasRole } = useAuth()
   const [activeTab, setActiveTab] = useState('shipments')
+  const [configSubTab, setConfigSubTab] = useState<'users' | 'general' | 'tariffs' | 'printers'>('users')
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [isWizardOpen, setIsWizardOpen] = useState(false)
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [realShipments, setRealShipments] = useState<Shipment[]>([])
   const [backendConnected, setBackendConnected] = useState(true)
 
@@ -122,7 +126,7 @@ export const AppContent: React.FC = () => {
                   {EXPRESO_PUNATA_COMPANY.name}
                 </span>
                 <span className="text-[10px] bg-emerald-950/80 text-emerald-300 px-2 py-0.5 rounded border border-emerald-700/60 font-mono">
-                  CLOUD PROD-READY
+                  {isEmulatedEnvironment ? 'EMULADOR LOCAL' : 'CLOUD DEV (expreso-punata-dev)'}
                 </span>
               </div>
               <p className="text-[11px] text-emerald-200 hidden sm:block">
@@ -149,6 +153,21 @@ export const AppContent: React.FC = () => {
                 ))}
               </select>
             </div>
+
+            {/* Botón Mi Perfil */}
+            <button
+              type="button"
+              onClick={() => setIsProfileModalOpen(true)}
+              className="flex items-center gap-1.5 bg-emerald-950/70 hover:bg-emerald-900 px-2.5 py-1.5 rounded-lg border border-emerald-700 transition"
+              title="Ver mi perfil y opciones de seguridad"
+            >
+              <div className="w-5 h-5 rounded-full bg-[#facc15] text-[#064e3b] font-extrabold flex items-center justify-center text-[10px]">
+                {userProfile.fullName ? userProfile.fullName.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <span className="font-semibold text-white truncate max-w-[110px] hidden sm:inline">
+                {userProfile.fullName.split(' ')[0]}
+              </span>
+            </button>
 
             {/* Badge de Rol */}
             <span className="px-2.5 py-1 rounded-full font-bold uppercase text-[10px] tracking-wider bg-[#facc15] text-[#064e3b]">
@@ -330,7 +349,7 @@ export const AppContent: React.FC = () => {
                             <span
                               className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                                 s.status === 'delivered'
-                                  ? 'bg-emerald-100 text-emerald-800'
+                                    ? 'bg-emerald-100 text-emerald-800'
                                   : s.status === 'in_transit'
                                   ? 'bg-blue-100 text-blue-800'
                                   : s.status === 'stored'
@@ -461,6 +480,89 @@ export const AppContent: React.FC = () => {
           </div>
         )}
 
+        {/* PESTAÑA 3: DESPACHOS Y RUTA */}
+        {activeTab === 'manifests' && (
+          <div className="space-y-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <h3 className="text-sm font-bold text-slate-800 mb-1">
+                Despachos y Manifiestos de Carga en Ruta
+              </h3>
+              <p className="text-xs text-slate-500">
+                Control de salidas de encomiendas en flota de Expreso Punata.
+              </p>
+            </div>
+            <div className="p-8 text-center text-xs text-slate-500 bg-white rounded-xl border border-slate-200">
+              Módulo de manifiestos y custodia en preparación para entrega de ruta.
+            </div>
+          </div>
+        )}
+
+        {/* PESTAÑA 4: CAJA DEL TURNO */}
+        {activeTab === 'cash' && (
+          <div className="space-y-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <h3 className="text-sm font-bold text-slate-800 mb-1">
+                Control de Caja y Turnos Operativos — {currentBranch.name}
+              </h3>
+              <p className="text-xs text-slate-500">
+                Arqueo de ingresos por encomiendas y rendición de conductores.
+              </p>
+            </div>
+            <div className="p-8 text-center text-xs text-slate-500 bg-white rounded-xl border border-slate-200">
+              Módulo de turnos de caja en desarrollo con validación Cloud.
+            </div>
+          </div>
+        )}
+
+        {/* PESTAÑA 5: MENSUALIDADES Y SOCIOS */}
+        {activeTab === 'dues' && (
+          <div className="space-y-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <h3 className="text-sm font-bold text-slate-800">
+                Padrón de Socios y Mensualidades
+              </h3>
+              <p className="text-xs text-slate-500">
+                Administración de cuotas de socios propietarios y choferes afiliados.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 shadow-sm">
+              {DEV_MEMBERS.map(m => (
+                <div key={m.id} className="p-4 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-[#064e3b] bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                        {m.memberNumber}
+                      </span>
+                      <span className="text-xs font-bold text-slate-800">{m.fullName}</span>
+                      {m.assignedMobileNumber && (
+                        <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
+                          {m.assignedMobileNumber} ({m.vehiclePlate})
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      CI: {m.ci} — Tel: {m.phone}
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-[#064e3b] block">
+                      {formatCurrencyBob(m.monthlyFeeBob)} / mes
+                    </span>
+                    <button
+                      type="button"
+                      className="text-[11px] text-emerald-700 font-bold hover:underline"
+                    >
+                      Ver Estado de Cuenta
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* PESTAÑA 6: BIENES FIJOS */}
         {activeTab === 'assets' && (
           <div className="space-y-4">
@@ -505,55 +607,144 @@ export const AppContent: React.FC = () => {
           </div>
         )}
 
-        {/* PESTAÑA 5: MENSUALIDADES Y SOCIOS */}
-        {activeTab === 'dues' && (
+        {/* PESTAÑA 7: CONFIGURACIÓN Y ADMINISTRACIÓN */}
+        {activeTab === 'config' && (
           <div className="space-y-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-800">
-                Padrón de Socios y Mensualidades Sindicales
-              </h3>
-              <p className="text-xs text-slate-500">
-                Administración de cuotas de socios propietarios y choferes afiliados.
-              </p>
+            {/* Sub-navegación de Configuración */}
+            <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setConfigSubTab('users')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${
+                  configSubTab === 'users'
+                    ? 'bg-[#064e3b] text-white shadow'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>Usuarios y Permisos</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setConfigSubTab('general')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${
+                  configSubTab === 'general'
+                    ? 'bg-[#064e3b] text-white shadow'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Building2 className="w-4 h-4" />
+                <span>General</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setConfigSubTab('tariffs')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${
+                  configSubTab === 'tariffs'
+                    ? 'bg-[#064e3b] text-white shadow'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Wallet className="w-4 h-4" />
+                <span>Tarifas</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setConfigSubTab('printers')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${
+                  configSubTab === 'printers'
+                    ? 'bg-[#064e3b] text-white shadow'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Printer className="w-4 h-4" />
+                <span>Impresoras y Tickets</span>
+              </button>
             </div>
 
-            <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 shadow-sm">
-              {DEV_MEMBERS.map(m => (
-                <div key={m.id} className="p-4 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-[#064e3b] bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        {m.memberNumber}
-                      </span>
-                      <span className="text-xs font-bold text-slate-800">{m.fullName}</span>
-                      {m.assignedMobileNumber && (
-                        <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
-                          {m.assignedMobileNumber} ({m.vehiclePlate})
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      CI: {m.ci} — Tel: {m.phone}
-                    </div>
-                  </div>
+            {/* Contenido de cada subpestaña */}
+            {configSubTab === 'users' && <UserManagementView />}
 
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-[#064e3b] block">
-                      {formatCurrencyBob(m.monthlyFeeBob)} / mes
-                    </span>
-                    <button
-                      type="button"
-                      className="text-[11px] text-emerald-700 font-bold hover:underline"
-                    >
-                      Ver Estado de Cuenta
-                    </button>
+            {configSubTab === 'general' && (
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 text-xs">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Identidad Institucional — Expreso Punata</h3>
+                  <p className="text-slate-500">Configuración de sucursales y datos de operación.</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {INITIAL_BRANCHES.map(b => (
+                    <div key={b.id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800 text-sm">{b.name}</span>
+                        <span className="font-mono text-xs font-bold bg-emerald-100 text-[#064e3b] px-2 py-0.5 rounded">
+                          {b.code}
+                        </span>
+                      </div>
+                      <p className="text-slate-600">Dirección: {b.address}</p>
+                      <p className="text-slate-600">Ciudad: {b.city}, {b.department}</p>
+                      <p className="text-slate-600">Teléfono: {b.phone}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {configSubTab === 'tariffs' && (
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 text-xs">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Tarifas Referenciales de Encomiendas</h3>
+                  <p className="text-slate-500">Parámetros de cálculo aplicados por Cloud Functions.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-slate-500 block">Tarifa Base (hasta 3 kg)</span>
+                    <span className="text-lg font-bold text-[#064e3b]">Bs. 15.00</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-slate-500 block">Kg Adicional Excedente</span>
+                    <span className="text-lg font-bold text-[#064e3b]">Bs. 2.00 / kg</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-slate-500 block">Recargo Entrega a Domicilio</span>
+                    <span className="text-lg font-bold text-[#064e3b]">Bs. 12.00</span>
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
+
+            {configSubTab === 'printers' && (
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 text-xs">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Configuración de Impresión de Tickets y Guías</h3>
+                  <p className="text-slate-500">Formatos para térmicas y reporte institucional.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl space-y-1">
+                    <span className="font-bold text-emerald-900 block">Térmica 80mm (Recomendado)</span>
+                    <p className="text-emerald-700 text-[11px]">Ticket oficial de ventanilla con código QR de seguimiento.</p>
+                  </div>
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                    <span className="font-bold text-slate-700 block">Térmica 58mm</span>
+                    <p className="text-slate-500 text-[11px]">Ticket compacto para ventanilla rápida.</p>
+                  </div>
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                    <span className="font-bold text-slate-700 block">Hoja Media Carta / A4</span>
+                    <p className="text-slate-500 text-[11px]">Manifiestos de carga y recibos institucionales.</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
+
+      {/* Modal Mi Perfil */}
+      {isProfileModalOpen && (
+        <UserProfileModal onClose={() => setIsProfileModalOpen(false)} />
+      )}
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500">

@@ -185,6 +185,41 @@ async function runE2E() {
     await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 8000 })
     await page.screenshot({ path: path.join(evidenceDir, '10-post-reload-f5.png') })
 
+    // 7. Prueba de Mi Perfil
+    console.log('[E2E] Probando apertura del modal "Mi Perfil"...')
+    const profileBtn = page.locator('button[title*="Ver mi perfil"]')
+    if (await profileBtn.count() > 0) {
+      await profileBtn.click()
+      await page.waitForSelector('text=Mi Perfil de Operador', { timeout: 5000 })
+      await page.screenshot({ path: path.join(evidenceDir, '11-user-profile-modal.png') })
+      // Cerrar modal con botón Listo
+      await page.click('button:has-text("Listo")')
+    }
+
+    // 8. Prueba del Módulo de Configuración -> Usuarios y Permisos
+    console.log('[E2E] Probando navegación a Módulo de Configuración...')
+    // Cerrar sesión
+    await page.click('button[title="Cerrar Sesión"]')
+    await page.waitForSelector('text=Iniciar Sesión', { timeout: 5000 })
+
+    // Iniciar como Directiva / Admin
+    const adminBtn = page.locator('button:has-text("Directiva / Admin")')
+    if (await adminBtn.count() > 0) {
+      await adminBtn.click()
+      await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 8000 })
+
+      // Ir a pestaña Configuración
+      await page.click('button:has-text("Configuración")')
+      await page.waitForSelector('text=Configuración de Usuarios y Permisos', { timeout: 5000 })
+      await page.screenshot({ path: path.join(evidenceDir, '12-user-management-view.png') })
+
+      // Abrir modal de Nuevo Operador
+      await page.click('button:has-text("Registrar Nuevo Operador")')
+      await page.waitForSelector('text=Expreso Punata — Aprovisionamiento Oficial', { timeout: 5000 })
+      await page.screenshot({ path: path.join(evidenceDir, '13-new-user-modal.png') })
+      await page.click('button:has-text("Cancelar")')
+    }
+
     console.log('[E2E] ¡TODAS LAS PRUEBAS DE NAVEGADOR COMPLETADAS CON ÉXITO!')
   } finally {
     await browser.close()
