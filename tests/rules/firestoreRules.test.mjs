@@ -218,3 +218,45 @@ test('5. Conductor solo puede actualizar entregas en encomiendas asignadas', asy
   // Conductor no puede borrar
   await assertFails(deleteDoc(doc(driverDb, 'shipments', 'PUN-2026-00010')))
 })
+
+
+test('6. Creación y modificación directa de perfiles de usuario desde el cliente está BLOQUEADA (Admin SDK exclusivo)', async () => {
+  // Setup: Crear secretaria en contexto con reglas desactivadas
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'sec-punata'), {
+      role: 'secretaria',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata'],
+      fullName: 'María Secretaria',
+    })
+  })
+
+  const secContext = testEnv.authenticatedContext('sec-punata', {
+    role: 'secretaria',
+    branchId: 'punata',
+  })
+  const secDb = secContext.firestore()
+
+  // 1. Intento de la secretaria de auto-asignarse rol 'directiva_admin' -> DEBE FALLAR
+  await assertFails(
+    updateDoc(doc(secDb, 'users', 'sec-punata'), {
+      role: 'directiva_admin',
+    })
+  )
+
+  // 2. Intento de crear un nuevo usuario desde el navegador -> DEBE FALLAR
+  await assertFails(
+    setDoc(doc(secDb, 'users', 'nuevo-admin-hacker'), {
+      role: 'directiva_admin',
+      fullName: 'Hacker',
+    })
+  )
+
+  // 3. Intento de usuario no autenticado de escribir en users -> DEBE FALLAR
+  const unauthDb = testEnv.unauthenticatedContext().firestore()
+  await assertFails(
+    setDoc(doc(unauthDb, 'users', 'unauth-user'), {
+      role: 'secretaria',
+    })
+  )
+})

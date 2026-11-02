@@ -37,6 +37,8 @@ const shouldConnectEmulators =
   import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' ||
   (import.meta.env.VITE_USE_FIREBASE_EMULATORS === undefined && (import.meta.env.DEV || isLocalhost))
 
+export const isEmulatedEnvironment = shouldConnectEmulators
+
 if (shouldConnectEmulators) {
   const emulatorHost = '127.0.0.1'
   try {

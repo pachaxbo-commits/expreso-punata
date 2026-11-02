@@ -342,3 +342,126 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     shipment: result.shipment,
   }
 })
+
+
+/**
+ * Cloud Function Callable para aprovisionamiento seguro de perfiles de usuario.
+ * Solo puede ser ejecutada por usuarios con rol 'directiva_admin' activo,
+ * o como bootstrap si la colección 'users' está completamente vacía.
+ */
+export const adminProvisionUser = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para aprovisionar usuarios.')
+  }
+
+  const callerUid = request.auth.uid
+  const callerEmail = request.auth.token.email || ''
+
+  // Verificar si la base de datos está vacía (Bootstrap inicial seguro)
+  const usersSnapshot = await db.collection('users').limit(1).get()
+  const isBootstrap = usersSnapshot.empty
+
+  if (!isBootstrap) {
+    const callerDoc = await db.collection('users').doc(callerUid).get()
+    if (!callerDoc.exists) {
+      throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
+    }
+    const callerData = callerDoc.data() || {}
+    if (callerData.isActive === false) {
+      throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
+    }
+    if (callerData.role !== 'directiva_admin') {
+      throw new HttpsError('permission-denied', 'Solo la Directiva / Administración puede aprovisionar usuarios.')
+    }
+  }
+
+  const payload = request.data || {}
+  const {
+    targetUid,
+    fullName,
+    ci,
+    phone,
+    role = 'secretaria',
+    primaryBranchId = 'punata',
+    allowedBranchIds = ['punata'],
+    assignedVehiclePlate,
+    assignedMobileNumber,
+    isActive = true,
+  } = payload
+
+  if (!targetUid || typeof targetUid !== 'string' || !targetUid.trim()) {
+    throw new HttpsError('invalid-argument', 'El targetUid del usuario es obligatorio.')
+  }
+  if (!fullName || typeof fullName !== 'string' || !fullName.trim()) {
+    throw new HttpsError('invalid-argument', 'El nombre completo es obligatorio.')
+  }
+  if (!ci || typeof ci !== 'string' || !ci.trim()) {
+    throw new HttpsError('invalid-argument', 'El número de CI es obligatorio.')
+  }
+
+  const validRoles = ['secretaria', 'conductor', 'encargado_agencia', 'tesoreria', 'directiva_admin']
+  if (!validRoles.includes(role)) {
+    throw new HttpsError('invalid-argument', `Rol inválido: '${role}'.`)
+  }
+
+  const validBranches = ['punata', 'cochabamba']
+  if (!validBranches.includes(primaryBranchId)) {
+    throw new HttpsError('invalid-argument', `Sucursal primaria inválida: '${primaryBranchId}'.`)
+  }
+
+  const nowIso = new Date().toISOString()
+  const targetUserRef = db.collection('users').doc(targetUid.trim())
+  const auditDocRef = db.collection('audit_logs').doc()
+
+  const profileData = {
+    uid: targetUid.trim(),
+    fullName: fullName.trim(),
+    ci: ci.trim(),
+    phone: (phone || '').trim(),
+    role,
+    primaryBranchId,
+    allowedBranchIds: Array.isArray(allowedBranchIds) && allowedBranchIds.length > 0 ? allowedBranchIds : [primaryBranchId],
+    assignedVehiclePlate: role === 'conductor' ? assignedVehiclePlate || '' : null,
+    assignedMobileNumber: role === 'conductor' ? assignedMobileNumber || '' : null,
+    isActive: Boolean(isActive),
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedAtIso: nowIso,
+  }
+
+  await db.runTransaction(async (transaction) => {
+    const existingDoc = await transaction.get(targetUserRef)
+    if (!existingDoc.exists) {
+      profileData.createdAt = FieldValue.serverTimestamp()
+      profileData.createdAtIso = nowIso
+      profileData.createdReason = isBootstrap ? 'bootstrap_initial_admin' : 'admin_provisioned'
+    }
+    transaction.set(targetUserRef, profileData, { merge: true })
+
+    transaction.set(auditDocRef, {
+      id: auditDocRef.id,
+      entityType: 'user_profile',
+      entityId: targetUid.trim(),
+      action: existingDoc.exists ? 'USER_PROFILE_UPDATED' : 'USER_PROFILE_PROVISIONED',
+      performedByUid: callerUid,
+      performedByEmail: callerEmail,
+      isBootstrap,
+      details: {
+        role,
+        primaryBranchId,
+        isActive: Boolean(isActive),
+      },
+      timestamp: FieldValue.serverTimestamp(),
+      timestampIso: nowIso,
+    })
+  })
+
+  return {
+    success: true,
+    message: isBootstrap ? 'Administrador inicial creado exitosamente por bootstrap.' : 'Perfil de usuario aprovisionado exitosamente.',
+    profile: {
+      ...profileData,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+  }
+})
