@@ -53,12 +53,14 @@ test('2. Creación directa de encomiendas desde el cliente está BLOQUEADA (solo
       primaryBranchId: 'punata',
       allowedBranchIds: ['punata'],
       fullName: 'María Secretaria',
+      isActive: true,
     })
   })
 
   const secContext = testEnv.authenticatedContext('sec-punata', {
     role: 'secretaria',
     branchId: 'punata',
+    isActive: true,
   })
   const secDb = secContext.firestore()
 
@@ -129,6 +131,7 @@ test('3. Secretaria de Cochabamba puede LEER encomiendas con destino a su sucurs
       primaryBranchId: 'cochabamba',
       allowedBranchIds: ['cochabamba'],
       fullName: 'Elena Secretaria',
+      isActive: true,
     })
 
     await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-00001'), {
@@ -143,6 +146,7 @@ test('3. Secretaria de Cochabamba puede LEER encomiendas con destino a su sucurs
   const cbbContext = testEnv.authenticatedContext('sec-cbb', {
     role: 'secretaria',
     branchId: 'cochabamba',
+    isActive: true,
   })
   const cbbDb = cbbContext.firestore()
 
@@ -157,6 +161,7 @@ test('4. Directiva / Administrador tiene acceso a reportes y configuraciones', a
       primaryBranchId: 'punata',
       allowedBranchIds: ['punata', 'cochabamba'],
       fullName: 'Directorio Central',
+      isActive: true,
     })
     await setDoc(doc(context.firestore(), 'shipments', 'CBB-2026-00001'), {
       trackingCode: 'CBB-2026-00001',
@@ -170,6 +175,7 @@ test('4. Directiva / Administrador tiene acceso a reportes y configuraciones', a
   const adminContext = testEnv.authenticatedContext('admin-1', {
     role: 'directiva_admin',
     branchId: 'punata',
+    isActive: true,
   })
   const adminDb = adminContext.firestore()
 
@@ -184,6 +190,7 @@ test('5. Conductor solo puede actualizar entregas en encomiendas asignadas', asy
       primaryBranchId: 'punata',
       allowedBranchIds: ['punata', 'cochabamba'],
       fullName: 'Conductor Don Pedro',
+      isActive: true,
     })
 
     await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-00010'), {
@@ -201,6 +208,7 @@ test('5. Conductor solo puede actualizar entregas en encomiendas asignadas', asy
   const driverContext = testEnv.authenticatedContext('driver-1', {
     role: 'conductor',
     branchId: 'punata',
+    isActive: true,
   })
   const driverDb = driverContext.firestore()
 
@@ -228,6 +236,7 @@ test('6. Creación y modificación directa de perfiles de usuario desde el clien
       primaryBranchId: 'punata',
       allowedBranchIds: ['punata'],
       fullName: 'María Secretaria',
+      isActive: true,
     })
   })
 
@@ -257,6 +266,77 @@ test('6. Creación y modificación directa de perfiles de usuario desde el clien
   await assertFails(
     setDoc(doc(unauthDb, 'users', 'unauth-user'), {
       role: 'secretaria',
+    })
+  )
+})
+
+
+test('7. Transiciones ilegítimas de estado de encomienda son BLOQUEADAS', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'sec-punata'), {
+      role: 'secretaria',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'],
+      isActive: true,
+    })
+    await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-TRANS-1'), {
+      trackingCode: 'PUN-2026-TRANS-1',
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      status: 'received',
+    })
+  })
+
+  const secContext = testEnv.authenticatedContext('sec-punata', {
+    role: 'secretaria',
+    branchId: 'punata',
+    isActive: true,
+  })
+  const secDb = secContext.firestore()
+
+  // Transición ilegal: received -> delivered directo (salto de ruta sin llegada ni entrega) -> DEBE FALLAR
+  await assertFails(
+    updateDoc(doc(secDb, 'shipments', 'PUN-2026-TRANS-1'), {
+      status: 'delivered',
+      deliveryRecord: { receivedByName: 'Salto Ilegal' }
+    })
+  )
+
+  // Transición legal: received -> in_warehouse -> DEBE PASAR
+  await assertSucceeds(
+    updateDoc(doc(secDb, 'shipments', 'PUN-2026-TRANS-1'), {
+      status: 'in_warehouse',
+    })
+  )
+})
+
+test('8. Usuarios inactivos son BLOQUEADOS de leer y operar en el sistema', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'sec-inactiva'), {
+      role: 'secretaria',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata'],
+      isActive: false, // Inactiva
+    })
+    await setDoc(doc(context.firestore(), 'shipments', 'PUN-2026-INACT-1'), {
+      trackingCode: 'PUN-2026-INACT-1',
+      originBranchId: 'punata',
+      destinationBranchId: 'cochabamba',
+      status: 'received',
+    })
+  })
+
+  const inactContext = testEnv.authenticatedContext('sec-inactiva', {
+    role: 'secretaria',
+    branchId: 'punata',
+    isActive: false,
+  })
+  const inactDb = inactContext.firestore()
+
+  // Intento de actualización por usuaria inactiva -> DEBE FALLAR
+  await assertFails(
+    updateDoc(doc(inactDb, 'shipments', 'PUN-2026-INACT-1'), {
+      status: 'in_warehouse'
     })
   )
 })

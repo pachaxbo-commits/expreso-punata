@@ -1,5 +1,6 @@
 import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getAuth } from 'firebase-admin/auth'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 
 if (getApps().length === 0) {
@@ -7,6 +8,7 @@ if (getApps().length === 0) {
 }
 
 const db = getFirestore()
+const authAdmin = getAuth()
 
 // Tarifas referenciales de desarrollo (no oficiales ni confirmadas con Expreso Punata)
 const TARIFFS_DEV_REFERENCE = {
@@ -98,35 +100,37 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     throw new HttpsError('invalid-argument', 'Modalidad de entrega inválida.')
   }
   if (deliveryType === 'home' && (!deliveryAddress || deliveryAddress.trim().length < 4)) {
-    throw new HttpsError('invalid-argument', 'Debe especificar la dirección exacta para entrega a domicilio.')
+    throw new HttpsError('invalid-argument', 'La dirección de entrega a domicilio es obligatoria.')
   }
 
-  // 7. Validar contenido y bultos
+  // 7. Validar items / paquetes
   if (!Array.isArray(items) || items.length === 0) {
-    throw new HttpsError('invalid-argument', 'Debe registrar al menos un ítem o bulto en la encomienda.')
+    throw new HttpsError('invalid-argument', 'Debe incluir al menos un paquete o bulto en la encomienda.')
   }
+
   let totalWeightKg = 0
   let packageCount = 0
-  for (const item of items) {
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
     if (!item.description || item.description.trim().length < 2) {
-      throw new HttpsError('invalid-argument', 'La descripción de cada ítem es obligatoria.')
+      throw new HttpsError('invalid-argument', `El ítem #${i + 1} debe contener una descripción válida.`)
     }
-    const q = Number(item.quantity) || 1
-    if (q < 1) throw new HttpsError('invalid-argument', 'La cantidad de bultos debe ser mayor a cero.')
+    const q = Number(item.quantity)
+    if (!Number.isInteger(q) || q < 1) {
+      throw new HttpsError('invalid-argument', `El ítem #${i + 1} tiene una cantidad inválida.`)
+    }
+    const w = Number(item.weightKg) || 0
+    if (w < 0) {
+      throw new HttpsError('invalid-argument', `El peso del ítem #${i + 1} no puede ser negativo.`)
+    }
+    totalWeightKg += w * q
     packageCount += q
-    totalWeightKg += Math.max(0, Number(item.weightKg) || 0)
   }
 
-  if (prohibitedGoodsNoticeAccepted !== true) {
-    throw new HttpsError('failed-precondition', 'Debe aceptarse la declaración de contenido permitido.')
-  }
-
-  // 8. Validar condiciones de pago
-  if (!['origin_paid', 'destination_cod'].includes(paymentTiming)) {
-    throw new HttpsError('invalid-argument', 'Modalidad de cobro inválida (debe ser origen o contraentrega).')
-  }
-  if (paymentTiming === 'origin_paid' && !['cash', 'qr', 'transfer'].includes(paymentMethod)) {
-    throw new HttpsError('invalid-argument', 'Debe seleccionar un método de pago válido (efectivo, qr o transferencia).')
+  // 8. Validar declaración de prohibición de mercadería ilegal
+  if (!prohibitedGoodsNoticeAccepted) {
+    throw new HttpsError('invalid-argument', 'Debe aceptar la declaración de no transporte de sustancias prohibidas o valores ilícitos.')
   }
 
   // 9. Requerir clave de idempotencia
@@ -150,16 +154,35 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : null,
   })
 
-  // 10. Cálculo canónico del costo en centavos enteros
+  // 10. Validación estricta de descuentos (Requisito 3)
+  // Descuentos arbitrarios desde ventanilla están bloqueados. Solo Directiva / Admin puede aplicar descuentos.
+  const rawDiscount = Number(discountCents) || 0
+  if (rawDiscount < 0) {
+    throw new HttpsError('invalid-argument', 'El descuento no puede ser un valor negativo.')
+  }
+  if (rawDiscount > 0 && userProfile.role !== 'directiva_admin') {
+    throw new HttpsError('permission-denied', 'Los descuentos desde ventanilla están deshabilitados. Solo la Directiva / Administración puede aplicar descuentos.')
+  }
+
+  // 11. Cálculo canónico del costo en centavos enteros
   const chargeableExcessWeightKg = Math.max(0, Math.round((totalWeightKg - TARIFFS_DEV_REFERENCE.freeWeightKg) * 100) / 100)
   const baseFeeCents = TARIFFS_DEV_REFERENCE.baseFeeCents
   const weightSurchargeCents = Math.round(chargeableExcessWeightKg * TARIFFS_DEV_REFERENCE.extraKgRateCents)
   const homeDeliveryFeeCents = deliveryType === 'home' ? TARIFFS_DEV_REFERENCE.homeDeliveryFeeCents : 0
   const subtotalCents = baseFeeCents + weightSurchargeCents + homeDeliveryFeeCents
-  const safeDiscountCents = Math.min(subtotalCents, Math.max(0, Math.round(Number(discountCents) || 0)))
+  const safeDiscountCents = Math.min(subtotalCents, Math.round(rawDiscount))
   const finalAmountCents = subtotalCents - safeDiscountCents
 
-  // 11. Ejecución atómica en transacción Firestore
+  // 12. Regla de cobro seguro y consistencia financiera (Requisito 3)
+  const isPaid = paymentTiming === 'origin_paid'
+  const isEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST)
+  const hasValidShift = Boolean(cashShiftId && cashShiftId !== 'PENDING_SHIFT_DEV')
+
+  // En Cloud real, mientras no exista caja formal (Fase 7), si no hay un turno de caja válido
+  // se marca paymentStatus: 'pending' (pendiente de cobro en caja) y NO se crea un movimiento financiero fantasma
+  const isDefinitivePayment = isPaid && (hasValidShift || isEmulator)
+
+  // 13. Ejecución atómica en transacción Firestore
   const branchCode = originBranchId === 'punata' ? 'PUN' : 'CBB'
   const currentYear = new Date().getFullYear() // 2026
   const counterDocRef = db.collection('counters').doc(`${branchCode}_${currentYear}`)
@@ -170,16 +193,14 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     const idempDoc = await transaction.get(idempotencyDocRef)
     if (idempDoc.exists) {
       const idempData = idempDoc.data() || {}
-      // Validación de aislamiento de usuario
-      if (idempData.callerUid && idempData.callerUid !== callerUid) {
-        throw new HttpsError('permission-denied', 'Esta clave de idempotencia pertenece a otro usuario.')
+      if (idempData.callerUid !== callerUid) {
+        throw new HttpsError('permission-denied', 'La clave de idempotencia especificada pertenece a otro usuario.')
       }
-      // Validación de consistencia de datos
-      if (idempData.payloadFingerprint && idempData.payloadFingerprint !== payloadFingerprint) {
-        throw new HttpsError('invalid-argument', 'Esta clave de idempotencia ya fue utilizada con datos de envío diferentes.')
+      if (idempData.payloadFingerprint !== payloadFingerprint) {
+        throw new HttpsError('invalid-argument', 'La clave de idempotencia ya fue utilizada con datos de encomienda diferentes.')
       }
-      const existingTrackingCode = idempData.trackingCode
-      const existingShipmentDoc = await transaction.get(db.collection('shipments').doc(existingTrackingCode))
+
+      const existingShipmentDoc = await transaction.get(db.collection('shipments').doc(idempData.trackingCode))
       if (existingShipmentDoc.exists) {
         return {
           isDuplicate: true,
@@ -188,45 +209,39 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       }
     }
 
-    // B. Leer e incrementar el correlativo anual de la sucursal
+    // B. Leer y avanzar correlativo anual por sucursal
     const counterDoc = await transaction.get(counterDocRef)
     let nextSeq = 1
     if (counterDoc.exists) {
-      nextSeq = (Number(counterDoc.data().current) || 0) + 1
+      const data = counterDoc.data() || {}
+      nextSeq = (Number(data.current) || 0) + 1
     }
 
-    const seqFormatted = String(nextSeq).padStart(5, '0')
-    const trackingCode = `${branchCode}-${currentYear}-${seqFormatted}`
-
+    const seqPadded = String(nextSeq).padStart(5, '0')
+    const trackingCode = `${branchCode}-${currentYear}-${seqPadded}`
+    const movementId = isDefinitivePayment ? `MOV-${trackingCode}` : null
     const shipmentDocRef = db.collection('shipments').doc(trackingCode)
     const initialStatusLogRef = shipmentDocRef.collection('status_logs').doc()
 
     const nowIso = new Date().toISOString()
-    const isPaid = paymentTiming === 'origin_paid'
-    const movementId = isPaid ? `MOV-${trackingCode}` : null
 
-    // C. Ensamblar documento de encomienda con centavos enteros como valor canónico
+    // C. Construir documento canónico de encomienda
     const newShipment = {
       id: trackingCode,
       trackingCode,
-      idempotencyKey: safeIdempotencyKey,
       originBranchId,
-      originCity: originBranchId === 'punata' ? 'Punata' : 'Cochabamba',
       destinationBranchId,
-      destinationCity: destinationBranchId === 'punata' ? 'Punata' : 'Cochabamba',
       deliveryType,
       deliveryAddress: deliveryType === 'home' ? deliveryAddress.trim() : null,
 
       sender: {
         name: sender.name.trim(),
         phone: sender.phone.trim(),
-        docType: sender.docType || 'CI',
         docNumber: sender.docNumber ? sender.docNumber.trim() : null,
       },
       recipient: {
         name: recipient.name.trim(),
         phone: recipient.phone.trim(),
-        docType: recipient.docType || 'CI',
         docNumber: recipient.docNumber ? recipient.docNumber.trim() : null,
       },
 
@@ -254,12 +269,15 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
       // Condición de cobro y movimiento financiero auditable
       paymentTiming,
-      paymentStatus: isPaid ? 'paid' : 'pending',
-      paymentMethod: isPaid ? paymentMethod : null,
-      paidAt: isPaid ? nowIso : null,
-      paidCashierUid: isPaid ? callerUid : null,
-      paidCashierName: isPaid ? (userProfile.fullName || 'Secretaria') : null,
+      paymentStatus: isDefinitivePayment ? 'paid' : 'pending',
+      paymentMethod: isDefinitivePayment ? paymentMethod : null,
+      paidAt: isDefinitivePayment ? nowIso : null,
+      paidCashierUid: isDefinitivePayment ? callerUid : null,
+      paidCashierName: isDefinitivePayment ? (userProfile.fullName || 'Secretaria') : null,
       financialMovementId: movementId,
+      paymentNotice: !isDefinitivePayment && isPaid
+        ? 'Cobro pendiente de registro en caja formal (Fase 7)'
+        : null,
 
       status: 'received',
       registeredByUid: callerUid,
@@ -281,8 +299,8 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       createdAtIso: nowIso,
     }
 
-    // E. Registro financiero auditable si fue pagado en origen
-    if (isPaid && movementId) {
+    // E. Registro financiero auditable si fue pagado efectivamente con turno
+    if (isDefinitivePayment && movementId) {
       const effectiveShiftId = cashShiftId || 'PENDING_SHIFT_DEV'
       const financialMovementDocRef = db.collection('financial_movements').doc(movementId)
       const financialMovement = {
@@ -299,7 +317,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
         reconciliationStatus: cashShiftId ? 'shift_assigned' : 'pending_shift_opening',
         auditNotice: cashShiftId
           ? 'Asignado a turno de caja formal'
-          : 'Cobro registrado en Fase 2 sin turno de caja formal abierto (pendiente conciliación en Fase 7)',
+          : 'Cobro registrado en emulador local de desarrollo sin turno formal',
         idempotencyKey: safeIdempotencyKey,
         createdAt: FieldValue.serverTimestamp(),
         createdAtIso: nowIso,
@@ -343,13 +361,13 @@ export const createShipment = onCall({ cors: true }, async (request) => {
   }
 })
 
-
 /**
  * Cloud Function Callable para aprovisionamiento seguro de perfiles de usuario.
- * Solo puede ser ejecutada por usuarios con rol 'directiva_admin' activo,
- * o como bootstrap si la colección 'users' está completamente vacía.
+ * Solo puede ser ejecutada por usuarios con rol 'directiva_admin' activo.
+ * (El bootstrap inicial del primer administrador se realiza exclusivamente vía CLI privada bajo control de PACHAX).
  */
 export const adminProvisionUser = onCall({ cors: true }, async (request) => {
+  // 1. Validar autenticación
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para aprovisionar usuarios.')
   }
@@ -357,22 +375,17 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
   const callerUid = request.auth.uid
   const callerEmail = request.auth.token.email || ''
 
-  // Verificar si la base de datos está vacía (Bootstrap inicial seguro)
-  const usersSnapshot = await db.collection('users').limit(1).get()
-  const isBootstrap = usersSnapshot.empty
-
-  if (!isBootstrap) {
-    const callerDoc = await db.collection('users').doc(callerUid).get()
-    if (!callerDoc.exists) {
-      throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
-    }
-    const callerData = callerDoc.data() || {}
-    if (callerData.isActive === false) {
-      throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
-    }
-    if (callerData.role !== 'directiva_admin') {
-      throw new HttpsError('permission-denied', 'Solo la Directiva / Administración puede aprovisionar usuarios.')
-    }
+  // 2. Validar que el llamador sea un directiva_admin activo
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists) {
+    throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
+  }
+  const callerData = callerDoc.data() || {}
+  if (callerData.isActive === false) {
+    throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
+  }
+  if (callerData.role !== 'directiva_admin') {
+    throw new HttpsError('permission-denied', 'Solo la Directiva / Administración puede aprovisionar o modificar usuarios.')
   }
 
   const payload = request.data || {}
@@ -409,12 +422,25 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     throw new HttpsError('invalid-argument', `Sucursal primaria inválida: '${primaryBranchId}'.`)
   }
 
+  const safeTargetUid = targetUid.trim()
+
+  // 3. Verificar que el usuario exista en Firebase Authentication (siempre que no estemos en emulador offline aislado sin auth)
+  let targetAuthUser = null
+  try {
+    targetAuthUser = await authAdmin.getUser(safeTargetUid)
+  } catch (err) {
+    if (err.code === 'auth/user-not-found') {
+      throw new HttpsError('not-found', `El usuario con UID '${safeTargetUid}' no existe en Firebase Authentication.`)
+    }
+  }
+
   const nowIso = new Date().toISOString()
-  const targetUserRef = db.collection('users').doc(targetUid.trim())
+  const targetUserRef = db.collection('users').doc(safeTargetUid)
   const auditDocRef = db.collection('audit_logs').doc()
 
   const profileData = {
-    uid: targetUid.trim(),
+    uid: safeTargetUid,
+    email: targetAuthUser?.email || payload.email || '',
     fullName: fullName.trim(),
     ci: ci.trim(),
     phone: (phone || '').trim(),
@@ -433,18 +459,17 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     if (!existingDoc.exists) {
       profileData.createdAt = FieldValue.serverTimestamp()
       profileData.createdAtIso = nowIso
-      profileData.createdReason = isBootstrap ? 'bootstrap_initial_admin' : 'admin_provisioned'
+      profileData.createdReason = 'admin_provisioned'
     }
     transaction.set(targetUserRef, profileData, { merge: true })
 
     transaction.set(auditDocRef, {
       id: auditDocRef.id,
       entityType: 'user_profile',
-      entityId: targetUid.trim(),
+      entityId: safeTargetUid,
       action: existingDoc.exists ? 'USER_PROFILE_UPDATED' : 'USER_PROFILE_PROVISIONED',
       performedByUid: callerUid,
       performedByEmail: callerEmail,
-      isBootstrap,
       details: {
         role,
         primaryBranchId,
@@ -455,9 +480,26 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     })
   })
 
+  // 4. Sincronizar Custom Claims en Firebase Authentication
+  try {
+    await authAdmin.setCustomUserClaims(safeTargetUid, {
+      role: profileData.role,
+      branchId: profileData.primaryBranchId,
+      allowedBranches: profileData.allowedBranchIds,
+      isActive: profileData.isActive,
+    })
+
+    // Si el usuario fue desactivado, revocar tokens de sesión inmediatamente
+    if (!profileData.isActive) {
+      await authAdmin.revokeRefreshTokens(safeTargetUid)
+    }
+  } catch (claimErr) {
+    console.warn(`[adminProvisionUser] Advertencia al asignar custom claims para ${safeTargetUid}:`, claimErr)
+  }
+
   return {
     success: true,
-    message: isBootstrap ? 'Administrador inicial creado exitosamente por bootstrap.' : 'Perfil de usuario aprovisionado exitosamente.',
+    message: 'Perfil de usuario aprovisionado y claims sincronizados exitosamente.',
     profile: {
       ...profileData,
       createdAt: nowIso,

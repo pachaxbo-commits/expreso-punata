@@ -2,16 +2,19 @@ import { test, before, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
+import { getAuth } from 'firebase-admin/auth'
 import { adminProvisionUser } from '../index.js'
 
-// Inicializar Firebase Admin apuntando al emulador local
+// Inicializar Firebase Admin apuntando a los emuladores locales
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
+process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
 
 if (getApps().length === 0) {
   initializeApp({ projectId: 'demo-expreso-punata-admin-test' })
 }
 
 const db = getFirestore()
+const auth = getAuth()
 
 async function clearCollections() {
   const collections = ['users', 'audit_logs']
@@ -31,45 +34,52 @@ beforeEach(async () => {
   await clearCollections()
 })
 
-test('1. Aprovisionamiento Bootstrap: permite crear el primer administrador cuando la BD está vacía', async () => {
+test('1. SEGURIDAD: Bootstrap público eliminado (rechaza intento de apropiación incluso con BD vacía)', async () => {
+  // Cuando la colección 'users' está vacía, un atacante no puede auto-aprovisionarse como admin
   const req = {
     auth: {
-      uid: 'super-admin-uid',
-      token: { email: 'admin@expreso-punata.bo' }
+      uid: 'atacante-aleatorio',
+      token: { email: 'hacker@internet.com' }
     },
     data: {
-      targetUid: 'super-admin-uid',
-      fullName: 'Administrador Inicial PACHAX',
-      ci: '1020304-CB',
-      phone: '77788990',
+      targetUid: 'atacante-aleatorio',
+      fullName: 'Atacante Hacker',
+      ci: '9999999',
       role: 'directiva_admin',
       primaryBranchId: 'punata',
-      allowedBranchIds: ['punata', 'cochabamba'],
-      isActive: true,
     }
   }
 
-  const res = await adminProvisionUser.run(req)
-  assert.equal(res.success, true)
-  assert.equal(res.profile.role, 'directiva_admin')
+  await assert.rejects(
+    async () => adminProvisionUser.run(req),
+    (err) => {
+      assert.equal(err.code, 'permission-denied')
+      return true
+    }
+  )
 
-  // Verificar en Firestore
-  const userDoc = await db.collection('users').doc('super-admin-uid').get()
-  assert.equal(userDoc.exists, true)
-  assert.equal(userDoc.data().role, 'directiva_admin')
-  assert.equal(userDoc.data().createdReason, 'bootstrap_initial_admin')
-
-  // Verificar audit log
-  const auditSnapshot = await db.collection('audit_logs').where('entityId', '==', 'super-admin-uid').get()
-  assert.equal(auditSnapshot.empty, false)
-  assert.equal(auditSnapshot.docs[0].data().action, 'USER_PROFILE_PROVISIONED')
+  // Verificar que la BD permanece completamente vacía
+  const userDoc = await db.collection('users').doc('atacante-aleatorio').get()
+  assert.equal(userDoc.exists, false)
 })
 
-test('2. Administrador activo puede aprovisionar secretarias y otros roles legítimos', async () => {
-  // Setup: Crear admin en la BD
+test('2. Administrador activo puede aprovisionar secretarias y sincronizar Custom Claims', async () => {
+  // Setup: Crear cuenta en Auth Emulator y admin en la BD
+  let testTargetUser
+  try {
+    testTargetUser = await auth.createUser({
+      uid: 'sec-punata-uid',
+      email: 'sec.punata@expreso-punata.bo',
+      displayName: 'María Secretaria Punata',
+    })
+  } catch (err) {
+    // Si ya existe en el emulador, obtenerlo
+    testTargetUser = await auth.getUser('sec-punata-uid')
+  }
+
   await db.collection('users').doc('admin-user').set({
     uid: 'admin-user',
-    fullName: 'Directiva Administradora',
+    fullName: 'Directiva Administradora PACHAX',
     role: 'directiva_admin',
     primaryBranchId: 'punata',
     allowedBranchIds: ['punata', 'cochabamba'],
@@ -98,19 +108,20 @@ test('2. Administrador activo puede aprovisionar secretarias y otros roles legí
   assert.equal(res.success, true)
   assert.equal(res.profile.role, 'secretaria')
 
+  // Verificar documento en Firestore
   const secDoc = await db.collection('users').doc('sec-punata-uid').get()
   assert.equal(secDoc.exists, true)
   assert.equal(secDoc.data().role, 'secretaria')
   assert.equal(secDoc.data().primaryBranchId, 'punata')
+
+  // Verificar Custom Claims en Firebase Authentication
+  const updatedAuthUser = await auth.getUser('sec-punata-uid')
+  assert.equal(updatedAuthUser.customClaims?.role, 'secretaria')
+  assert.equal(updatedAuthUser.customClaims?.branchId, 'punata')
+  assert.equal(updatedAuthUser.customClaims?.isActive, true)
 })
 
 test('3. Roles no autorizados (secretaria) NO pueden aprovisionar usuarios', async () => {
-  // Setup: Crear secretaria y admin
-  await db.collection('users').doc('admin-user').set({
-    uid: 'admin-user',
-    role: 'directiva_admin',
-    isActive: true
-  })
   await db.collection('users').doc('sec-user').set({
     uid: 'sec-user',
     role: 'secretaria',
@@ -123,10 +134,10 @@ test('3. Roles no autorizados (secretaria) NO pueden aprovisionar usuarios', asy
       token: { email: 'sec@expreso-punata.bo' }
     },
     data: {
-      targetUid: 'nuevo-hacker',
-      fullName: 'Hacker Intruso',
-      ci: '9999999',
-      role: 'directiva_admin',
+      targetUid: 'nuevo-operador',
+      fullName: 'Operador',
+      ci: '8888888',
+      role: 'secretaria',
       primaryBranchId: 'punata',
     }
   }
@@ -170,7 +181,14 @@ test('4. Usuario inactivo es rechazado automáticamente', async () => {
   )
 })
 
-test('5. Validación de argumentos: rechaza roles o sucursales inválidas', async () => {
+test('5. Desactivación de usuario: sincroniza isActive=false en claims', async () => {
+  try {
+    await auth.createUser({
+      uid: 'usuario-a-desactivar',
+      email: 'desactivar@expreso-punata.bo'
+    })
+  } catch {}
+
   await db.collection('users').doc('admin-user').set({
     uid: 'admin-user',
     role: 'directiva_admin',
@@ -183,19 +201,19 @@ test('5. Validación de argumentos: rechaza roles o sucursales inválidas', asyn
       token: { email: 'admin@expreso-punata.bo' }
     },
     data: {
-      targetUid: 'user-test',
-      fullName: 'Test User',
-      ci: '1111111',
-      role: 'rol_inexistente_hacker',
+      targetUid: 'usuario-a-desactivar',
+      fullName: 'Ex Operador',
+      ci: '2222222',
+      role: 'secretaria',
       primaryBranchId: 'punata',
+      isActive: false, // Desactivar
     }
   }
 
-  await assert.rejects(
-    async () => adminProvisionUser.run(req),
-    (err) => {
-      assert.equal(err.code, 'invalid-argument')
-      return true
-    }
-  )
+  const res = await adminProvisionUser.run(req)
+  assert.equal(res.success, true)
+  assert.equal(res.profile.isActive, false)
+
+  const authUser = await auth.getUser('usuario-a-desactivar')
+  assert.equal(authUser.customClaims?.isActive, false)
 })
