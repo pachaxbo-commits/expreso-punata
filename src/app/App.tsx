@@ -33,6 +33,7 @@ import { DispatchManifestView } from '../modules/dispatch/DispatchManifestView'
 import { StorageManagementView } from '../modules/storage/StorageManagementView'
 import { UserManagementView } from '../modules/users/UserManagementView'
 import { UserProfileModal } from '../modules/users/UserProfileModal'
+import { PrinterSettingsView } from '../modules/admin/printers/PrinterSettingsView'
 import type { Shipment } from '../types'
 
 export const AppContent: React.FC = () => {
@@ -733,26 +734,10 @@ export const AppContent: React.FC = () => {
             )}
 
             {configSubTab === 'printers' && (
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 text-xs">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">Configuración de Impresión de Tickets y Guías</h3>
-                  <p className="text-slate-500">Formatos para térmicas y reporte institucional.</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl space-y-1">
-                    <span className="font-bold text-emerald-900 block">Térmica 80mm (Recomendado)</span>
-                    <p className="text-emerald-700 text-[11px]">Ticket oficial de ventanilla con código QR de seguimiento.</p>
-                  </div>
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                    <span className="font-bold text-slate-700 block">Térmica 58mm</span>
-                    <p className="text-slate-500 text-[11px]">Ticket compacto para ventanilla rápida.</p>
-                  </div>
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                    <span className="font-bold text-slate-700 block">Hoja Media Carta / A4</span>
-                    <p className="text-slate-500 text-[11px]">Manifiestos de carga y recibos institucionales.</p>
-                  </div>
-                </div>
-              </div>
+              <PrinterSettingsView
+                currentBranchId={currentBranchId}
+                operatorName={userProfile.fullName || 'Operador'}
+              />
             )}
           </div>
         )}
