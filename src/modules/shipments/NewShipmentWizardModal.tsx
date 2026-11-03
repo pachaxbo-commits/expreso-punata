@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   X,
   ArrowRight,
@@ -20,7 +20,8 @@ import {
 } from 'lucide-react'
 import type { Shipment, ParcelCustomer, ParcelItem, PaymentTiming, PaymentMethod } from '../../types/index.ts'
 import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig.ts'
-import { calculateParcelPricing, formatCurrencyBob } from '../../domain/parcelEngine.ts'
+import { calculateParcelPricing, formatCurrencyBob, type ParcelTariffConfig } from '../../domain/parcelEngine.ts'
+import { fetchSystemConfig } from '../../services/configService.ts'
 import { createShipmentThroughBackend, extractCustomerSuggestions } from '../../services/shipmentService.ts'
 import { printShipmentGuidePdf } from '../../services/pdfService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
@@ -103,12 +104,32 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   const [customPriceBob, setCustomPriceBob] = useState<string>('')
   const [isPriceCustomized, setIsPriceCustomized] = useState(false)
   const [priceAdjustmentReason, setPriceAdjustmentReason] = useState('')
+  const [systemTariffs, setSystemTariffs] = useState<Partial<ParcelTariffConfig> | null>(null)
+
+  useEffect(() => {
+    let isMounted = true
+    if (isOpen) {
+      fetchSystemConfig().then(res => {
+        if (isMounted && res.config?.tariffs) {
+          setSystemTariffs({
+            baseFeeCents: res.config.tariffs.baseFeeCents,
+            freeWeightKg: res.config.tariffs.freeWeightKg,
+            extraKgRateCents: res.config.tariffs.extraKgRateCents,
+            homeDeliveryFeeCents: res.config.tariffs.homeDeliveryFeeCents,
+          })
+        }
+      }).catch(err => {
+        console.warn('[NewShipmentWizardModal] No se pudo cargar tarifas del sistema, usando fallback:', err)
+      })
+    }
+    return () => { isMounted = false }
+  }, [isOpen])
 
   if (!isOpen) return null
 
   // Cálculo en vivo de tarifas y centavos
   const totalWeight = items.reduce((sum, it) => sum + (Number(it.weightKg) || 0), 0)
-  const pricing = calculateParcelPricing(totalWeight, deliveryType, discountBob)
+  const pricing = calculateParcelPricing(totalWeight, deliveryType, discountBob, systemTariffs || undefined)
   const suggestedAmountCents = pricing.finalAmountCents
   const numericCustomBob = parseFloat(customPriceBob)
   const isCustomValid = isPriceCustomized && !isNaN(numericCustomBob) && numericCustomBob >= 0
@@ -194,6 +215,11 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
         paymentTiming,
         paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : undefined,
         discountCents: pricing.discountCents,
+        suggestedAmountCents,
+        agreedAmountCents: effectiveFinalAmountCents,
+        priceAdjustmentReason: isPriceCustomized && priceAdjustmentReason.trim().length > 0
+          ? priceAdjustmentReason.trim()
+          : (isZeroPrice ? priceAdjustmentReason.trim() : undefined),
         prohibitedGoodsNoticeAccepted: prohibitedNoticeAccepted,
         idempotencyKey,
       })

@@ -7,6 +7,7 @@ import {
   formatCurrencyBob,
   validateAgreedPrice,
   ALLOWED_STATUS_TRANSITIONS,
+  type ParcelTariffConfig,
 } from '../../src/domain/parcelEngine.ts'
 import {
   EXPRESO_PUNATA_COMPANY,
@@ -174,4 +175,29 @@ test('7. FASE 4: Formato alfanumérico de guías sin símbolos y compatibilidad 
   assert.equal(cleanedFromLegacy, 'PUN202600042')
   const formattedWithDashes = `${newGuidePun.slice(0, 3)}-${newGuidePun.slice(3, 7)}-${newGuidePun.slice(7)}`
   assert.equal(formattedWithDashes, 'PUN-2026-00042')
+})
+
+
+test('8. FASE 7: Tarifas dinámicas desde configuración oficial del sistema', () => {
+  const customTariffs: ParcelTariffConfig = {
+    baseFeeCents: 2000,
+    freeWeightKg: 5,
+    extraKgRateCents: 300,
+    homeDeliveryFeeCents: 1500,
+  }
+
+  // Paquete de 4kg en agencia -> base 20 Bs
+  const p1 = calculateParcelPricing(4, 'agency', 0, customTariffs)
+  assert.equal(p1.baseFeeBob, 20)
+  assert.equal(p1.chargeableExcessWeightKg, 0)
+  assert.equal(p1.finalAmountBob, 20)
+  assert.equal(p1.finalAmountCents, 2000)
+
+  // Paquete de 7kg a domicilio -> 20 base + (2kg exceso * 3 Bs = 6) + 15 domicilio = 41 Bs
+  const p2 = calculateParcelPricing(7, 'home', 0, customTariffs)
+  assert.equal(p2.chargeableExcessWeightKg, 2)
+  assert.equal(p2.weightSurchargeBob, 6)
+  assert.equal(p2.homeDeliveryFeeBob, 15)
+  assert.equal(p2.finalAmountBob, 41)
+  assert.equal(p2.finalAmountCents, 4100)
 })
