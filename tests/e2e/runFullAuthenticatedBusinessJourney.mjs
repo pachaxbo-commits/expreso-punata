@@ -554,7 +554,10 @@ async function runJourney() {
       await secBtn.click()
     } else {
       await page.fill('input[type="email"]', 'secretaria.punata@expresopunata.com')
-      const testPass = process.env.E2E_TEST_PASSWORD || process.env.TEST_OPERATOR_PASSWORD || 'ExpresoDev2026#'
+      const testPass = process.env.E2E_TEST_PASSWORD || process.env.TEST_OPERATOR_PASSWORD
+      if (!testPass) {
+        throw new Error('Variable de entorno E2E_TEST_PASSWORD o TEST_OPERATOR_PASSWORD es obligatoria para ejecutar las pruebas E2E.')
+      }
       await page.fill('input[type="password"]', testPass)
       await page.click('button[type="submit"]')
     }
