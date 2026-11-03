@@ -441,6 +441,64 @@ export class PrintEngineService {
   }
 
   /**
+   * Construye un payload unificado para recibo de aporte de socio o cuota mensual.
+   */
+  public buildFromMemberPayment(
+    paymentResult: any,
+    member: any,
+    branchId: string,
+    operatorName: string
+  ): UnifiedDocumentPayload {
+    const branch = INITIAL_BRANCHES.find((b) => b.id === branchId) || INITIAL_BRANCHES[0]
+    const amountBob = paymentResult.amountBob || (paymentResult.amountCents / 100) || 0
+
+    return {
+      documentType: 'payment_receipt',
+      title: 'RECIBO OFICIAL DE APORTE SOCIAL',
+      subtitle: `Período: ${paymentResult.periodLabel || paymentResult.period}`,
+      branchId,
+      branchName: branch.name,
+      branchAddress: branch.address,
+      branchPhone: branch.phone,
+      documentNumber: paymentResult.receiptNumber,
+      timestampIso: paymentResult.paidAtIso || new Date().toISOString(),
+      operatorName: paymentResult.collectedByName || operatorName,
+      qrContent: `EXPRESO-PUNATA:SOC-REC:${paymentResult.receiptNumber}:${paymentResult.memberNumber}:${amountBob.toFixed(2)}`,
+      recipient: {
+        name: `${paymentResult.memberNumber} - ${paymentResult.memberName || member?.fullName || 'Socio'}`,
+        phone: member?.phone,
+        docType: 'CI',
+        docNumber: member?.ci,
+      },
+      items: [
+        {
+          description: `Cuota mensual ordinaria (${paymentResult.periodLabel || paymentResult.period})`,
+          quantity: 1,
+          totalBob: amountBob,
+        },
+      ],
+      financials: {
+        subtotalBob: amountBob,
+        totalBob: amountBob,
+        amountCents: paymentResult.amountCents,
+        paymentMethod: paymentResult.paymentMethod || 'cash',
+        paymentConditionLabel: paymentResult.status === 'paid' ? 'APORTE MENSUAL CANCELADO' : 'PAGO PARCIAL DE APORTE',
+      },
+      signatures: {
+        operatorSignatureName: paymentResult.collectedByName || operatorName,
+        clientSignatureName: paymentResult.memberName || member?.fullName,
+      },
+      footerNotes: [
+        `Socio: ${paymentResult.memberNumber} | Categoría: ${member?.category || 'Socio'}`,
+        paymentResult.remainingBalanceBob > 0
+          ? `Saldo adeudado de cuota: Bs ${paymentResult.remainingBalanceBob.toFixed(2)}`
+          : 'Cuota del período cancelada en su totalidad.',
+        'Aporte registrado en el libro oficial de recaudaciones sindicales.',
+      ],
+    }
+  }
+
+  /**
    * Genera e imprime un ticket de prueba y diagnóstico de estación de trabajo.
    */
   public async printTestTicket(

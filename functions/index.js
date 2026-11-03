@@ -3953,3 +3953,571 @@ export const getDriverCustodyBalance = onCall({ cors: true }, async (request) =>
     pendingCount: pendingRecords.length,
   }
 })
+
+
+// =========================================================================
+// BLOQUE 5: SOCIOS Y MENSUALIDADES (PADRÓN, CUOTAS, RECAUDACIÓN Y EXTRACTOS)
+// =========================================================================
+
+/**
+ * Cloud Function Callable para dar de alta o actualizar un socio en el padrón sindical.
+ * Roles permitidos: directiva_admin, tesoreria.
+ */
+export const manageUnionMember = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para administrar socios.')
+  }
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists || callerDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no activo.')
+  }
+  const caller = callerDoc.data()
+  if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden administrar socios.')
+  }
+
+  const {
+    id,
+    memberNumber,
+    fullName,
+    ci,
+    phone,
+    joinedAt,
+    status = 'active',
+    category = 'propietario_transporte',
+    vehiclePlate,
+    assignedMobileNumber,
+    monthlyFeeBob,
+    monthlyFeeCents,
+    notes,
+  } = request.data || {}
+
+  if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 3) {
+    throw new HttpsError('invalid-argument', 'El nombre completo del socio es obligatorio.')
+  }
+  if (!memberNumber || typeof memberNumber !== 'string' || memberNumber.trim().length < 2) {
+    throw new HttpsError('invalid-argument', 'El número de socio es obligatorio.')
+  }
+
+  const cleanMemberNumber = memberNumber.trim().toUpperCase()
+  const cleanFullName = fullName.trim()
+  const nowIso = new Date().toISOString()
+
+  const feeCents = monthlyFeeCents !== undefined && Number.isInteger(monthlyFeeCents)
+    ? monthlyFeeCents
+    : Math.round((Number(monthlyFeeBob) || 0) * 100)
+
+  if (feeCents < 0) {
+    throw new HttpsError('invalid-argument', 'La cuota mensual no puede ser negativa.')
+  }
+
+  const memberId = id || `member-${cleanMemberNumber.toLowerCase().replace(/[^a-z0-9]/g, '-')}`
+  const existingSnap = await db.collection('union_members')
+    .where('memberNumber', '==', cleanMemberNumber)
+    .get()
+
+  for (const doc of existingSnap.docs) {
+    if (doc.id !== memberId) {
+      throw new HttpsError('already-exists', `El número de socio ${cleanMemberNumber} ya está registrado para otro socio (${doc.data().fullName}).`)
+    }
+  }
+
+  const memberRef = db.collection('union_members').doc(memberId)
+  const existingDoc = await memberRef.get()
+  const isNew = !existingDoc.exists
+
+  const memberData = {
+    id: memberId,
+    memberNumber: cleanMemberNumber,
+    fullName: cleanFullName,
+    ci: ci ? String(ci).trim() : '',
+    phone: phone ? String(phone).trim() : '',
+    joinedAt: joinedAt || existingDoc.data()?.joinedAt || nowIso.slice(0, 10),
+    status: ['active', 'inactive', 'suspended', 'honorary'].includes(status) ? status : 'active',
+    category: ['propietario_transporte', 'conductor', 'socio_general'].includes(category) ? category : 'propietario_transporte',
+    vehiclePlate: vehiclePlate ? String(vehiclePlate).trim().toUpperCase() : null,
+    assignedMobileNumber: assignedMobileNumber ? String(assignedMobileNumber).trim() : null,
+    monthlyFeeBob: feeCents / 100,
+    monthlyFeeCents: feeCents,
+    notes: notes ? String(notes).trim() : null,
+    updatedAtIso: nowIso,
+    updatedByUid: callerUid,
+    updatedByName: caller.fullName || 'Operador',
+  }
+
+  if (isNew) {
+    memberData.createdAtIso = nowIso
+    memberData.createdByUid = callerUid
+    memberData.createdByName = caller.fullName || 'Operador'
+  }
+
+  await memberRef.set(memberData, { merge: true })
+
+  await db.collection('audit_logs').add({
+    action: isNew ? 'union_member_created' : 'union_member_updated',
+    targetCollection: 'union_members',
+    targetId: memberId,
+    memberNumber: cleanMemberNumber,
+    fullName: cleanFullName,
+    performedByUid: callerUid,
+    performedByName: caller.fullName || 'Operador',
+    performedByRole: caller.role,
+    timestamp: FieldValue.serverTimestamp(),
+    timestampIso: nowIso,
+  })
+
+  return {
+    success: true,
+    isNew,
+    member: memberData,
+  }
+})
+
+/**
+ * Cloud Function Callable para emitir cuotas ordinarias de un período a todos los socios activos.
+ * Idempotente: si una cuota ya existe para el socio en ese período, no la duplica.
+ */
+export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para emitir cuotas.')
+  }
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists || callerDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no activo.')
+  }
+  const caller = callerDoc.data()
+  if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden emitir cuotas mensuales.')
+  }
+
+  const { period, dueDate, notes } = request.data || {}
+  if (!period || !/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+    throw new HttpsError('invalid-argument', 'El período debe tener el formato AAAA-MM (ej. 2026-11).')
+  }
+
+  const nowIso = new Date().toISOString()
+  const effectiveDueDate = dueDate || `${period}-15`
+
+  const [year, month] = period.split('-')
+  const monthsNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+  const periodLabel = `${monthsNames[parseInt(month, 10) - 1]} ${year}`
+
+  const membersSnap = await db.collection('union_members')
+    .where('status', '==', 'active')
+    .get()
+
+  if (membersSnap.empty) {
+    return {
+      success: true,
+      period,
+      periodLabel,
+      generatedCount: 0,
+      skippedCount: 0,
+      totalAmountCents: 0,
+      message: 'No se encontraron socios activos para emitir cuotas.',
+    }
+  }
+
+  let generatedCount = 0
+  let skippedCount = 0
+  let totalAmountCents = 0
+
+  const batchSize = 400
+  let batch = db.batch()
+  let opsInBatch = 0
+
+  for (const mDoc of membersSnap.docs) {
+    const member = mDoc.data()
+    const dueId = `${mDoc.id}_${period}`
+    const dueRef = db.collection('union_dues').doc(dueId)
+    const existingDue = await dueRef.get()
+
+    if (existingDue.exists) {
+      skippedCount++
+      continue
+    }
+
+    const feeCents = member.monthlyFeeCents || Math.round((member.monthlyFeeBob || 0) * 100) || 5000
+    const feeBob = feeCents / 100
+
+    const dueData = {
+      id: dueId,
+      dueNumber: `CUO-${period}-${member.memberNumber}`,
+      memberId: mDoc.id,
+      memberNumber: member.memberNumber,
+      memberName: member.fullName,
+      memberCategory: member.category,
+      period,
+      periodLabel,
+      amountBob: feeBob,
+      amountCents: feeCents,
+      dueDate: effectiveDueDate,
+      status: 'pending',
+      paidAmountBob: 0,
+      paidAmountCents: 0,
+      balanceBob: feeBob,
+      balanceCents: feeCents,
+      paymentsCount: 0,
+      notes: notes || `Cuota ordinaria de ${periodLabel}`,
+      createdAtIso: nowIso,
+      createdByUid: callerUid,
+      createdByName: caller.fullName || 'Operador',
+    }
+
+    batch.set(dueRef, dueData)
+    opsInBatch++
+    generatedCount++
+    totalAmountCents += feeCents
+
+    if (opsInBatch >= batchSize) {
+      await batch.commit()
+      batch = db.batch()
+      opsInBatch = 0
+    }
+  }
+
+  if (opsInBatch > 0) {
+    await batch.commit()
+  }
+
+  await db.collection('audit_logs').add({
+    action: 'union_dues_generated',
+    targetCollection: 'union_dues',
+    period,
+    periodLabel,
+    generatedCount,
+    skippedCount,
+    totalAmountCents,
+    performedByUid: callerUid,
+    performedByName: caller.fullName || 'Operador',
+    performedByRole: caller.role,
+    timestamp: FieldValue.serverTimestamp(),
+    timestampIso: nowIso,
+  })
+
+  return {
+    success: true,
+    period,
+    periodLabel,
+    generatedCount,
+    skippedCount,
+    totalAmountCents,
+    totalAmountBob: totalAmountCents / 100,
+  }
+})
+
+/**
+ * Cloud Function Callable para cobrar cuotas de socios (ordinarias o aportes).
+ * Transaccional: vincula a turno de caja activo si es cobrado en ventanilla,
+ * actualiza balance, registra pago inmutable y genera movimiento financiero.
+ */
+export const collectMemberDue = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para registrar aportes.')
+  }
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists || callerDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no activo.')
+  }
+  const caller = callerDoc.data()
+  const allowedRoles = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia']
+  if (!allowedRoles.includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para cobrar cuotas de socios.')
+  }
+
+  const {
+    dueId,
+    amountCents,
+    amountBob,
+    paymentMethod = 'cash',
+    shiftId,
+    branchId,
+    notes,
+    idempotencyKey,
+  } = request.data || {}
+
+  if (!dueId) {
+    throw new HttpsError('invalid-argument', 'El identificador de cuota (dueId) es obligatorio.')
+  }
+
+  const cleanAmountCents = amountCents !== undefined && Number.isInteger(amountCents)
+    ? amountCents
+    : Math.round((Number(amountBob) || 0) * 100)
+
+  if (!cleanAmountCents || cleanAmountCents <= 0) {
+    throw new HttpsError('invalid-argument', 'El monto a pagar debe ser mayor a 0.')
+  }
+
+  if (!['cash', 'qr', 'transfer'].includes(paymentMethod)) {
+    throw new HttpsError('invalid-argument', 'Método de pago no válido (debe ser cash, qr o transfer).')
+  }
+
+  if (!idempotencyKey || typeof idempotencyKey !== 'string' || idempotencyKey.length < 8) {
+    throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida (mínimo 8 caracteres).')
+  }
+
+  const nowIso = new Date().toISOString()
+  const effectiveBranchId = branchId || caller.primaryBranchId || 'punata'
+
+  return await db.runTransaction(async (transaction) => {
+    // 1. Verificar idempotencia
+    const idempRef = db.collection('idempotency_keys').doc(idempotencyKey)
+    const idempDoc = await transaction.get(idempRef)
+    if (idempDoc.exists) {
+      const cached = idempDoc.data()
+      if (cached.callerUid === callerUid && cached.dueId === dueId && cached.amountCents === cleanAmountCents) {
+        return cached.result
+      }
+      throw new HttpsError('already-exists', 'La clave de idempotencia ya fue utilizada con parámetros distintos.')
+    }
+
+    // 2. Leer cuota
+    const dueRef = db.collection('union_dues').doc(dueId)
+    const dueDoc = await transaction.get(dueRef)
+    if (!dueDoc.exists) {
+      throw new HttpsError('not-found', 'La cuota especificada no existe.')
+    }
+    const due = dueDoc.data()
+
+    if (due.status === 'paid' || due.balanceCents <= 0) {
+      throw new HttpsError('failed-precondition', 'Esta cuota ya ha sido cancelada en su totalidad.')
+    }
+
+    if (cleanAmountCents > due.balanceCents) {
+      throw new HttpsError('invalid-argument', `El monto (Bs ${(cleanAmountCents/100).toFixed(2)}) supera el saldo adeudado de la cuota (Bs ${(due.balanceCents/100).toFixed(2)}).`)
+    }
+
+    // 3. Validar turno de caja si es efectivo
+    let activeShift = null
+    let shiftRef = null
+    if (paymentMethod === 'cash') {
+      if (!shiftId) {
+        if (['secretaria', 'encargado_agencia'].includes(caller.role)) {
+          throw new HttpsError('failed-precondition', 'El cobro en efectivo en ventanilla requiere un turno de caja abierto.')
+        }
+      } else {
+        shiftRef = db.collection('cash_shifts').doc(shiftId)
+        const shiftDoc = await transaction.get(shiftRef)
+        if (!shiftDoc.exists) {
+          throw new HttpsError('not-found', 'El turno de caja especificado no existe.')
+        }
+        activeShift = shiftDoc.data()
+        if (activeShift.status !== 'open') {
+          throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
+        }
+        if (activeShift.branchId !== effectiveBranchId) {
+          throw new HttpsError('permission-denied', 'El turno de caja no pertenece a la sucursal de cobro.')
+        }
+      }
+    }
+
+    // 4. Correlativo de recibo
+    const currentYear = new Date().getFullYear()
+    const counterRef = db.collection('counters').doc(`receipt_union_${currentYear}`)
+    const counterDoc = await transaction.get(counterRef)
+    const currentSeq = counterDoc.exists ? (counterDoc.data().currentSequence || 0) : 0
+    const nextSeq = currentSeq + 1
+    transaction.set(counterRef, {
+      currentSequence: nextSeq,
+      year: currentYear,
+      updatedAtIso: nowIso,
+    }, { merge: true })
+
+    const receiptNumber = `REC-SOC-${currentYear}-${String(nextSeq).padStart(5, '0')}`
+
+    // 5. Actualizar cuota
+    const newPaidAmountCents = (due.paidAmountCents || 0) + cleanAmountCents
+    const newBalanceCents = due.balanceCents - cleanAmountCents
+    const newStatus = newBalanceCents === 0 ? 'paid' : 'partial'
+    const newPaymentsCount = (due.paymentsCount || 0) + 1
+
+    transaction.update(dueRef, {
+      paidAmountCents: newPaidAmountCents,
+      paidAmountBob: newPaidAmountCents / 100,
+      balanceCents: newBalanceCents,
+      balanceBob: newBalanceCents / 100,
+      status: newStatus,
+      paidAtIso: newBalanceCents === 0 ? nowIso : (due.paidAtIso || null),
+      paidShiftId: shiftId || due.paidShiftId || null,
+      paymentsCount: newPaymentsCount,
+      updatedAtIso: nowIso,
+    })
+
+    // 6. Subcolección payments
+    const paymentId = `pay-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+    const paymentRef = dueRef.collection('payments').doc(paymentId)
+    const paymentData = {
+      id: paymentId,
+      dueId,
+      memberId: due.memberId,
+      memberNumber: due.memberNumber,
+      memberName: due.memberName,
+      period: due.period,
+      periodLabel: due.periodLabel,
+      receiptNumber,
+      amountCents: cleanAmountCents,
+      amountBob: cleanAmountCents / 100,
+      paymentMethod,
+      shiftId: shiftId || null,
+      branchId: effectiveBranchId,
+      collectedByUid: callerUid,
+      collectedByName: caller.fullName || 'Operador',
+      paidAtIso: nowIso,
+      notes: notes || null,
+    }
+    transaction.set(paymentRef, paymentData)
+
+    // 7. Actualizar turno de caja si aplica
+    if (activeShift && shiftRef) {
+      const b = activeShift.breakdown || {}
+      const isCash = paymentMethod === 'cash'
+      const isQr = paymentMethod === 'qr'
+      const isTransfer = paymentMethod === 'transfer'
+
+      const updatedExpectedCash = isCash
+        ? (activeShift.expectedCashCents || 0) + cleanAmountCents
+        : (activeShift.expectedCashCents || 0)
+
+      transaction.update(shiftRef, {
+        expectedCashCents: updatedExpectedCash,
+        expectedCashBob: updatedExpectedCash / 100,
+        movementsCount: (activeShift.movementsCount || 0) + 1,
+        'breakdown.totalIncomeCents': (b.totalIncomeCents || 0) + cleanAmountCents,
+        'breakdown.contributionsIncomeCents': (b.contributionsIncomeCents || 0) + cleanAmountCents,
+        'breakdown.monthlyFeesIncomeCents': (b.monthlyFeesIncomeCents || 0) + cleanAmountCents,
+        'breakdown.cashIncomeCents': isCash ? (b.cashIncomeCents || 0) + cleanAmountCents : (b.cashIncomeCents || 0),
+        'breakdown.qrIncomeCents': isQr ? (b.qrIncomeCents || 0) + cleanAmountCents : (b.qrIncomeCents || 0),
+        'breakdown.transferIncomeCents': isTransfer ? (b.transferIncomeCents || 0) + cleanAmountCents : (b.transferIncomeCents || 0),
+        'breakdown.netCashCents': (b.netCashCents || 0) + (isCash ? cleanAmountCents : 0),
+        updatedAtIso: nowIso,
+      })
+    }
+
+    // 8. Crear movimiento financiero
+    const movementRef = db.collection('financial_movements').doc()
+    transaction.set(movementRef, {
+      id: movementRef.id,
+      shiftId: shiftId || null,
+      branchId: effectiveBranchId,
+      type: 'contribution_income',
+      category: 'cuota_social',
+      amountCents: cleanAmountCents,
+      amountBob: cleanAmountCents / 100,
+      paymentMethod,
+      description: `Aporte mensual ${due.periodLabel} - Socio: ${due.memberNumber} ${due.memberName} (${receiptNumber})`,
+      receiptNumber,
+      memberId: due.memberId,
+      memberNumber: due.memberNumber,
+      memberName: due.memberName,
+      dueId,
+      period: due.period,
+      operatorUid: callerUid,
+      operatorName: caller.fullName || 'Operador',
+      createdAt: FieldValue.serverTimestamp(),
+      createdAtIso: nowIso,
+    })
+
+    const result = {
+      success: true,
+      receiptNumber,
+      paymentId,
+      dueId,
+      memberNumber: due.memberNumber,
+      memberName: due.memberName,
+      period: due.period,
+      periodLabel: due.periodLabel,
+      amountCents: cleanAmountCents,
+      amountBob: cleanAmountCents / 100,
+      remainingBalanceCents: newBalanceCents,
+      remainingBalanceBob: newBalanceCents / 100,
+      status: newStatus,
+      paymentMethod,
+      paidAtIso: nowIso,
+      collectedByName: caller.fullName || 'Operador',
+    }
+
+    transaction.set(idempRef, {
+      idempotencyKey,
+      callerUid,
+      dueId,
+      amountCents: cleanAmountCents,
+      result,
+      createdAtIso: nowIso,
+    })
+
+    return result
+  })
+})
+
+/**
+ * Cloud Function Callable para obtener el estado de cuenta y resumen contable de un socio.
+ */
+export const getMemberAccountStatement = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para consultar el estado de cuenta.')
+  }
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists || callerDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no activo.')
+  }
+  const caller = callerDoc.data()
+  const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'secretaria', 'conductor']
+  if (!allowedRoles.includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para consultar estados de cuenta de socios.')
+  }
+
+  const { memberId } = request.data || {}
+  if (!memberId) {
+    throw new HttpsError('invalid-argument', 'El identificador del socio (memberId) es obligatorio.')
+  }
+
+  const memberDoc = await db.collection('union_members').doc(memberId).get()
+  if (!memberDoc.exists) {
+    throw new HttpsError('not-found', 'El socio no existe.')
+  }
+  const member = memberDoc.data()
+
+  const duesSnap = await db.collection('union_dues')
+    .where('memberId', '==', memberId)
+    .orderBy('period', 'desc')
+    .get()
+
+  const dues = duesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+  let totalDuesCount = dues.length
+  let totalBilledCents = 0
+  let totalPaidCents = 0
+  let totalBalanceCents = 0
+  let overdueCount = 0
+
+  const todayStr = new Date().toISOString().slice(0, 10)
+
+  for (const d of dues) {
+    totalBilledCents += (d.amountCents || 0)
+    totalPaidCents += (d.paidAmountCents || 0)
+    totalBalanceCents += (d.balanceCents || 0)
+    if (d.status !== 'paid' && d.dueDate && d.dueDate < todayStr) {
+      overdueCount++
+    }
+  }
+
+  return {
+    member,
+    dues,
+    summary: {
+      totalDuesCount,
+      totalBilledCents,
+      totalBilledBob: totalBilledCents / 100,
+      totalPaidCents,
+      totalPaidBob: totalPaidCents / 100,
+      totalBalanceCents,
+      totalBalanceBob: totalBalanceCents / 100,
+      overdueCount,
+      isUpToDate: totalBalanceCents === 0,
+    },
+  }
+})

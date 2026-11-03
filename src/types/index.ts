@@ -356,20 +356,33 @@ export interface UnionMember {
   vehiclePlate?: string
   assignedMobileNumber?: string
   monthlyFeeBob: number
+  monthlyFeeCents?: number
+  notes?: string
+  createdAtIso?: string
+  updatedAtIso?: string
 }
 
 export interface UnionMonthlyDue {
   id: string
+  dueNumber?: string
   memberId: string
   memberNumber: string
   memberName: string
-  period: string // AAAA-MM
+  period: string
   periodLabel: string
   amountBob: number
+  amountCents?: number
   dueDate: string
   status: 'paid' | 'partial' | 'pending' | 'overdue'
   paidAmountBob: number
+  paidAmountCents?: number
   balanceBob: number
+  balanceCents?: number
+  paidAtIso?: string | null
+  paidShiftId?: string | null
+  paymentsCount?: number
+  notes?: string
+  createdAtIso?: string
 }
 
 // =========================================================================
