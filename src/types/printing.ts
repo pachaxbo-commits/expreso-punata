@@ -24,6 +24,7 @@ export type DocumentPrintType =
   | 'member_due_receipt'    // Recibo de aporte de socio
   | 'worker_payroll_receipt' // Recibo de salario o anticipo
   | 'general_expense_voucher' // Comprobante oficial de egreso operativo
+  | 'commission_voucher'      // Vale oficial de liquidación de comisión de conductor
   | 'fixed_asset_label'     // Etiqueta térmica de activo fijo
   | 'test_page'             // Página de prueba y diagnóstico
 

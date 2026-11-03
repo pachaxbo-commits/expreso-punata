@@ -646,6 +646,57 @@ export class PrintEngineService {
   /**
    * Construye el documento para etiqueta térmica de inventario de activo fijo.
    */
+
+  public buildFromCommissionVoucher(
+    voucher: any,
+    operatorName: string
+  ): UnifiedDocumentPayload {
+    const branch = INITIAL_BRANCHES.find((b) => b.id === voucher.branchId) || INITIAL_BRANCHES[0]
+    const amountBob = voucher.settledAmountBob || (voucher.settledAmountCents ? voucher.settledAmountCents / 100 : 0)
+    const remainingBob = (voucher.remainingPendingCents || 0) / 100
+
+    return {
+      documentType: 'commission_voucher',
+      title: 'VALE DE LIQUIDACIÓN DE COMISIÓN',
+      subtitle: 'TRANSPORTE Y ENCOMIENDAS',
+      branchId: voucher.branchId || branch.id,
+      branchName: branch.name,
+      branchAddress: branch.address,
+      branchPhone: branch.phone,
+      documentNumber: voucher.voucherNumber || 'COM-00000',
+      timestampIso: voucher.createdAtIso || new Date().toISOString(),
+      operatorName: voucher.paidByName || operatorName,
+      qrContent: `EXPRESO-PUNATA:COMISION:${voucher.voucherNumber}:${voucher.driverName}:${amountBob.toFixed(2)}`,
+      recipient: {
+        name: `Conductor: ${voucher.driverName || 'Conductor'}`,
+        phone: voucher.driverPhone,
+      },
+      items: [
+        {
+          description: `Liquidación de comisiones acumuladas (${voucher.commissionRecordIds?.length || 0} guías)`,
+          quantity: voucher.commissionRecordIds?.length || 1,
+          totalBob: amountBob,
+        },
+      ],
+      financials: {
+        subtotalBob: amountBob,
+        totalBob: amountBob,
+        amountCents: voucher.settledAmountCents || Math.round(amountBob * 100),
+        paymentMethod: 'cash',
+        paymentConditionLabel: 'PAGO DE COMISIÓN EFECTUADO EN CAJA',
+      },
+      signatures: {
+        operatorSignatureName: voucher.paidByName || operatorName,
+        clientSignatureName: voucher.driverName || 'Firma Conductor (Recibí Conforme)',
+      },
+      footerNotes: [
+        `Saldo pendiente tras liquidación: Bs. ${remainingBob.toFixed(2)}`,
+        voucher.notes ? `Observaciones: ${voucher.notes}` : '',
+        'Comprobante contable de egreso de caja por comisión de encomiendas.',
+      ].filter(Boolean),
+    }
+  }
+
   public buildFromFixedAssetLabel(
     asset: any,
     branchId: string

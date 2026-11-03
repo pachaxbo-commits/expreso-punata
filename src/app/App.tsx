@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import {
   Package,
   Truck,
+  Coins,
   Boxes,
   Wallet,
   Users,
@@ -32,12 +33,17 @@ import { StorageManagementView } from '../modules/storage/StorageManagementView'
 import { UserManagementView } from '../modules/users/UserManagementView'
 import { UserProfileModal } from '../modules/users/UserProfileModal'
 import { PrinterSettingsView } from '../modules/admin/printers/PrinterSettingsView'
+import { DriverCommissionsView } from '../modules/dispatch/DriverCommissionsView'
+import { ConsumablesManagementView } from '../modules/assets/ConsumablesManagementView'
+import { SystemConfigView } from '../modules/admin/SystemConfigView'
 import type { Shipment } from '../types'
 
 export const AppContent: React.FC = () => {
   const { userProfile, signOut, currentBranchId, setCurrentBranchId, hasRole } = useAuth()
   const [activeTab, setActiveTab] = useState('shipments')
   const [configSubTab, setConfigSubTab] = useState<'users' | 'general' | 'tariffs' | 'printers'>('users')
+  const [manifestSubTab, setManifestSubTab] = useState<'manifests' | 'commisiones'>('manifests')
+  const [assetSubTab, setAssetSubTab] = useState<'fixed' | 'consumables'>('fixed')
   const [isWizardOpen, setIsWizardOpen] = useState(false)
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false)
   const [deliveryTargetShipment, setDeliveryTargetShipment] = useState<Shipment | null>(null)
@@ -274,11 +280,47 @@ export const AppContent: React.FC = () => {
 
         {/* PESTAÑA 3: DESPACHOS Y RUTA */}
         {activeTab === 'manifests' && (
-          <DispatchManifestView
-            currentUser={userProfile}
-            currentBranch={currentBranch}
-            shipments={displayedShipments}
-          />
+          <div className="space-y-4">
+            <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setManifestSubTab('manifests')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${
+                  manifestSubTab === 'manifests'
+                    ? 'bg-[#064e3b] text-white shadow'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Truck className="w-4 h-4" />
+                <span>Manifiestos y Despacho</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setManifestSubTab('commisiones')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${
+                  manifestSubTab === 'commisiones'
+                    ? 'bg-[#064e3b] text-white shadow'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Coins className="w-4 h-4" />
+                <span>Comisiones de Choferes</span>
+              </button>
+            </div>
+
+            {manifestSubTab === 'manifests' ? (
+              <DispatchManifestView
+                currentUser={userProfile}
+                currentBranch={currentBranch}
+                shipments={displayedShipments}
+              />
+            ) : (
+              <DriverCommissionsView
+                currentUser={userProfile}
+                currentBranch={currentBranch}
+              />
+            )}
+          </div>
         )}
 
         {/* PESTAÑA 4: CAJA DEL TURNO */}
@@ -308,10 +350,46 @@ export const AppContent: React.FC = () => {
 
         {/* PESTAÑA: BIENES FIJOS (INVENTARIO REAL) */}
         {activeTab === 'assets' && (
-          <FixedAssetsView
-            currentBranchId={currentBranchId}
-            userProfile={userProfile}
-          />
+          <div className="space-y-4">
+            <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setAssetSubTab('fixed')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${
+                  assetSubTab === 'fixed'
+                    ? 'bg-[#064e3b] text-white shadow'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Building2 className="w-4 h-4" />
+                <span>Bienes Fijos (Activos)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssetSubTab('consumables')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${
+                  assetSubTab === 'consumables'
+                    ? 'bg-[#064e3b] text-white shadow'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Boxes className="w-4 h-4" />
+                <span>Consumibles e Insumos</span>
+              </button>
+            </div>
+
+            {assetSubTab === 'fixed' ? (
+              <FixedAssetsView
+                currentBranchId={currentBranchId}
+                userProfile={userProfile}
+              />
+            ) : (
+              <ConsumablesManagementView
+                currentUser={userProfile}
+                currentBranch={currentBranch}
+              />
+            )}
+          </div>
         )}
 
         {/* PESTAÑA: REPORTES Y ESTADÍSTICAS */}
@@ -383,51 +461,8 @@ export const AppContent: React.FC = () => {
             {/* Contenido de cada subpestaña */}
             {configSubTab === 'users' && <UserManagementView />}
 
-            {configSubTab === 'general' && (
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 text-xs">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">Identidad Institucional — Expreso Punata</h3>
-                  <p className="text-slate-500">Configuración de sucursales y datos de operación.</p>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {INITIAL_BRANCHES.map(b => (
-                    <div key={b.id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-800 text-sm">{b.name}</span>
-                        <span className="font-mono text-xs font-bold bg-emerald-100 text-[#064e3b] px-2 py-0.5 rounded">
-                          {b.code}
-                        </span>
-                      </div>
-                      <p className="text-slate-600">Dirección: {b.address}</p>
-                      <p className="text-slate-600">Ciudad: {b.city}, {b.department}</p>
-                      <p className="text-slate-600">Teléfono: {b.phone}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {configSubTab === 'tariffs' && (
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 text-xs">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">Tarifas Referenciales de Encomiendas</h3>
-                  <p className="text-slate-500">Parámetros de cálculo aplicados por Cloud Functions.</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                    <span className="text-slate-500 block">Tarifa Base (hasta 3 kg)</span>
-                    <span className="text-lg font-bold text-[#064e3b]">Bs. 15.00</span>
-                  </div>
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                    <span className="text-slate-500 block">Kg Adicional Excedente</span>
-                    <span className="text-lg font-bold text-[#064e3b]">Bs. 2.00 / kg</span>
-                  </div>
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                    <span className="text-slate-500 block">Recargo Entrega a Domicilio</span>
-                    <span className="text-lg font-bold text-[#064e3b]">Bs. 12.00</span>
-                  </div>
-                </div>
-              </div>
+            {(configSubTab === 'general' || configSubTab === 'tariffs') && (
+              <SystemConfigView currentUser={userProfile} />
             )}
 
             {configSubTab === 'printers' && (
