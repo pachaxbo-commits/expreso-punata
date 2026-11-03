@@ -5,31 +5,71 @@ service firebase.storage {
     function isAuthenticated() {
       return request.auth != null;
     }
-    
-    function getUserRole() {
-      return request.auth.token.role;
-    }
-    
-    function isStaff() {
-      return isAuthenticated() && (
-        getUserRole() in ['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']
-      );
-    }
-    
-    function isDriver() {
-      return isAuthenticated() && getUserRole() == 'conductor';
+
+    function getUserDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
     }
 
-    // Comprobantes de encomiendas y firmas de entrega
-    match /shipments/{shipmentId}/{fileName} {
-      allow read: if isStaff() || isDriver();
-      allow write: if isStaff() || (isDriver() && fileName.matches('delivery_.*'));
+    // Seguridad autoritativa: el documento en Firestore manda sobre claims antiguos del token
+    function isAuthoritativeActiveUser() {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+        getUserDoc().isActive == true &&
+        ('isActive' in request.auth.token ? request.auth.token.isActive == true : true);
+    }
+    
+    function getUserRole() {
+      return isAuthoritativeActiveUser() ? getUserDoc().role : null;
+    }
+
+    function getUserBranch() {
+      return isAuthoritativeActiveUser() ? getUserDoc().primaryBranchId : null;
+    }
+    
+    function isAdmin() {
+      return isAuthoritativeActiveUser() && getUserRole() == 'directiva_admin';
+    }
+
+    function isTreasury() {
+      return isAuthoritativeActiveUser() && (getUserRole() == 'tesoreria' || isAdmin());
+    }
+
+    function getShipment(shipmentId) {
+      return firestore.get(/databases/(default)/documents/shipments/$(shipmentId)).data;
+    }
+
+    function canAccessShipment(shipmentId) {
+      return isAuthoritativeActiveUser() && firestore.exists(/databases/(default)/documents/shipments/$(shipmentId)) && (
+        isAdmin() ||
+        isTreasury() ||
+        (getUserBranch() != null && (
+          getShipment(shipmentId).originBranchId == getUserBranch() ||
+          getShipment(shipmentId).destinationBranchId == getUserBranch()
+        )) ||
+        (getUserRole() == 'conductor' && (
+          (('assignedVehicle' in getShipment(shipmentId)) &&
+           getShipment(shipmentId).assignedVehicle.driverUid == request.auth.uid) ||
+          (('collectedByDriverUid' in getShipment(shipmentId)) &&
+           getShipment(shipmentId).collectedByDriverUid == request.auth.uid)
+        ))
+      );
+    }
+
+    // Comprobantes de encomiendas y firmas de entrega (restringidos a imágenes < 2MB)
+    match /shipments/{shipmentId}/{allPaths=**} {
+      allow read: if canAccessShipment(shipmentId);
+      allow create: if canAccessShipment(shipmentId) && (
+        getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'] ||
+        (getUserRole() == 'conductor')
+      ) && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow update, delete: if false;
     }
 
     // Fotos de inventario de bienes fijos
     match /assets/{assetId}/{fileName} {
-      allow read: if isStaff();
-      allow write: if isAuthenticated() && (getUserRole() in ['encargado_agencia', 'directiva_admin', 'tesoreria']);
+      allow read: if isAuthoritativeActiveUser() && (getUserRole() in ['encargado_agencia', 'directiva_admin', 'tesoreria', 'secretaria']);
+      allow write: if isAuthoritativeActiveUser() && (getUserRole() in ['encargado_agencia', 'directiva_admin', 'tesoreria']);
     }
 
     // Por defecto: denegar todo

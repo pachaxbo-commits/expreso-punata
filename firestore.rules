@@ -12,62 +12,60 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
     
-    function getUserRole() {
-      return request.auth.token.role != null 
-        ? request.auth.token.role 
-        : (exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? getUserData().role : null);
-    }
-    
-    function getUserBranch() {
-      return request.auth.token.branchId != null
-        ? request.auth.token.branchId
-        : (exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? getUserData().primaryBranchId : null);
-    }
-    
-    function isAllowedBranch(branchId) {
-      return isAdmin() || isTreasury() || (
+    // El documento en Firestore es la fuente autoritativa de verdad
+    function isActive() {
+      return isAuthenticated() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        (branchId in getUserData().allowedBranchIds || branchId == getUserData().primaryBranchId)
-      );
+        ('isActive' in getUserData()) &&
+        getUserData().isActive == true &&
+        (!('isActive' in request.auth.token) || request.auth.token.isActive == true);
     }
-
+    
+    // Rol autoritativo desde Firestore
+    function getUserRole() {
+      return ('role' in getUserData()) ? getUserData().role : ('role' in request.auth.token ? request.auth.token.role : null);
+    }
+    
     function isAdmin() {
-      return isAuthenticated() && getUserRole() == 'directiva_admin';
+      return getUserRole() == 'directiva_admin';
     }
 
     function isTreasury() {
-      return isAuthenticated() && (getUserRole() == 'tesoreria' || isAdmin());
+      return getUserRole() == 'tesoreria' || isAdmin();
     }
 
     function isAgencyManager() {
-      return isAuthenticated() && (getUserRole() == 'encargado_agencia' || isAdmin());
+      return getUserRole() == 'encargado_agencia' || isAdmin();
     }
 
     function isCashier() {
-      return isAuthenticated() && (
-        getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin']
-      );
+      return getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin'];
     }
 
     function isDriver() {
-      return isAuthenticated() && getUserRole() == 'conductor';
+      return getUserRole() == 'conductor';
+    }
+
+    function isBranchAllowed(branchId) {
+      return ('primaryBranchId' in getUserData() && getUserData().primaryBranchId == branchId) ||
+             ('allowedBranchIds' in getUserData() && branchId in getUserData().allowedBranchIds);
     }
 
     // =========================================================================
     // COLECCIÓN: branches (Sucursales: Punata y Cochabamba)
     // =========================================================================
     match /branches/{branchId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isActive();
+      allow write: if false; // Solo Admin SDK / Cloud Functions
       
-      // Subcolección: shelves y modules (Almacenamiento Físico)
+      // Subcolección: shelves y modules (Almacenamiento Físico de Catálogo)
       match /shelves/{shelfId} {
-        allow read: if isAuthenticated();
-        allow write: if isAgencyManager() && isAllowedBranch(branchId);
+        allow read: if isActive();
+        allow write: if false; // Solo Cloud Function manageShelf
         
         match /modules/{moduleId} {
-          allow read: if isAuthenticated();
-          allow write: if isCashier() && isAllowedBranch(branchId);
+          allow read: if isActive();
+          allow write: if false;
         }
       }
     }
@@ -76,124 +74,230 @@ service cloud.firestore {
     // COLECCIÓN: users (Perfiles, Roles y Sucursales Asignadas)
     // =========================================================================
     match /users/{userId} {
-      // Cada usuario puede leer su propio perfil; directiva puede leer todos
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin() || isAgencyManager());
-      // Solo Directiva / Admin puede crear o modificar roles y permisos de usuarios
-      allow create, update: if isAdmin();
-      allow delete: if false; // Prohibido eliminar usuarios; solo desactivación lógica
+      // Cada usuario puede leer su propio perfil; directiva y encargados activos pueden leer otros
+      allow read: if isAuthenticated() && (request.auth.uid == userId || (isActive() && (isAdmin() || isAgencyManager())));
+      // Solo Cloud Functions con Admin SDK puede crear o modificar perfiles
+      allow write: if false;
     }
 
     // =========================================================================
-    // COLECCIÓN: counters (Generación atómica de números de guía/recibo)
+    // COLECCIÓN: counters (Generación atómica de números de guía en backend)
     // =========================================================================
     match /counters/{counterId} {
-      allow read: if isAuthenticated();
-      allow write: if isCashier() || isTreasury();
+      allow read, write: if false; // Exclusivo de Cloud Functions con Admin SDK
     }
 
     // =========================================================================
-    // COLECCIÓN: shipments (Encomiendas)
+    // COLECCIÓN: idempotency_keys (Control de idempotencia del backend)
     // =========================================================================
-    match /shipments/{shipmentId} {
-      // Lectura: secretarias de sucursales permitidas, administradores, tesorería, o chofer asignado
-      allow read: if isAuthenticated() && (
+    match /idempotency_keys/{keyId} {
+      allow read, write: if false; // Exclusivo de Cloud Functions con Admin SDK
+    }
+
+    // =========================================================================
+    // COLECCIÓN: financial_movements (Movimientos financieros auditables)
+    // =========================================================================
+    match /financial_movements/{movementId} {
+      allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        isAllowedBranch(resource.data.originBranchId) ||
-        isAllowedBranch(resource.data.destinationBranchId) ||
-        (isDriver() && resource.data.assignedVehicle.driverUid == request.auth.uid)
+        ((isCashier() || isAgencyManager()) && isBranchAllowed(resource.data.branchId))
       );
+      allow write: if false; // Solo backend en transacciones atómicas
+    }
 
-      // Creación: secretarias en su propia sucursal de origen
-      allow create: if isCashier() &&
-        isAllowedBranch(request.resource.data.originBranchId) &&
-        request.resource.data.registeredByUid == request.auth.uid &&
-        request.resource.data.trackingCode is string &&
-        request.resource.data.trackingCode.size() > 5;
-
-      // Actualización de estado y transiciones
-      allow update: if isAuthenticated() && (
+    // =========================================================================
+    // COLECCIÓN: shipments (Encomiendas - Servidor Autoritativo)
+    // =========================================================================
+    match /shipments/{shipmentId} {
+      // Lectura: secretarias de origen o destino autorizadas, admin, tesorería, o conductor asignado
+      allow read: if isActive() && (
         isAdmin() ||
-        (isCashier() && (isAllowedBranch(resource.data.originBranchId) || isAllowedBranch(resource.data.destinationBranchId))) ||
-        (isDriver() && resource.data.assignedVehicle.driverUid == request.auth.uid &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deliveryRecord', 'driverCustody', 'updatedAt']))
+        isTreasury() ||
+        ((isCashier() || isAgencyManager()) && (
+          isBranchAllowed(resource.data.originBranchId) ||
+          isBranchAllowed(resource.data.destinationBranchId)
+        )) ||
+        (isDriver() && ('assignedVehicle' in resource.data) && resource.data.assignedVehicle.driverUid == request.auth.uid)
       );
 
-      // Eliminación prohibida: Las encomiendas son registros inmutables; solo transiciones de estado
-      allow delete: if false;
+      // Creación, actualización y eliminación: TOTALMENTE BLOQUEADAS desde el navegador.
+      // Todas las transiciones de estado, custodia, recepción, almacenamiento y entrega
+      // deben procesarse exclusivamente a través de Cloud Functions autorizadas.
+      allow write: if false;
 
       // Subcolección: status_logs (Historial auditado independiente)
       match /status_logs/{logId} {
-        allow read: if isAuthenticated();
-        allow create: if isAuthenticated() && request.resource.data.operatorUid == request.auth.uid;
-        allow update, delete: if false; // Inmutable append-only
+        allow read: if isActive() && (
+          isAdmin() ||
+          isTreasury() ||
+          ((isCashier() || isAgencyManager()) && (
+            isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.originBranchId) ||
+            isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.destinationBranchId)
+          )) ||
+          (isDriver() && ('assignedVehicle' in get(/databases/$(database)/documents/shipments/$(shipmentId)).data) &&
+           get(/databases/$(database)/documents/shipments/$(shipmentId)).data.assignedVehicle.driverUid == request.auth.uid)
+        );
+        allow write: if false; // Solo backend append-only
       }
 
       // Subcolección: storage_moves (Historial de traslados físicos entre módulos)
       match /storage_moves/{moveId} {
-        allow read: if isAuthenticated();
-        allow create: if isCashier();
-        allow update, delete: if false; // Inmutable append-only
+        allow read: if isActive() && (
+          isAdmin() ||
+          isTreasury() ||
+          ((isCashier() || isAgencyManager()) && (
+            isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.originBranchId) ||
+            isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.destinationBranchId)
+          ))
+        );
+        allow write: if false; // Solo backend append-only
       }
     }
 
     // =========================================================================
-    // COLECCIÓN: manifests (Despachos y Manifiestos de Carga)
+    // COLECCIÓN: vehicles (Padrón de Móviles y Flota de Expreso Punata)
     // =========================================================================
-    match /manifests/{manifestId} {
-      allow read: if isAuthenticated();
-      allow create: if isCashier() && isAllowedBranch(request.resource.data.originBranchId);
-      allow update: if isCashier() || (isDriver() && resource.data.driverUid == request.auth.uid);
-      allow delete: if false;
+    match /vehicles/{vehicleId} {
+      allow read: if isActive();
+      allow write: if false; // Solo Cloud Function manageVehicle con validación de unicidad y concurrencia
     }
 
     // =========================================================================
-    // COLECCIÓN: cash_shifts (Turnos de Caja por Secretaria)
+    // COLECCIÓN: driver_directory (Directorio operativo público de conductores)
+    // =========================================================================
+    match /driver_directory/{driverId} {
+      allow read: if isActive();
+      allow write: if false; // Solo Cloud Function sincronizada
+    }
+
+    // =========================================================================
+    // COLECCIÓN: driver_custody_accounts (Libro de Saldos de Custodia de Choferes)
+    // =========================================================================
+    match /driver_custody_accounts/{driverUid} {
+      allow read: if isActive() && (
+        isAdmin() ||
+        isTreasury() ||
+        isAgencyManager() ||
+        isCashier() ||
+        (isDriver() && request.auth.uid == driverUid)
+      );
+      allow write: if false; // Exclusivo de transacciones backend en Cloud Functions
+    }
+
+    // =========================================================================
+    // COLECCIÓN: driver_custody_records (Asientos de Cobros en Ruta y Remesas)
+    // =========================================================================
+    match /driver_custody_records/{recordId} {
+      allow read: if isActive() && (
+        isAdmin() ||
+        isTreasury() ||
+        isAgencyManager() ||
+        isCashier() ||
+        (isDriver() && resource.data.driverUid == request.auth.uid)
+      );
+      allow write: if false; // Exclusivo de transacciones backend en Cloud Functions
+    }
+
+    // =========================================================================
+    // COLECCIÓN: driver_settlements (Liquidaciones de fondos en custodia de conductores)
+    // =========================================================================
+    match /driver_settlements/{settlementId} {
+      allow read: if isActive() && (
+        isAdmin() ||
+        isTreasury() ||
+        isAgencyManager() ||
+        isCashier() ||
+        (isDriver() && resource.data.driverUid == request.auth.uid)
+      );
+      allow write: if false; // Solo Cloud Function settleDriverCash
+    }
+
+    // =========================================================================
+    // COLECCIÓN: manifests (Despachos y Manifiestos de Carga - Servidor Autoritativo)
+    // =========================================================================
+    match /manifests/{manifestId} {
+      allow read: if isActive() && (
+        isAdmin() ||
+        isTreasury() ||
+        ((isCashier() || isAgencyManager()) && (
+          isBranchAllowed(resource.data.originBranchId) ||
+          isBranchAllowed(resource.data.destinationBranchId)
+        )) ||
+        (isDriver() && resource.data.driverUid == request.auth.uid)
+      );
+      // Creación, actualización y transiciones operativas:
+      // Exclusivo de Cloud Functions atómicas (createDispatchManifest, receiveDispatchManifest, driverConfirmCustody)
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // COLECCIÓN: cash_shifts (Turnos de Caja - Autoridad Exclusiva de Backend)
     // =========================================================================
     match /cash_shifts/{shiftId} {
       // Secretaria lee su propio turno; encargados y tesorería ven los de su sucursal o global
-      allow read: if isAuthenticated() && (
+      allow read: if isActive() && (
         resource.data.operatorUid == request.auth.uid ||
-        isAgencyManager() && isAllowedBranch(resource.data.branchId) ||
-        isTreasury()
-      );
-
-      // Apertura de turno
-      allow create: if isCashier() &&
-        request.resource.data.operatorUid == request.auth.uid &&
-        isAllowedBranch(request.resource.data.branchId) &&
-        request.resource.data.status == 'open' &&
-        request.resource.data.initialCash >= 0;
-
-      // Cierre de turno: solo el mismo operador mientras está abierto, o administrador
-      allow update: if isAuthenticated() && (
-        (resource.data.operatorUid == request.auth.uid && resource.data.status == 'open') ||
+        (isAgencyManager() && isBranchAllowed(resource.data.branchId)) ||
+        isTreasury() ||
         isAdmin()
       );
 
-      allow delete: if false; // Inmutable
+      // Apertura, cierre y modificaciones: TOTALMENTE PROHIBIDAS desde clientes
+      allow write: if false; // Solo Cloud Functions autorizadas en transacciones atómicas
+    }
 
-      // Subcolección: movements (Movimientos de caja del turno)
+    // =========================================================================
+    // COLECCIÓN: cash_shift_active_locks (Candados determinísticos de turno activo)
+    // =========================================================================
+    match /cash_shift_active_locks/{lockId} {
+      allow read: if isActive() && (
+        resource.data.operatorUid == request.auth.uid ||
+        (isAgencyManager() && isBranchAllowed(resource.data.branchId)) ||
+        isTreasury() ||
+        isAdmin()
+      );
+      allow write: if false; // Solo Cloud Functions atómicas
+    }
+
+    // =========================================================================
+    // COLECCIÓN: system_locks (Candados de sincronización interna del backend)
+    // =========================================================================
+    match /system_locks/{lockId} {
+      allow read, write: if false; // Solo Firebase Admin SDK
+    }
+
+    // =========================================================================
+    // COLECCIÓN: expense_authorizations (Autorizaciones de egresos extraordinarios)
+    // =========================================================================
+    match /expense_authorizations/{authId} {
+      allow read: if isActive() && (isAdmin() || isAgencyManager() || isCashier());
+      allow write: if false; // Solo Cloud Functions autorizadas con Admin SDK
+    }
+
+    // =========================================================================
+    // COLECCIÓN: branch_consumables (Inventario de insumos y consumibles)
+    // =========================================================================
+    match /branch_consumables/{consumableId} {
+      allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury() || isCashier());
+      allow write: if false; // Exclusivo de Cloud Functions (manageConsumable)
+
       match /movements/{movementId} {
-        allow read: if isAuthenticated();
-        allow create: if isCashier() && get(/databases/$(database)/documents/cash_shifts/$(shiftId)).data.status == 'open';
-        allow update, delete: if false; // Movimientos financieros inmutables append-only
+        allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury() || isCashier());
+        allow write: if false;
       }
     }
 
     // =========================================================================
-    // COLECCIÓN: fixed_assets (Inventario / Bienes Fijos del Sindicato)
+    // COLECCIÓN: fixed_assets (Inventario / Bienes Fijos de Expreso Punata)
     // =========================================================================
     match /fixed_assets/{assetId} {
-      allow read: if isAuthenticated() && !isDriver();
-      allow create: if isAgencyManager() || isTreasury();
-      allow update: if isAgencyManager() || isTreasury();
-      allow delete: if false; // Solo bajas lógicas autorizadas
+      allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury() || isCashier());
+      allow write: if false; // Exclusivo de Cloud Functions (manageFixedAsset)
 
       match /audit_logs/{auditId} {
-        allow read: if isAuthenticated() && !isDriver();
-        allow create: if isAgencyManager() || isTreasury();
-        allow update, delete: if false;
+        allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury());
+        allow write: if false; // Inmutable, solo Cloud Functions
       }
     }
 
@@ -201,36 +305,41 @@ service cloud.firestore {
     // COLECCIONES SINDICALES: members, dues, workers, worker_payments, expenses
     // =========================================================================
     match /union_members/{memberId} {
-      allow read: if isAuthenticated() && !isDriver();
-      allow write: if isTreasury();
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
+      allow write: if false; // Exclusivo de Cloud Functions (manageUnionMember)
     }
 
     match /union_dues/{dueId} {
-      allow read: if isAuthenticated() && !isDriver();
-      allow write: if isTreasury();
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
+      allow write: if false; // Exclusivo de Cloud Functions (generateMonthlyDues, collectMemberDue)
 
       match /payments/{paymentId} {
-        allow read: if isAuthenticated() && !isDriver();
-        allow create: if isTreasury();
-        allow update, delete: if false; // Pagos inmutables
+        allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
+        allow write: if false; // Inmutable, solo Cloud Functions (collectMemberDue)
       }
     }
 
     match /union_workers/{workerId} {
-      allow read: if isTreasury();
-      allow write: if isTreasury();
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
+      allow write: if false; // Exclusivo de Cloud Functions (manageWorker)
     }
 
     match /union_worker_payments/{paymentId} {
-      allow read: if isTreasury();
-      allow create: if isTreasury();
-      allow update, delete: if false;
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
+      allow write: if false; // Inmutable, solo Cloud Functions (registerWorkerPayment)
     }
 
     match /union_expenses/{expenseId} {
-      allow read: if isTreasury();
-      allow create: if isTreasury();
-      allow update, delete: if false;
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
+      allow write: if false; // Inmutable, solo Cloud Functions (registerGeneralExpense)
+    }
+
+    // =========================================================================
+    // COLECCIÓN: audit_logs (Logs de auditoría inmutables)
+    // =========================================================================
+    match /audit_logs/{auditId} {
+      allow read: if isActive() && isAdmin();
+      allow write: if false; // Exclusivo de Cloud Functions con Admin SDK
     }
 
     // =========================================================================

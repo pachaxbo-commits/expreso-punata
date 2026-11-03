@@ -8,9 +8,11 @@ export const ALLOWED_STATUS_TRANSITIONS: Record<ParcelShipmentStatus, readonly P
   received: ['pending_dispatch', 'dispatched', 'cancelled', 'returned'],
   pending_dispatch: ['dispatched', 'received', 'cancelled'],
   dispatched: ['in_transit', 'received_at_dest', 'lost'],
-  in_transit: ['received_at_dest', 'in_delivery', 'lost'],
-  received_at_dest: ['stored', 'ready_for_pickup', 'in_delivery', 'returned', 'lost'],
-  stored: ['ready_for_pickup', 'in_delivery', 'uncollected', 'returned'],
+  in_transit: ['received_at_dest', 'partially_received', 'incident_investigation', 'in_delivery', 'lost'],
+  received_at_dest: ['stored', 'ready_for_pickup', 'in_delivery', 'delivered', 'returned', 'lost'],
+  partially_received: ['stored', 'ready_for_pickup', 'in_delivery', 'delivered', 'lost', 'incident_investigation'],
+  incident_investigation: ['received_at_dest', 'lost', 'returned', 'final_disposition_authorized'],
+  stored: ['ready_for_pickup', 'in_delivery', 'delivered', 'uncollected', 'returned'],
   ready_for_pickup: ['delivered', 'uncollected', 'returned', 'lost'],
   in_delivery: ['delivered', 'received_at_dest', 'uncollected', 'returned'],
   delivered: [], // Terminal
@@ -50,18 +52,33 @@ export interface ParcelPricingResult {
 /**
  * Cálculo del costo de envío garantizando precisión en centavos enteros para evitar errores flotantes
  */
+export interface ParcelTariffConfig {
+  baseFeeCents: number
+  freeWeightKg: number
+  extraKgRateCents: number
+  homeDeliveryFeeCents: number
+}
+
+/**
+ * Cálculo del costo de envío garantizando precisión en centavos enteros para evitar errores flotantes.
+ * Permite inyectar la configuración oficial aprobada o utiliza las tarifas referenciales de desarrollo.
+ */
 export function calculateParcelPricing(
   weightKg = 0,
   deliveryType: 'agency' | 'home' | 'direct_driver' = 'agency',
-  discountBob = 0
+  discountBob = 0,
+  tariffsConfig?: Partial<ParcelTariffConfig>
 ): ParcelPricingResult {
   const safeWeight = Math.max(0, weightKg)
-  const freeWeight = EXPRESO_PUNATA_TARIFFS.freeWeightKg
+  const freeWeight = tariffsConfig?.freeWeightKg !== undefined ? tariffsConfig.freeWeightKg : EXPRESO_PUNATA_TARIFFS.freeWeightKg
   const chargeableExcessWeightKg = Math.max(0, Math.round((safeWeight - freeWeight) * 100) / 100)
 
-  const baseFeeCents = EXPRESO_PUNATA_TARIFFS.baseFeeCents
-  const weightSurchargeCents = Math.round(chargeableExcessWeightKg * EXPRESO_PUNATA_TARIFFS.extraKgRateCents)
-  const homeDeliveryFeeCents = deliveryType === 'home' ? EXPRESO_PUNATA_TARIFFS.homeDeliveryFeeCents : 0
+  const baseFeeCents = tariffsConfig?.baseFeeCents !== undefined ? tariffsConfig.baseFeeCents : EXPRESO_PUNATA_TARIFFS.baseFeeCents
+  const extraKgRateCents = tariffsConfig?.extraKgRateCents !== undefined ? tariffsConfig.extraKgRateCents : EXPRESO_PUNATA_TARIFFS.extraKgRateCents
+  const weightSurchargeCents = Math.round(chargeableExcessWeightKg * extraKgRateCents)
+  const homeDeliveryFeeCents = deliveryType === 'home'
+    ? (tariffsConfig?.homeDeliveryFeeCents !== undefined ? tariffsConfig.homeDeliveryFeeCents : EXPRESO_PUNATA_TARIFFS.homeDeliveryFeeCents)
+    : 0
 
   const subtotalCents = baseFeeCents + weightSurchargeCents + homeDeliveryFeeCents
   const safeDiscountCents = Math.min(subtotalCents, Math.max(0, Math.round(discountBob * 100)))
@@ -121,4 +138,25 @@ export function validateParcelDelivery(
 export function formatCurrencyBob(centsOrBob: number, isCents = false): string {
   const amount = isCents ? centsOrBob / 100 : centsOrBob
   return `Bs. ${amount.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+
+/**
+ * Valida un precio acordado en ventanilla en Bolivianos o centavos.
+ * Asegura que no sea NaN, negativo ni inconsistente.
+ * Si el precio es 0, exige motivo formal.
+ */
+export function validateAgreedPrice(
+  agreedPriceBob: number | string,
+  reason?: string
+): { isValid: boolean; agreedCents: number; error?: string } {
+  const numeric = typeof agreedPriceBob === 'string' ? parseFloat(agreedPriceBob) : agreedPriceBob
+  if (isNaN(numeric) || numeric < 0) {
+    return { isValid: false, agreedCents: 0, error: 'El precio del envío debe ser un monto numérico válido y no negativo.' }
+  }
+  const agreedCents = Math.round(numeric * 100)
+  if (agreedCents === 0 && (!reason || reason.trim().length < 3)) {
+    return { isValid: false, agreedCents: 0, error: 'Para tarifas Bs 0.00 es obligatorio registrar el motivo del acuerdo comercial o cortesía.' }
+  }
+  return { isValid: true, agreedCents }
 }
