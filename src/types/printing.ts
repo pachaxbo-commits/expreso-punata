@@ -1,25 +1,26 @@
 /**
  * PACHAX EXPRESO PUNATA 1.0 — Tipos del Motor Unificado de Impresión
- * Portado desde PACHAX Platform sin modificar el núcleo original.
+ * Identidad Oficial: EXPRESO PUNATA
  */
 
 export type PrinterConnectionType =
   | 'browser_dialog'  // Diálogo estándar del navegador (Windows USB, Mac, Linux)
   | 'rawbt_intent'    // Intent Android RawBT (ru.a402d.rawbtprinter)
-  | 'network_tcp'     // Impresora térmica en red (puerto 9100)
-  | 'web_bluetooth'   // Conexión Web Bluetooth SPP
+  | 'network_tcp'     // Impresora en Red LAN / WiFi (Vía controlador de Windows)
   | 'virtual_pdf'     // Generación de documento PDF descargable
 
 export type PaperFormat = '80mm' | '58mm' | 'letter' | 'half_letter' | 'a4'
 
 export type DocumentPrintType =
   | 'shipment_guide'        // Guía oficial de encomienda
+  | 'package_label'         // Etiqueta de bulto
   | 'dispatch_manifest'     // Manifiesto de despacho de carga
   | 'delivery_proof'        // Constancia de entrega con firma
   | 'payment_receipt'       // Recibo de cobro en ventanilla
   | 'cash_shift_close'      // Acta de cierre de turno y arqueo
   | 'driver_settlement'     // Acta de rendición de cuentas de conductor
   | 'financial_report'      // Reporte de movimientos de caja
+  | 'discrepancy_act'       // Acta de discrepancia de recepción
   | 'test_page'             // Página de prueba y diagnóstico
 
 export type ErrorClassification = 'safeToRetry' | 'unsafeToRetry' | 'requiresOperatorDecision'
@@ -48,8 +49,6 @@ export interface PrinterProfile {
   cutPaperOnFinish: boolean
   ipAddress?: string
   ipPort?: number
-  bluetoothDeviceId?: string
-  bluetoothDeviceName?: string
   capabilities: PrinterCapabilities
   createdAtIso: string
   updatedAtIso: string
@@ -60,9 +59,89 @@ export interface PrintResult {
   jobId: string
   connectionType: PrinterConnectionType
   bytesSent?: number
+  status: 'hardware_confirmed' | 'dispatched_to_driver' | 'dialog_opened' | 'pdf_downloaded' | 'failed'
+  message: string
   errorMessage?: string
   errorClassification?: ErrorClassification
   dispatchedAtIso: string
+}
+
+export type PaymentConditionState =
+  | 'origin_paid'
+  | 'origin_pending'
+  | 'destination_cod_pending'
+  | 'destination_cod_paid'
+  | 'route_driver_collected_pending'
+  | 'route_driver_collected_remitted_partial'
+  | 'route_driver_collected_remitted_full'
+  | 'cash_remittance_partial'
+  | 'cash_remittance_full'
+
+export interface DocumentFinancials {
+  subtotalBob: number
+  discountBob?: number
+  totalBob: number
+  amountCents: number
+  paymentTiming?: 'origin_paid' | 'origin_pending' | 'destination_cod'
+  paymentStatus?: 'paid' | 'pending'
+  paymentMethod?: 'cash' | 'qr' | 'transfer'
+  paymentConditionLabel?: string
+  collectedByDriverUid?: string | null
+  initialCashBob?: number
+  expectedCashBob?: number
+  countedCashBob?: number
+  differenceBob?: number
+  driverBalanceBeforeBob?: number
+  driverRemittanceBob?: number
+  driverBalanceRemainingBob?: number
+  remittanceType?: 'partial' | 'full'
+}
+
+export function resolvePaymentConditionLabel(financials?: DocumentFinancials): string {
+  if (!financials) return 'NO ESPECIFICADO'
+
+  // Si ya tiene una etiqueta explícita autoritativa
+  if (financials.paymentConditionLabel) {
+    return financials.paymentConditionLabel
+  }
+
+  // 1. Rendición directa en caja
+  if (financials.remittanceType || (financials.driverRemittanceBob !== undefined && financials.driverRemittanceBob > 0)) {
+    return financials.remittanceType === 'partial'
+      ? 'RENDICIÓN PARCIAL EN CAJA'
+      : 'RENDICIÓN COMPLETA EN CAJA'
+  }
+
+  // 2. Cobrado en ruta por conductor
+  if (financials.collectedByDriverUid) {
+    if (financials.driverBalanceRemainingBob === 0) {
+      return 'COBRADO EN RUTA POR CONDUCTOR (RENDIDO TOTAL EN CAJA)'
+    }
+    if (financials.remittanceType === 'partial') {
+      return 'COBRADO EN RUTA POR CONDUCTOR (RENDICIÓN PARCIAL)'
+    }
+    return 'COBRADO EN RUTA POR CONDUCTOR (PENDIENTE DE RENDICIÓN)'
+  }
+
+  // 3. Contraentrega (COD)
+  if (financials.paymentTiming === 'destination_cod') {
+    return financials.paymentStatus === 'paid'
+      ? 'CONTRAENTREGA COBRADA EN DESTINO'
+      : 'CONTRAENTREGA PENDIENTE DE COBRO'
+  }
+
+  // 4. Origen pendiente de cobro
+  if (financials.paymentTiming === 'origin_pending' || financials.paymentStatus === 'pending') {
+    return 'PENDIENTE DE COBRO EN ORIGEN'
+  }
+
+  // 5. Origen pagado
+  if (financials.paymentTiming === 'origin_paid' && financials.paymentStatus === 'paid') {
+    return 'PAGADO EN ORIGEN'
+  }
+
+  // Fallback seguro según paymentStatus
+  return financials.paymentStatus === 'paid' ? 'PAGADO' : 'PENDIENTE DE COBRO'
 }
 
 export interface UnifiedDocumentPayload {
@@ -111,21 +190,7 @@ export interface UnifiedDocumentPayload {
   }>
 
   // Información financiera
-  financials?: {
-    subtotalBob: number
-    discountBob?: number
-    totalBob: number
-    amountCents: number
-    paymentTiming?: 'origin_paid' | 'destination_cod'
-    paymentMethod?: 'cash' | 'qr' | 'transfer'
-    initialCashBob?: number
-    expectedCashBob?: number
-    countedCashBob?: number
-    differenceBob?: number
-    driverBalanceBeforeBob?: number
-    driverRemittanceBob?: number
-    driverBalanceRemainingBob?: number
-  }
+  financials?: DocumentFinancials
 
   // Firmas y custodias
   signatures?: {

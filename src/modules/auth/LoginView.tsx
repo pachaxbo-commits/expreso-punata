@@ -69,7 +69,7 @@ export const LoginView: React.FC = () => {
             {EXPRESO_PUNATA_COMPANY.name}
           </h1>
           <p className="text-xs text-emerald-200 mt-1 font-medium">
-            {EXPRESO_PUNATA_COMPANY.slogan}
+            'Servicio Interprovincial Punata - Cochabamba'
           </p>
           <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-950/70 border border-emerald-700/60 rounded-full text-[11px] text-emerald-300">
             <ShieldCheck className="w-3.5 h-3.5 text-[#facc15]" />

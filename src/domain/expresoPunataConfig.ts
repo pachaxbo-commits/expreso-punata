@@ -8,12 +8,7 @@ export const EXPRESO_PUNATA_COMPANY = {
   tradeName: 'EXPRESO PUNATA',
   legalName: 'Expreso Punata',
   acronym: 'EP',
-  slogan: 'Servicio Ejecutivo — "Somos los Pioneros"',
-  serviceHours: 'Atención 24 Horas',
-  phone: '4-4571234 / 71798765',
-  address: 'Av. Heroínas del Coronel esq. Sucre (Parada Punata)',
-  city: 'Punata, Cochabamba - Bolivia',
-  taxId: 'DEMO — DATOS FICTICIOS / SIN VALIDEZ FISCAL',
+  legalNotice: 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
   logoUrl: EXPRESO_PUNATA_LOGO_DATA_URL,
 }
 

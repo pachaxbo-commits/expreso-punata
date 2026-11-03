@@ -23,6 +23,8 @@ import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig.ts'
 import { calculateParcelPricing, formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import { createShipmentThroughBackend, extractCustomerSuggestions } from '../../services/shipmentService.ts'
 import { printShipmentGuidePdf } from '../../services/pdfService.ts'
+import { printEngine } from '../../services/printing/printEngineService.ts'
+import { FileText } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext.tsx'
 
 interface WizardProps {
@@ -972,11 +974,23 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => printShipmentGuidePdf(createdShipment)}
+                  onClick={async () => {
+                    const doc = printEngine.buildFromShipment(createdShipment, userProfile?.fullName || 'Operador')
+                    await printEngine.printDocument(doc)
+                  }}
                   className="px-5 py-2.5 bg-[#064e3b] hover:bg-[#065f46] text-[#facc15] font-bold text-xs rounded-xl shadow-md flex items-center gap-2"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>Imprimir Guía Oficial (PDF + QR)</span>
+                  <span>Ticket Térmico (80mm / 58mm)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => printShipmentGuidePdf(createdShipment)}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Guía Completa (PDF)</span>
                 </button>
 
                 <button

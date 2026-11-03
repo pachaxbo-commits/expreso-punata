@@ -3526,6 +3526,7 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
         .where('driverUid', '==', driverUid)
         .where('status', 'in', ['pending_remittance', 'partially_remitted'])
         .orderBy('createdAt', 'asc')
+        .limit(100)
     )
 
     if (custodyRecordsQuery.empty) {
@@ -3633,7 +3634,11 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
         const sItem = shipmentsMap.get(rec.shipmentId)
         const sRef = sItem.ref
         const sData = sItem.data
-        const currentShipmentRemitted = (sData.driverCustody?.remittedAmountCents || 0) + alloc
+        const previousAccum = sItem.accumulatedRemitted !== undefined
+          ? sItem.accumulatedRemitted
+          : (sData.driverCustody?.remittedAmountCents || 0)
+        const currentShipmentRemitted = previousAccum + alloc
+        sItem.accumulatedRemitted = currentShipmentRemitted
         const totalShipmentCod = Number(sData.finalAmountCents || rec.amountCents)
         const isShipmentFull = currentShipmentRemitted >= totalShipmentCod
         const shipmentRemaining = Math.max(0, totalShipmentCod - currentShipmentRemitted)
@@ -3846,6 +3851,12 @@ export const getShipmentSignatureUrl = onCall({ cors: true }, async (request) =>
   const bucket = storageAdmin.bucket(bucketName)
   const file = bucket.file(resolvedPath)
 
+  // Confirmar que el archivo de firma realmente exista antes de emitir enlace
+  const [exists] = await file.exists().catch(() => [false])
+  if (!exists) {
+    throw new HttpsError('not-found', 'El archivo de firma solicitado no existe en almacenamiento.')
+  }
+
   if (process.env.STORAGE_EMULATOR_HOST || process.env.FIREBASE_STORAGE_EMULATOR_HOST) {
     const host = process.env.STORAGE_EMULATOR_HOST || process.env.FIREBASE_STORAGE_EMULATOR_HOST || 'http://127.0.0.1:9199'
     return {
@@ -3867,12 +3878,8 @@ export const getShipmentSignatureUrl = onCall({ cors: true }, async (request) =>
       expiresInMinutes: 15,
     }
   } catch (err) {
-    console.warn('[getShipmentSignatureUrl] Fallback a URL estándar:', err.message)
-    return {
-      success: true,
-      url: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(resolvedPath)}?alt=media`,
-      expiresInMinutes: 15,
-    }
+    console.error('[getShipmentSignatureUrl] Error generando enlace firmado:', err.message)
+    throw new HttpsError('internal', 'No fue posible generar el enlace seguro de acceso a la firma.')
   }
 })
 

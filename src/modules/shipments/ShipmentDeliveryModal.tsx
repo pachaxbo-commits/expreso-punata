@@ -1,3 +1,4 @@
+import { printEngine } from '../../services/printing/printEngineService.ts'
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import {
   X,
@@ -16,7 +17,7 @@ import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import { deliverShipmentThroughBackend } from '../../services/dispatchService.ts'
 import {
   printDeliveryProofPdf,
-  printDeliveryProofTicket80mm,
+  
 } from '../../services/pdfService.ts'
 
 interface ShipmentDeliveryModalProps {
@@ -56,6 +57,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [completedShipment, setCompletedShipment] = useState<Shipment | null>(null)
+  const [savedSignatureDataUrl, setSavedSignatureDataUrl] = useState<string>('')
 
   const clearSignature = useCallback(() => {
     const canvas = canvasRef.current
@@ -210,6 +212,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
         paymentMethod: res.paymentCollected ? paymentMethod : selectedShipment.paymentMethod,
       }
 
+      setSavedSignatureDataUrl(signatureDataUrl)
       setCompletedShipment(updatedShipment)
       onSuccess(updatedShipment)
     } catch (err: any) {
@@ -301,7 +304,10 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => printDeliveryProofTicket80mm(completedShipment)}
+                  onClick={async () => {
+                    const doc = printEngine.buildFromShipment(completedShipment, currentUser.fullName, true, savedSignatureDataUrl)
+                    await printEngine.printDocument(doc)
+                  }}
                   className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
                 >
                   <Printer className="w-4 h-4 text-emerald-400" />

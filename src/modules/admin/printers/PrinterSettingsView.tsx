@@ -15,16 +15,18 @@ import {
   Wifi,
   Save,
   X,
+  FileDown,
+  Info,
 } from 'lucide-react'
-import type { PrinterProfile, PaperFormat, PrinterConnectionType } from '../../../types/printing'
+import type { PrinterProfile, PaperFormat, PrinterConnectionType, DocumentPrintType } from '../../../types/printing.ts'
 import {
   loadPrinterProfiles,
   saveOrUpdateProfile,
   deleteProfile,
   getDefaultPrinterProfiles,
-} from '../../../services/printing/printerProfiles'
-import { printEngine } from '../../../services/printing/printEngineService'
-import { INITIAL_BRANCHES } from '../../../domain/expresoPunataConfig'
+} from '../../../services/printing/printerProfiles.ts'
+import { printEngine } from '../../../services/printing/printEngineService.ts'
+import { INITIAL_BRANCHES } from '../../../domain/expresoPunataConfig.ts'
 
 export interface PrinterSettingsViewProps {
   currentBranchId?: string
@@ -41,10 +43,13 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [previewDocType, setPreviewDocType] = useState<DocumentPrintType>('shipment_guide')
+  const [activePreviewProfile, setActivePreviewProfile] = useState<PrinterProfile | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [diagnostics, setDiagnostics] = useState<any>(null)
   const [isDiagOpen, setIsDiagOpen] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
+  const [showRawBtHelp, setShowRawBtHelp] = useState(false)
 
   // Cargar perfiles al montar o cambiar sucursal
   useEffect(() => {
@@ -85,7 +90,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
         supportsLogo: true,
         feedLinesEnd: 2,
         fontSize: 'normal',
-        marginsMm: 3,
+        marginsMm: 2,
       },
       createdAtIso: now,
       updatedAtIso: now,
@@ -143,7 +148,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
       if (result.success) {
         setStatusMessage({
           type: 'success',
-          text: `Ticket de prueba emitido exitosamente mediante ${result.connectionType.toUpperCase()}.`,
+          text: result.message || `Ticket de prueba emitido exitosamente mediante ${result.connectionType.toUpperCase()}.`,
         })
       } else {
         setStatusMessage({
@@ -159,23 +164,116 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
     }
   }
 
-  const handleOpenPreview = async (profile: PrinterProfile) => {
+  const generateSampleDocument = (docType: DocumentPrintType) => {
     const branch = INITIAL_BRANCHES.find((b) => b.id === selectedBranchId) || INITIAL_BRANCHES[0]
-    const sampleDoc = {
+    const dest = INITIAL_BRANCHES.find((b) => b.id !== selectedBranchId) || INITIAL_BRANCHES[1]
+    const nowIso = new Date().toISOString()
+
+    if (docType === 'payment_receipt') {
+      return {
+        documentType: 'payment_receipt' as const,
+        title: 'RECIBO DE COBRO EN VENTANILLA',
+        subtitle: '[MUESTRA SINTÉTICA PARA VISTA PREVIA]',
+        branchId: selectedBranchId,
+        branchName: branch.name,
+        branchAddress: branch.address,
+        branchPhone: branch.phone,
+        documentNumber: 'REC-PUN-00042',
+        trackingCode: 'PUN-2026-00042',
+        timestampIso: nowIso,
+        operatorName,
+        operatorRole: 'Cajera Ventanilla',
+        financials: {
+          subtotalBob: 35.0,
+          totalBob: 35.0,
+          amountCents: 3500,
+          paymentTiming: 'origin_paid' as const,
+          paymentStatus: 'paid' as const,
+          paymentMethod: 'cash' as const,
+        },
+        footerNotes: ['Comprobante de ingreso de caja.'],
+      }
+    }
+
+    if (docType === 'cash_shift_close') {
+      return {
+        documentType: 'cash_shift_close' as const,
+        title: 'ACTA DE CIERRE DE TURNO Y ARQUEO',
+        subtitle: '[MUESTRA SINTÉTICA PARA VISTA PREVIA]',
+        branchId: selectedBranchId,
+        branchName: branch.name,
+        branchAddress: branch.address,
+        branchPhone: branch.phone,
+        documentNumber: 'TUR-PUN-2026-0001',
+        timestampIso: nowIso,
+        operatorName,
+        financials: {
+          subtotalBob: 180.0,
+          totalBob: 180.0,
+          amountCents: 18000,
+          initialCashBob: 100.0,
+          expectedCashBob: 180.0,
+          countedCashBob: 180.0,
+          differenceBob: 0.0,
+        },
+        items: [
+          { description: 'Fondo Inicial de Caja', quantity: 1, totalBob: 100.0 },
+          { description: 'Cobros Encomiendas Origen', quantity: 3, totalBob: 45.0 },
+          { description: 'Cobros COD Contraentrega', quantity: 1, totalBob: 35.0 },
+        ],
+        footerNotes: ['Arqueo conforme sin diferencias.'],
+      }
+    }
+
+    if (docType === 'driver_settlement') {
+      return {
+        documentType: 'driver_settlement' as const,
+        title: 'ACTA DE RENDICIÓN DE CONDUCTOR',
+        subtitle: '[MUESTRA SINTÉTICA PARA VISTA PREVIA]',
+        branchId: selectedBranchId,
+        branchName: branch.name,
+        branchAddress: branch.address,
+        branchPhone: branch.phone,
+        documentNumber: 'SETTL-PUN-35AE7018',
+        timestampIso: nowIso,
+        operatorName,
+        financials: {
+          subtotalBob: 30.0,
+          totalBob: 30.0,
+          amountCents: 3000,
+          driverBalanceBeforeBob: 50.0,
+          driverRemittanceBob: 30.0,
+          driverBalanceRemainingBob: 20.0,
+          remittanceType: 'partial' as const,
+          paymentMethod: 'cash' as const,
+        },
+        items: [
+          { description: 'Guía conciliada: PUN-2026-00003', quantity: 1, totalBob: 30.0 },
+        ],
+        signatures: {
+          operatorSignatureName: operatorName,
+          driverSignatureName: 'Conductor Titular',
+        },
+        footerNotes: ['Transferencia interna de custodia en caja.'],
+      }
+    }
+
+    // Por defecto: Guía de Encomienda
+    return {
       documentType: 'shipment_guide' as const,
-      title: 'GUÍA DE ENCOMIENDA INTERAGENCIAS',
-      subtitle: 'Ventanilla Oficial Expreso Punata',
+      title: 'GUÍA OFICIAL DE ENCOMIENDA',
+      subtitle: `${branch.name} ➔ ${dest.name}`,
       branchId: selectedBranchId,
       branchName: branch.name,
       branchAddress: branch.address,
       branchPhone: branch.phone,
       documentNumber: 'PUN-2026-00042',
       trackingCode: 'PUN-2026-00042',
-      timestampIso: new Date().toISOString(),
+      timestampIso: nowIso,
       operatorName,
       operatorRole: 'Secretaria Ventanilla',
-      sender: { name: 'Doña Elena Cossio', phone: '71928374', docNumber: '3928172' },
-      recipient: { name: 'Dr. Roberto Vargas', phone: '78291029', docNumber: '4829102' },
+      sender: { name: 'Elena Cossio', phone: '71928374', docNumber: '3928172' },
+      recipient: { name: 'Roberto Vargas', phone: '78291029', docNumber: '4829102' },
       items: [
         { description: 'Caja con repuestos mecánicos rectificados', quantity: 1, weightKg: 8.5, totalBob: 26.0 },
       ],
@@ -184,20 +282,31 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
         totalBob: 26.0,
         amountCents: 2600,
         paymentTiming: 'origin_paid' as const,
+        paymentStatus: 'paid' as const,
         paymentMethod: 'cash' as const,
       },
       footerNotes: [
         'Conserve esta guía para el recojo de su encomienda en agencia.',
-        'Atención continua de 06:00 a 20:00.',
       ],
     }
+  }
 
+  const handleOpenPreview = async (profile: PrinterProfile, docType: DocumentPrintType = 'shipment_guide') => {
+    setActivePreviewProfile(profile)
+    setPreviewDocType(docType)
+    const sampleDoc = generateSampleDocument(docType)
     const html = await printEngine.generatePreviewHtml(sampleDoc, profile.paperFormat)
     setPreviewHtml(html)
     setIsPreviewOpen(true)
   }
 
-
+  const handleSwitchPreviewDocType = async (newType: DocumentPrintType) => {
+    if (!activePreviewProfile) return
+    setPreviewDocType(newType)
+    const sampleDoc = generateSampleDocument(newType)
+    const html = await printEngine.generatePreviewHtml(sampleDoc, activePreviewProfile.paperFormat)
+    setPreviewHtml(html)
+  }
 
   return (
     <div className="space-y-6">
@@ -213,7 +322,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                 Gestión de Impresoras y Formatos de Tickets
               </h2>
               <p className="text-xs text-slate-500">
-                Motor PACHAX Printing Core unificado para Windows USB, Android RawBT y Red.
+                Impresión térmica USB para Windows (Controlador del Navegador) y Android RawBT.
               </p>
             </div>
           </div>
@@ -238,6 +347,15 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
 
           <button
             type="button"
+            onClick={() => setShowRawBtHelp(!showRawBtHelp)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-xs rounded-xl transition"
+          >
+            <Smartphone className="w-4 h-4 text-amber-600" />
+            <span>Guía Android</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsDiagOpen(true)}
             className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
           >
@@ -249,7 +367,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
             type="button"
             onClick={handleResetDefaults}
             className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
-            title="Restaurar perfiles por defecto"
+            title="Restaurar perfiles recomendados"
           >
             <RotateCcw className="w-4 h-4" />
             <span>Predeterminados</span>
@@ -265,6 +383,31 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Guía desplegable de Android RawBT */}
+      {showRawBtHelp && (
+        <div className="bg-amber-50/80 p-5 rounded-2xl border border-amber-200 shadow-sm space-y-3 text-xs text-amber-900 animate-fade-in">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-2 font-bold text-sm">
+              <Info className="w-4 h-4 text-amber-700 flex-shrink-0" />
+              <span>Instrucciones para Impresión Térmica en Celulares y Tablets Android</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowRawBtHelp(false)}
+              className="text-amber-600 hover:text-amber-800 p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <ol className="list-decimal list-inside space-y-1 text-amber-800 pl-1 leading-relaxed">
+            <li>Instale la aplicación oficial <strong>RawBT print service</strong> desde Google Play Store (<code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-[11px]">ru.a402d.rawbtprinter</code>).</li>
+            <li>Abra RawBT y empareje su impresora térmica portátil vía Bluetooth o USB OTG.</li>
+            <li>En RawBT, defina el ancho de papel (80 mm o 58 mm) y asegúrese de que el servicio esté activo.</li>
+            <li>Al emitir guías o recibos desde esta app en Chrome Android, el ticket se enviará instantáneamente a la impresora sin mostrar el diálogo del navegador.</li>
+          </ol>
+        </div>
+      )}
 
       {/* Alerta de Estado */}
       {statusMessage && (
@@ -287,7 +430,6 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
       {/* Tarjetas de Impresoras Configuradas */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {profiles.map((profile) => {
-
           const isRawBt = profile.connectionType === 'rawbt_intent'
 
           return (
@@ -322,16 +464,18 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                         <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
                       ) : profile.connectionType === 'network_tcp' ? (
                         <Wifi className="w-3.5 h-3.5 text-sky-600" />
+                      ) : profile.connectionType === 'virtual_pdf' ? (
+                        <FileDown className="w-3.5 h-3.5 text-violet-600" />
                       ) : (
                         <Monitor className="w-3.5 h-3.5 text-slate-600" />
                       )}
                       {profile.connectionType === 'browser_dialog'
-                        ? 'Windows / USB'
+                        ? 'Windows USB / Spooler'
                         : profile.connectionType === 'rawbt_intent'
                         ? 'Android RawBT'
                         : profile.connectionType === 'network_tcp'
-                        ? 'Red TCP'
-                        : 'Virtual PDF'}
+                        ? 'Red (Driver Windows)'
+                        : 'PDF Descargable'}
                     </span>
                   </div>
                 </div>
@@ -371,7 +515,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                     onClick={() => handleTestPrint(profile)}
                     disabled={isTesting}
                     className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-[#064e3b] font-bold text-[11px] rounded-lg transition"
-                    title="Imprimir ticket de prueba"
+                    title="Imprimir ticket de prueba real"
                   >
                     <Play className="w-3.5 h-3.5" />
                     <span>Prueba</span>
@@ -379,7 +523,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleOpenPreview(profile)}
+                    onClick={() => handleOpenPreview(profile, 'shipment_guide')}
                     className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg transition"
                     title="Ver vista previa interactiva"
                   >
@@ -456,7 +600,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                   required
                   value={editingProfile.name}
                   onChange={(e) => setEditingProfile({ ...editingProfile, name: e.target.value })}
-                  placeholder="ej. Térmica Ventanilla 1 (Punata)"
+                  placeholder="ej. Térmica Ventanilla (Punata)"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-slate-800 font-semibold"
                 />
               </div>
@@ -474,9 +618,9 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                     }
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl font-semibold bg-white text-slate-800 outline-none"
                   >
-                    <option value="browser_dialog">Windows USB (Diálogo del Navegador)</option>
+                    <option value="browser_dialog">Windows USB / Controlador del Sistema</option>
                     <option value="rawbt_intent">Android RawBT (ru.a402d.rawbtprinter)</option>
-                    <option value="network_tcp">Red LAN / WiFi (TCP 9100)</option>
+                    <option value="network_tcp">Red LAN / WiFi (Vía driver de Windows)</option>
                     <option value="virtual_pdf">PDF Virtual Descargable</option>
                   </select>
                 </div>
@@ -493,7 +637,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                     }
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl font-semibold bg-white text-slate-800 outline-none"
                   >
-                    <option value="80mm">Térmica 80mm (Estándar Ventanilla)</option>
+                    <option value="80mm">Térmica 80mm (Recomendado Ventanilla)</option>
                     <option value="58mm">Térmica 58mm (Compacta)</option>
                     <option value="letter">Papel Carta (Manifiestos y Reportes)</option>
                     <option value="half_letter">Media Carta</option>
@@ -501,32 +645,6 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                   </select>
                 </div>
               </div>
-
-              {/* Si es red TCP */}
-              {editingProfile.connectionType === 'network_tcp' && (
-                <div className="p-3 bg-sky-50 rounded-xl border border-sky-200 grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-sky-900 mb-1">Dirección IP</label>
-                    <input
-                      type="text"
-                      value={editingProfile.ipAddress || '192.168.1.150'}
-                      onChange={(e) => setEditingProfile({ ...editingProfile, ipAddress: e.target.value })}
-                      className="w-full px-3 py-1.5 border border-sky-300 rounded-lg text-slate-800 font-mono text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-sky-900 mb-1">Puerto (default 9100)</label>
-                    <input
-                      type="number"
-                      value={editingProfile.ipPort || 9100}
-                      onChange={(e) =>
-                        setEditingProfile({ ...editingProfile, ipPort: parseInt(e.target.value) || 9100 })
-                      }
-                      className="w-full px-3 py-1.5 border border-sky-300 rounded-lg text-slate-800 font-mono text-xs"
-                    />
-                  </div>
-                </div>
-              )}
 
               {/* Opciones y Ajustes de Impresión */}
               <div className="space-y-2 pt-2 border-t border-slate-100">
@@ -608,14 +726,14 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
         </div>
       )}
 
-      {/* MODAL DE VISTA PREVIA INTERACTIVA */}
+      {/* MODAL DE VISTA PREVIA INTERACTIVA MULTIDOCUMENTO */}
       {isPreviewOpen && previewHtml && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Eye className="w-5 h-5 text-emerald-700" />
-                <h3 className="font-bold text-slate-800 text-sm">Vista Previa de Impresión Térmica</h3>
+                <h3 className="font-bold text-slate-800 text-sm">Vista Previa Documental en Vivo</h3>
               </div>
               <button
                 type="button"
@@ -623,6 +741,54 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                 className="text-slate-400 hover:text-slate-600 p-1"
               >
                 <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Selector de tipo de documento para previsualizar */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+              <button
+                type="button"
+                onClick={() => handleSwitchPreviewDocType('shipment_guide')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition whitespace-nowrap ${
+                  previewDocType === 'shipment_guide'
+                    ? 'bg-[#064e3b] text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Guía Encomienda
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchPreviewDocType('payment_receipt')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition whitespace-nowrap ${
+                  previewDocType === 'payment_receipt'
+                    ? 'bg-[#064e3b] text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Recibo Ventanilla
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchPreviewDocType('cash_shift_close')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition whitespace-nowrap ${
+                  previewDocType === 'cash_shift_close'
+                    ? 'bg-[#064e3b] text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Cierre de Caja
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchPreviewDocType('driver_settlement')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition whitespace-nowrap ${
+                  previewDocType === 'driver_settlement'
+                    ? 'bg-[#064e3b] text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Rendición Chofer
               </button>
             </div>
 
@@ -634,7 +800,8 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
               />
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex justify-between items-center text-xs text-slate-500">
+              <span>Formato: {activePreviewProfile?.paperFormat.toUpperCase()}</span>
               <button
                 type="button"
                 onClick={() => setIsPreviewOpen(false)}

@@ -45,7 +45,6 @@ async function resolveSignatureDataUrl(deliv: any, shipmentId?: string): Promise
 import jsPDF from 'jspdf'
 import QRCode from 'qrcode'
 import type { Shipment, CashShift, DispatchManifest } from '../types/index.ts'
-import { EXPRESO_PUNATA_COMPANY } from '../domain/expresoPunataConfig.ts'
 import { formatCurrencyBob } from '../domain/parcelEngine.ts'
 
 /**
@@ -83,8 +82,8 @@ export async function generateShipmentGuidePdf(shipment: Shipment): Promise<Blob
   doc.setFontSize(8)
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'normal')
-  doc.text(EXPRESO_PUNATA_COMPANY.slogan, 10, 20)
-  doc.text(`Telf: ${EXPRESO_PUNATA_COMPANY.phone} — Punata y Cochabamba`, 10, 25)
+  doc.text('Transporte Interprovincial Punata - Cochabamba', 10, 20)
+  doc.text('Punata: 4-4571234 — Cochabamba: 4-4256789', 10, 25)
 
   // Recuadro de Guía
   doc.setFillColor(255, 255, 255)
@@ -873,7 +872,7 @@ export async function generateDeliveryProofPdf(shipment: Shipment): Promise<Blob
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'normal')
   doc.text('ACTA DE CONFORMIDAD Y ENTREGA DE ENCOMIENDA', 10, 19)
-  doc.text(`Sucursal: ${shipment.destinationCity || shipment.destinationBranchId.toUpperCase()} • Telf: ${EXPRESO_PUNATA_COMPANY.phone}`, 10, 24)
+  doc.text(`Sucursal: ${shipment.destinationCity || shipment.destinationBranchId.toUpperCase()} • Punata - Cochabamba`, 10, 24)
 
   // Recuadro de Guía
   doc.setFillColor(255, 255, 255)
@@ -1046,7 +1045,7 @@ export async function generateDeliveryProofTicket80mmPdf(shipment: Shipment): Pr
   doc.setTextColor(71, 85, 105)
   doc.text('COMPROBANTE DE ENTREGA CONFORME', centerX, y, { align: 'center' })
   y += 3.5
-  doc.text(`Telf: ${EXPRESO_PUNATA_COMPANY.phone}`, centerX, y, { align: 'center' })
+  doc.text('Punata: 4-4571234 • Cochabamba: 4-4256789', centerX, y, { align: 'center' })
   y += 4
 
   doc.setDrawColor(203, 213, 225)

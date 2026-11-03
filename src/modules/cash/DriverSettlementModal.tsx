@@ -15,7 +15,7 @@ import {
   subscribeActiveDrivers,
   getDriverCustodyBalanceThroughBackend,
 } from '../../services/dispatchService.ts'
-import { printDriverSettlementTicket80mm } from '../../services/pdfService.ts'
+import { printEngine } from '../../services/printing/printEngineService.ts'
 
 interface DriverSettlementModalProps {
   isOpen: boolean
@@ -255,7 +255,10 @@ export const DriverSettlementModal: React.FC<DriverSettlementModalProps> = ({
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
               <button
                 type="button"
-                onClick={() => printDriverSettlementTicket80mm(completedSettlement)}
+                onClick={async () => {
+                  const doc = printEngine.buildFromDriverSettlement(completedSettlement, currentUser.fullName)
+                  await printEngine.printDocument(doc)
+                }}
                 className="w-full py-2.5 bg-[#064e3b] hover:bg-emerald-800 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
               >
                 <Printer className="w-4 h-4 text-[#facc15]" />
