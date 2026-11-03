@@ -206,7 +206,14 @@ export interface Shipment {
   weightSurchargeCents: number
   homeDeliveryFeeCents: number
   discountCents: number
+  suggestedAmountCents?: number
+  agreedAmountCents?: number
   finalAmountCents: number
+  isPriceAdjusted?: boolean
+  priceAdjustmentReason?: string | null
+  priceAdjustedByUid?: string | null
+  priceAdjustedByName?: string | null
+  priceAdjustedAt?: string | null
   finalAmountBob?: number // Proyección de solo lectura calculada al vuelo
   idempotencyKey?: string
 
@@ -243,6 +250,15 @@ export interface Shipment {
     reason: string
     resolutionType: 'destroyed' | 'donated' | 'auctioned' | 'indemnified'
   }
+  auditHistory?: Array<{
+    changedAt: string
+    operatorUid: string
+    operatorName: string
+    operatorRole: string
+    reason: string
+    previousValues: Record<string, any>
+    newValues: Record<string, any>
+  }>
 }
 
 export interface CashShiftBreakdown {
@@ -544,7 +560,14 @@ export interface ManifestShipmentSummary {
   totalWeightKg: number
   paymentStatus: PaymentStatus
   paymentTiming: PaymentTiming
+  suggestedAmountCents?: number
+  agreedAmountCents?: number
   finalAmountCents: number
+  isPriceAdjusted?: boolean
+  priceAdjustmentReason?: string | null
+  priceAdjustedByUid?: string | null
+  priceAdjustedByName?: string | null
+  priceAdjustedAt?: string | null
   deliveryType: 'agency' | 'home' | 'direct_driver'
 }
 

@@ -8,14 +8,8 @@ import {
   Building2,
   Settings,
   LogOut,
-  Search,
-  Plus,
-  Printer,
   MapPin,
-  Filter,
-  CheckCircle2,
-  ShieldCheck,
-  FileText,
+  Printer,
   Briefcase,
   BarChart3,
 } from 'lucide-react'
@@ -27,13 +21,11 @@ import { FixedAssetsView } from '../modules/assets/FixedAssetsView'
 import { ReportsManagementView } from '../modules/reports/ReportsManagementView.tsx'
 import { WorkersAndExpensesView } from '../modules/workers/WorkersAndExpensesView'
 import { UnionMembersView } from '../modules/union/UnionMembersView.tsx'
-import { formatCurrencyBob } from '../domain/parcelEngine'
-import { subscribeShipmentsByBranch, fetchShipmentByTrackingCode } from '../services/shipmentService'
-import { printShipmentGuidePdf } from '../services/pdfService'
+import { subscribeShipmentsByBranch } from '../services/shipmentService'
 import { isEmulatedEnvironment } from '../firebase/config'
+import { ShipmentsManagementView } from '../modules/shipments/ShipmentsManagementView'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
 import { ShipmentDeliveryModal } from '../modules/shipments/ShipmentDeliveryModal'
-import { printDeliveryProofPdf } from '../services/pdfService'
 import { CashManagementView } from '../modules/cash/CashManagementView'
 import { DispatchManifestView } from '../modules/dispatch/DispatchManifestView'
 import { StorageManagementView } from '../modules/storage/StorageManagementView'
@@ -46,8 +38,6 @@ export const AppContent: React.FC = () => {
   const { userProfile, signOut, currentBranchId, setCurrentBranchId, hasRole } = useAuth()
   const [activeTab, setActiveTab] = useState('shipments')
   const [configSubTab, setConfigSubTab] = useState<'users' | 'general' | 'tariffs' | 'printers'>('users')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
   const [isWizardOpen, setIsWizardOpen] = useState(false)
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false)
   const [deliveryTargetShipment, setDeliveryTargetShipment] = useState<Shipment | null>(null)
@@ -71,22 +61,7 @@ export const AppContent: React.FC = () => {
     return () => unsubscribe()
   }, [currentBranchId])
 
-  // Búsqueda directa por ID en Firestore si se ingresa una guía histórica fuera de los 100 iniciales
-  useEffect(() => {
-    const trimmed = searchTerm.trim().toUpperCase()
-    if (/^[A-Z]{3}-\d{4}-\d{5}$/.test(trimmed)) {
-      const alreadyPresent = realShipments.some(s => s.trackingCode.toUpperCase() === trimmed)
-      if (!alreadyPresent) {
-        fetchShipmentByTrackingCode(trimmed)
-          .then(found => {
-            if (found) {
-              setRealShipments(prev => [found, ...prev])
-            }
-          })
-          .catch(err => console.warn('Búsqueda exacta en Firestore:', err))
-      }
-    }
-  }, [searchTerm, realShipments])
+
 
   if (!userProfile || userProfile.isActive === false) {
     return <LoginView />
@@ -112,17 +87,7 @@ export const AppContent: React.FC = () => {
   // Los fixtures DEV_SHIPMENTS solo se usan si estamos en emulador local aislado y sin conexión.
   const displayedShipments = backendConnected || !isEmulatedEnvironment ? realShipments : DEV_SHIPMENTS
 
-  const filteredShipments = displayedShipments.filter(s => {
-    if (statusFilter !== 'all' && s.status !== statusFilter) return false
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase().trim()
-      const matchCode = s.trackingCode?.toLowerCase().includes(term)
-      const matchSender = s.sender?.name?.toLowerCase().includes(term) || s.sender?.phone?.includes(term)
-      const matchRecipient = s.recipient?.name?.toLowerCase().includes(term) || s.recipient?.phone?.includes(term)
-      if (!matchCode && !matchSender && !matchRecipient) return false
-    }
-    return true
-  })
+
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col text-slate-800">
@@ -253,237 +218,24 @@ export const AppContent: React.FC = () => {
           </div>
         </div>
 
-        {/* PESTAÑA 1: ENCOMIENDAS */}
+        {/* PESTAÑA 1: ENCOMIENDAS (VENTANILLA DEFINITIVA REDISEÑADA) */}
         {activeTab === 'shipments' && (
-          <div className="space-y-4">
-            {/* Acciones Rápidas y Filtros */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-              <div className="relative flex-1 min-w-[240px]">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  placeholder="Buscar por guía exacta (PUN-2026-...), remitente o destinatario..."
-                  className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
-                />
-              </div>
-
-              {/* Filtro de Estado */}
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
-                <Filter className="w-3.5 h-3.5 text-slate-500 ml-1.5" />
-                <select
-                  value={statusFilter}
-                  onChange={e => setStatusFilter(e.target.value)}
-                  className="bg-transparent text-slate-700 text-xs font-semibold focus:outline-none cursor-pointer pr-1"
-                >
-                  <option value="all">Todos los estados</option>
-                  <option value="received">Recibido en Ventanilla</option>
-                  <option value="pending_dispatch">Pendiente Despacho</option>
-                  <option value="dispatched">Despachado</option>
-                  <option value="in_transit">En Tránsito</option>
-                  <option value="received_at_dest">Llegado a Destino</option>
-                  <option value="stored">En Módulo de Almacén</option>
-                  <option value="delivered">Entregado</option>
-                </select>
-              </div>
-
-              {/* Botón Lanzador de Asistente de 4 Pasos */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDeliveryTargetShipment(null)
-                    setIsDeliveryModalOpen(true)
-                  }}
-                  className="px-3.5 py-2 bg-emerald-900 hover:bg-emerald-950 text-emerald-100 text-xs font-bold rounded-lg shadow flex items-center gap-1.5 border border-emerald-700 transition-all"
-                >
-                  <ShieldCheck className="w-4 h-4 text-[#facc15]" />
-                  <span>Entregar Encomienda</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsWizardOpen(true)}
-                  className="px-4 py-2 bg-[#064e3b] hover:bg-[#065f46] text-[#facc15] text-xs font-extrabold rounded-lg shadow flex items-center gap-1.5 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Nueva Encomienda</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Listado de Encomiendas */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                    Envíos Registrados ({filteredShipments.length})
-                  </span>
-                  {realShipments.length > 0 ? (
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      Firestore Emulator Conectado ({realShipments.length})
-                    </span>
-                  ) : (
-                    <span className="text-[10px] bg-amber-100 text-amber-800 font-medium px-2 py-0.5 rounded-full">
-                      Mostrando datos ficticios iniciales
-                    </span>
-                  )}
-                </div>
-                <span className="text-[11px] text-slate-500 font-mono">
-                  Sucursal: {currentBranch.code}
-                </span>
-              </div>
-
-              {filteredShipments.length === 0 ? (
-                <div className="p-8 text-center space-y-3">
-                  <Package className="w-10 h-10 text-slate-300 mx-auto" />
-                  <p className="text-xs font-bold text-slate-600">
-                    No se encontraron encomiendas con el criterio seleccionado.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setIsWizardOpen(true)}
-                    className="px-4 py-2 bg-[#064e3b] text-[#facc15] text-xs font-bold rounded-lg shadow-sm"
-                  >
-                    Registrar Nueva Encomienda
-                  </button>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {filteredShipments.map(s => {
-                    const isPaid = s.paymentStatus === 'paid'
-                    const dateFormatted = s.createdAtIso
-                      ? new Date(s.createdAtIso).toLocaleString('es-BO', {
-                          timeZone: 'America/La_Paz',
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
-                      : 'Fecha reciente'
-
-                    return (
-                      <div
-                        key={s.id}
-                        className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-                      >
-                        <div className="space-y-1.5 flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono font-extrabold text-xs bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200 text-[#064e3b]">
-                              {s.trackingCode}
-                            </span>
-                            <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
-                              {s.originCity} ➔ {s.destinationCity}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                s.status === 'delivered'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                  : s.status === 'in_transit'
-                                  ? 'bg-blue-100 text-blue-800'
-                                  : s.status === 'stored'
-                                  ? 'bg-purple-100 text-purple-800'
-                                  : 'bg-amber-100 text-amber-800'
-                              }`}
-                            >
-                              {s.status.replace(/_/g, ' ')}
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {dateFormatted}
-                            </span>
-                          </div>
-
-                          <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2">
-                            <span>
-                              <strong className="text-slate-800">De:</strong> {s.sender.name} ({s.sender.phone})
-                            </span>
-                            <span className="text-slate-300">|</span>
-                            <span>
-                              <strong className="text-slate-800">Para:</strong> {s.recipient.name} ({s.recipient.phone})
-                            </span>
-                            {s.deliveryType === 'home' && (
-                              <span className="text-[11px] text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-medium">
-                                🏠 Domicilio: {s.deliveryAddress}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                            <span>
-                              {s.packageCount} bulto(s)
-                              {s.items?.[0] ? ` • ${s.items[0].description}` : ''}
-                            </span>
-                            {s.totalWeightKg ? <span>• {s.totalWeightKg} kg</span> : null}
-                            <span className="text-slate-400">• Op: {s.registeredByName || 'Ventanilla'}</span>
-                          </div>
-
-                          {s.storageLocation && (
-                            <div className="inline-flex items-center gap-1 text-[11px] bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200 font-medium">
-                              <Boxes className="w-3 h-3 text-[#064e3b]" />
-                              Ubicación: {s.storageLocation.shelfId} / {s.storageLocation.moduleId}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end shrink-0 pt-2 sm:pt-0 border-t sm:border-0 border-slate-100">
-                          <div className="text-right">
-                            <div className="font-extrabold text-sm sm:text-base text-[#064e3b] font-mono">
-                              {formatCurrencyBob(s.finalAmountCents, true)}
-                            </div>
-                            <div
-                              className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded inline-block ${
-                                isPaid
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-amber-100 text-amber-800'
-                              }`}
-                            >
-                              {isPaid
-                                ? `Pagado (${s.paymentMethod || 'Efectivo'})`
-                                : 'Por Cobrar (COD)'}
-                            </div>
-                          </div>
-
-                          {/* Botón Entregar / Ver Comprobante */}
-                          {['received_at_dest', 'stored', 'in_delivery', 'ready_for_pickup'].includes(s.status) && s.destinationBranchId === currentBranch.id && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDeliveryTargetShipment(s)
-                                setIsDeliveryModalOpen(true)
-                              }}
-                              className="px-3 py-2 bg-[#064e3b] hover:bg-emerald-800 text-[#facc15] text-xs font-bold rounded-xl shadow-sm flex items-center gap-1.5 transition"
-                            >
-                              <ShieldCheck className="w-3.5 h-3.5" />
-                              <span>Entregar</span>
-                            </button>
-                          )}
-                          {s.status === 'delivered' && (
-                            <button
-                              type="button"
-                              onClick={() => printDeliveryProofPdf(s)}
-                              className="p-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl transition-all shadow-sm"
-                              title="Imprimir Acta de Entrega Conforme"
-                            >
-                              <FileText className="w-4 h-4" />
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => printShipmentGuidePdf(s)}
-                            className="p-2.5 bg-slate-100 hover:bg-[#064e3b] hover:text-[#facc15] text-slate-700 rounded-xl transition-all shadow-sm"
-                            title="Imprimir Guía Oficial en PDF con QR"
-                          >
-                            <Printer className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
+          <ShipmentsManagementView
+            shipments={displayedShipments}
+            currentUser={userProfile}
+            currentBranch={currentBranch}
+            onOpenNewWizard={() => setIsWizardOpen(true)}
+            onOpenDeliveryModal={(target) => {
+              setDeliveryTargetShipment(target || null)
+              setIsDeliveryModalOpen(true)
+            }}
+            onShipmentUpdated={(updated) => {
+              setRealShipments(prev => prev.map(s => s.id === updated.id ? updated : s))
+            }}
+            backendConnected={backendConnected}
+            isCloudEnvironment={!isEmulatedEnvironment}
+          />
+        )}
 
             {/* Modal de Asistente de Nueva Encomienda */}
             <NewShipmentWizardModal
@@ -510,8 +262,6 @@ export const AppContent: React.FC = () => {
               initialShipment={deliveryTargetShipment}
               availableShipments={displayedShipments}
             />
-          </div>
-        )}
 
         {/* PESTAÑA 2: MÓDULOS DE ALMACÉN */}
         {activeTab === 'storage' && (

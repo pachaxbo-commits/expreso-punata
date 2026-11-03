@@ -5,6 +5,7 @@ import {
   canTransitionParcelStatus,
   validateParcelDelivery,
   formatCurrencyBob,
+  validateAgreedPrice,
   ALLOWED_STATUS_TRANSITIONS,
 } from '../../src/domain/parcelEngine.ts'
 import {
@@ -121,4 +122,56 @@ test('5. Sucursales de Expreso Punata y transparencia fiscal', () => {
   assert.equal(INITIAL_BRANCHES[1].code, 'CBB')
   assert.equal(EXPRESO_PUNATA_COMPANY.name, 'EXPRESO PUNATA')
   assert.equal(EXPRESO_PUNATA_COMPANY.legalNotice, 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL')
+})
+
+test('6. FASE 1: Validación de precio acordado en ventanilla (Precio Editable)', () => {
+  // Precio acordado válido superior al sugerido
+  const pSuperior = validateAgreedPrice(25.50)
+  assert.equal(pSuperior.isValid, true)
+  assert.equal(pSuperior.agreedCents, 2550)
+
+  // Precio acordado válido inferior al sugerido
+  const pInferior = validateAgreedPrice(10.00)
+  assert.equal(pInferior.isValid, true)
+  assert.equal(pInferior.agreedCents, 1000)
+
+  // Precio cero con motivo comercial / cortesía (Permitido)
+  const pCeroConMotivo = validateAgreedPrice(0, 'Cortesía institucional autorizada por directiva')
+  assert.equal(pCeroConMotivo.isValid, true)
+  assert.equal(pCeroConMotivo.agreedCents, 0)
+
+  // Precio cero sin motivo (Rechazado)
+  const pCeroSinMotivo = validateAgreedPrice(0, '')
+  assert.equal(pCeroSinMotivo.isValid, false)
+  assert.ok(pCeroSinMotivo.error?.includes('motivo del acuerdo comercial'))
+
+  // Precio inválido negativo o NaN
+  const pNegativo = validateAgreedPrice(-5)
+  assert.equal(pNegativo.isValid, false)
+  const pNaN = validateAgreedPrice('abc')
+  assert.equal(pNaN.isValid, false)
+})
+
+test('7. FASE 4: Formato alfanumérico de guías sin símbolos y compatibilidad retroactiva', () => {
+  const newGuideRegex = /^[A-Z]{3}\d{4}\d{5}$/
+  const flexibleGuideRegex = /^[A-Z]{3}-?\d{4}-?\d{5}$/
+
+  // Nuevo formato alfanumérico limpio (sin guiones, barras ni símbolos)
+  const newGuidePun = 'PUN202600042'
+  const newGuideCbb = 'CBB202600001'
+  assert.ok(newGuideRegex.test(newGuidePun))
+  assert.ok(newGuideRegex.test(newGuideCbb))
+  assert.ok(flexibleGuideRegex.test(newGuidePun))
+  assert.ok(flexibleGuideRegex.test(newGuideCbb))
+
+  // Compatibilidad con guías históricas emitidas previamente con guiones
+  const legacyGuide = 'PUN-2026-00042'
+  assert.equal(newGuideRegex.test(legacyGuide), false)
+  assert.ok(flexibleGuideRegex.test(legacyGuide))
+
+  // Normalización bidireccional
+  const cleanedFromLegacy = legacyGuide.replace(/-/g, '')
+  assert.equal(cleanedFromLegacy, 'PUN202600042')
+  const formattedWithDashes = `${newGuidePun.slice(0, 3)}-${newGuidePun.slice(3, 7)}-${newGuidePun.slice(7)}`
+  assert.equal(formattedWithDashes, 'PUN-2026-00042')
 })

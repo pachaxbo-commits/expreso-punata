@@ -100,12 +100,22 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   const [paymentTiming, setPaymentTiming] = useState<PaymentTiming>('origin_paid')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
   const [discountBob, setDiscountBob] = useState<number>(0)
+  const [customPriceBob, setCustomPriceBob] = useState<string>('')
+  const [isPriceCustomized, setIsPriceCustomized] = useState(false)
+  const [priceAdjustmentReason, setPriceAdjustmentReason] = useState('')
 
   if (!isOpen) return null
 
   // Cálculo en vivo de tarifas y centavos
   const totalWeight = items.reduce((sum, it) => sum + (Number(it.weightKg) || 0), 0)
   const pricing = calculateParcelPricing(totalWeight, deliveryType, discountBob)
+  const suggestedAmountCents = pricing.finalAmountCents
+  const numericCustomBob = parseFloat(customPriceBob)
+  const isCustomValid = isPriceCustomized && !isNaN(numericCustomBob) && numericCustomBob >= 0
+  const agreedAmountCents = isCustomValid ? Math.round(numericCustomBob * 100) : suggestedAmountCents
+  const effectiveFinalAmountCents = agreedAmountCents
+  const isZeroPrice = effectiveFinalAmountCents === 0
+  const priceDiffCents = effectiveFinalAmountCents - suggestedAmountCents
 
   // Validaciones por paso
   const canProceedStep1 = originBranchId !== destinationBranchId && (deliveryType !== 'home' || deliveryAddress.trim().length >= 4)
@@ -229,6 +239,9 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
     setPaymentTiming('origin_paid')
     setPaymentMethod('cash')
     setDiscountBob(0)
+    setCustomPriceBob('')
+    setIsPriceCustomized(false)
+    setPriceAdjustmentReason('')
   }
 
   return (
@@ -758,31 +771,75 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 </label>
               </div>
 
-              {/* Tarjeta de Resumen Tarifario */}
-              <div className="bg-[#064e3b] text-white p-4 rounded-xl shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="space-y-0.5 text-xs">
-                  <p className="font-bold text-[#facc15] uppercase tracking-wide">
-                    Tarifa Estimada (Referencial de Desarrollo)
-                  </p>
-                  <p className="text-emerald-200 text-[10px] italic">
-                    * Importes referenciales sujetos al tarifario formal de Expreso Punata
-                  </p>
-                  <p className="text-emerald-200 text-[11px]">
-                    Base: Bs. 15.00 (hasta 3 kg) • Exceso: {pricing.chargeableExcessWeightKg} kg • Total: {totalWeight} kg
-                  </p>
-                  {deliveryType === 'home' && (
-                    <p className="text-emerald-200 text-[11px]">
-                      + Bs. 12.00 por entrega a domicilio
+              {/* Tarjeta de Precio de Envío Editable en Ventanilla */}
+              <div className="bg-emerald-50 border-2 border-[#064e3b] p-4 rounded-xl shadow-sm space-y-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <label className="block text-xs font-black text-[#064e3b] uppercase tracking-wider">
+                        Precio del Envío (Bs) *
+                      </label>
+                      <span className="text-[10px] bg-emerald-200 text-emerald-900 font-bold px-2 py-0.5 rounded">
+                        Ventanilla Editable
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Tarifa sugerida por peso/tipo: <strong className="text-slate-800">{formatCurrencyBob(suggestedAmountCents, true)}</strong>. Modifique directamente según el acuerdo con el cliente.
                     </p>
-                  )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-black text-slate-700">Bs.</span>
+                    <input
+                      type="number"
+                      step="0.50"
+                      min="0"
+                      value={isPriceCustomized ? customPriceBob : (suggestedAmountCents / 100).toFixed(2)}
+                      onChange={(e) => {
+                        setIsPriceCustomized(true)
+                        setCustomPriceBob(e.target.value)
+                      }}
+                      className="w-36 py-2 px-3 text-2xl font-black font-mono text-[#064e3b] bg-white border-2 border-[#064e3b] rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-[#facc15] shadow-inner"
+                    />
+                  </div>
                 </div>
 
-                <div className="text-right">
-                  <span className="text-[11px] text-emerald-300 block">Total Estimado</span>
-                  <span className="text-xl sm:text-2xl font-black text-[#facc15] font-mono">
-                    {formatCurrencyBob(pricing.finalAmountCents, true)}
-                  </span>
-                </div>
+                {/* Resumen de diferencia de precio acordado vs sugerido */}
+                {isPriceCustomized && priceDiffCents !== 0 && (
+                  <div className="pt-2 border-t border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className={`font-bold px-2.5 py-0.5 rounded text-[11px] ${priceDiffCents > 0 ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-blue-100 text-blue-900 border border-blue-300'}`}>
+                      {priceDiffCents > 0
+                        ? `▲ Tarifa pactada superior (+Bs. ${(priceDiffCents / 100).toFixed(2)})`
+                        : `▼ Tarifa pactada con rebaja (-Bs. ${Math.abs(priceDiffCents / 100).toFixed(2)})`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPriceCustomized(false)
+                        setCustomPriceBob('')
+                        setPriceAdjustmentReason('')
+                      }}
+                      className="text-[11px] text-emerald-800 underline hover:text-emerald-950 font-semibold"
+                    >
+                      Restablecer precio sugerido ({formatCurrencyBob(suggestedAmountCents, true)})
+                    </button>
+                  </div>
+                )}
+
+                {/* Motivo de ajuste comercial */}
+                {((isPriceCustomized && priceDiffCents !== 0) || isZeroPrice) && (
+                  <div className="pt-2 border-t border-emerald-200">
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Motivo del Acuerdo Comercial / Ajuste de Precio {isZeroPrice ? '(Obligatorio para Bs. 0.00)' : '(Opcional)'}:
+                    </label>
+                    <input
+                      type="text"
+                      value={priceAdjustmentReason}
+                      onChange={(e) => setPriceAdjustmentReason(e.target.value)}
+                      placeholder={isZeroPrice ? "Ej. Cortesía directiva / documento interno..." : "Ej. Paquete voluminoso pactado, cliente mayorista..."}
+                      className="w-full text-xs px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] bg-white"
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -920,8 +977,8 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
 
                 <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
                   <span className="font-bold text-slate-800 text-sm">TOTAL A LIQUIDAR:</span>
-                  <span className="font-extrabold text-lg text-[#064e3b] font-mono">
-                    {formatCurrencyBob(pricing.finalAmountCents, true)}
+                  <span className="font-extrabold text-xl text-[#064e3b] font-mono">
+                    {formatCurrencyBob(effectiveFinalAmountCents, true)}
                   </span>
                 </div>
               </div>
