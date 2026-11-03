@@ -21,6 +21,10 @@ export type DocumentPrintType =
   | 'driver_settlement'     // Acta de rendición de cuentas de conductor
   | 'financial_report'      // Reporte de movimientos de caja
   | 'discrepancy_act'       // Acta de discrepancia de recepción
+  | 'member_due_receipt'    // Recibo de aporte de socio
+  | 'worker_payroll_receipt' // Recibo de salario o anticipo
+  | 'general_expense_voucher' // Comprobante oficial de egreso operativo
+  | 'fixed_asset_label'     // Etiqueta térmica de activo fijo
   | 'test_page'             // Página de prueba y diagnóstico
 
 export type ErrorClassification = 'safeToRetry' | 'unsafeToRetry' | 'requiresOperatorDecision'

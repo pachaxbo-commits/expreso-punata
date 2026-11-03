@@ -4521,3 +4521,873 @@ export const getMemberAccountStatement = onCall({ cors: true }, async (request) 
     },
   }
 })
+
+// =========================================================================
+// ENTREGA 6: GESTIÓN DE PERSONAL / TRABAJADORES (Padrón y Nómina)
+// =========================================================================
+
+export const manageWorker = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para administrar trabajadores.')
+  }
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists || callerDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no activo.')
+  }
+  const caller = callerDoc.data()
+  if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden administrar trabajadores.')
+  }
+
+  const {
+    id,
+    workerCode,
+    fullName,
+    ci,
+    phone,
+    role = 'otro',
+    roleLabel,
+    branchId = 'punata',
+    salaryType = 'monthly',
+    baseSalaryBob,
+    baseSalaryCents,
+    status = 'active',
+    joinedAt,
+    notes,
+    action = 'create',
+  } = request.data || {}
+
+  const nowIso = new Date().toISOString()
+
+  if (action === 'update' || id) {
+    const targetId = id
+    if (!targetId) {
+      throw new HttpsError('invalid-argument', 'El identificador del trabajador es obligatorio para actualizar.')
+    }
+    const workerRef = db.collection('union_workers').doc(targetId)
+    const workerSnap = await workerRef.get()
+    if (!workerSnap.exists) {
+      throw new HttpsError('not-found', 'El trabajador especificado no existe.')
+    }
+
+    const updates = {
+      updatedAtIso: nowIso,
+      updatedByUid: callerUid,
+    }
+    if (fullName) updates.fullName = fullName.trim()
+    if (ci !== undefined) updates.ci = String(ci).trim()
+    if (phone !== undefined) updates.phone = String(phone).trim()
+    if (role) updates.role = role
+    if (roleLabel !== undefined) updates.roleLabel = roleLabel
+    if (branchId) updates.branchId = branchId
+    if (salaryType) updates.salaryType = salaryType
+    if (status) updates.status = status
+    if (joinedAt) updates.joinedAt = joinedAt
+    if (notes !== undefined) updates.notes = notes
+
+    const salaryCents = baseSalaryCents !== undefined && Number.isInteger(baseSalaryCents)
+      ? baseSalaryCents
+      : (baseSalaryBob !== undefined ? Math.round(Number(baseSalaryBob) * 100) : undefined)
+    if (salaryCents !== undefined) {
+      updates.baseSalaryCents = salaryCents
+      updates.baseSalaryBob = salaryCents / 100
+    }
+
+    await workerRef.update(updates)
+
+    await db.collection('audit_logs').add({
+      timestamp: nowIso,
+      action: 'worker_updated',
+      performedBy: callerUid,
+      performedByName: caller.fullName || caller.email || 'Admin',
+      details: `Trabajador ${targetId} actualizado por ${caller.role}`,
+      targetId,
+    })
+
+    return {
+      success: true,
+      workerId: targetId,
+      message: 'Trabajador actualizado correctamente.',
+    }
+  }
+
+  // CREATE WORKER
+  if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 3) {
+    throw new HttpsError('invalid-argument', 'El nombre completo del trabajador es obligatorio.')
+  }
+  if (!ci || typeof ci !== 'string' || ci.trim().length < 2) {
+    throw new HttpsError('invalid-argument', 'El documento de identidad (CI) es obligatorio.')
+  }
+
+  const cleanFullName = fullName.trim()
+  const cleanCi = ci.trim()
+
+  const cleanSalaryCents = baseSalaryCents !== undefined && Number.isInteger(baseSalaryCents)
+    ? baseSalaryCents
+    : (baseSalaryBob !== undefined ? Math.round(Number(baseSalaryBob) * 100) : 0)
+
+  // Generate code if not supplied
+  let finalWorkerCode = workerCode ? workerCode.trim().toUpperCase() : ''
+  if (!finalWorkerCode) {
+    const counterRef = db.collection('counters').doc('worker_code')
+    const codeNumber = await db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(counterRef)
+      const current = snap.exists ? (snap.data().lastSeq || 0) : 0
+      const next = current + 1
+      transaction.set(counterRef, { lastSeq: next }, { merge: true })
+      return next
+    })
+    finalWorkerCode = `TRA-${String(codeNumber).padStart(3, '0')}`
+  }
+
+  // Check unique workerCode
+  const existingSnap = await db.collection('union_workers')
+    .where('workerCode', '==', finalWorkerCode)
+    .limit(1)
+    .get()
+  if (!existingSnap.empty) {
+    throw new HttpsError('already-exists', `Ya existe un trabajador registrado con el código ${finalWorkerCode}.`)
+  }
+
+  const newDocRef = db.collection('union_workers').doc()
+  const workerData = {
+    id: newDocRef.id,
+    workerCode: finalWorkerCode,
+    fullName: cleanFullName,
+    ci: cleanCi,
+    phone: phone ? String(phone).trim() : '',
+    role,
+    roleLabel: roleLabel || role,
+    branchId,
+    salaryType,
+    baseSalaryBob: cleanSalaryCents / 100,
+    baseSalaryCents: cleanSalaryCents,
+    status,
+    joinedAt: joinedAt || nowIso.slice(0, 10),
+    notes: notes || '',
+    createdAtIso: nowIso,
+    createdByUid: callerUid,
+    createdByName: caller.fullName || caller.email || 'Admin',
+    updatedAtIso: nowIso,
+  }
+
+  await newDocRef.set(workerData)
+
+  await db.collection('audit_logs').add({
+    timestamp: nowIso,
+    action: 'worker_created',
+    performedBy: callerUid,
+    performedByName: caller.fullName || caller.email || 'Admin',
+    details: `Trabajador ${cleanFullName} (${finalWorkerCode}) registrado con rol ${role}`,
+    workerId: newDocRef.id,
+    workerCode: finalWorkerCode,
+  })
+
+  return {
+    success: true,
+    worker: workerData,
+    message: `Trabajador ${cleanFullName} (${finalWorkerCode}) registrado con éxito.`,
+  }
+})
+
+export const registerWorkerPayment = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para registrar pagos de personal.')
+  }
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists || callerDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no activo.')
+  }
+  const caller = callerDoc.data()
+  if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden autorizar y registrar pagos de sueldos o anticipos.')
+  }
+
+  const {
+    workerId,
+    amountCents,
+    amountBob,
+    concept,
+    period,
+    paymentMethod = 'cash',
+    shiftId,
+    branchId = 'punata',
+    notes,
+    idempotencyKey,
+  } = request.data || {}
+
+  if (!workerId) {
+    throw new HttpsError('invalid-argument', 'El identificador del trabajador (workerId) es obligatorio.')
+  }
+  if (!concept || typeof concept !== 'string' || concept.trim().length < 3) {
+    throw new HttpsError('invalid-argument', 'El concepto del pago es obligatorio.')
+  }
+
+  const cleanAmountCents = amountCents !== undefined && Number.isInteger(amountCents)
+    ? amountCents
+    : Math.round((Number(amountBob) || 0) * 100)
+
+  if (!cleanAmountCents || cleanAmountCents <= 0) {
+    throw new HttpsError('invalid-argument', 'El monto a pagar debe ser mayor a 0.')
+  }
+
+  if (!['cash', 'transfer', 'check'].includes(paymentMethod)) {
+    throw new HttpsError('invalid-argument', 'Método de pago no válido (debe ser cash, transfer o check).')
+  }
+
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const year = now.getFullYear()
+
+  return await db.runTransaction(async (transaction) => {
+    // 1. Idempotencia (READ)
+    if (idempotencyKey) {
+      const idempRef = db.collection('idempotency_keys').doc(`worker_pay_${idempotencyKey}`)
+      const idempSnap = await transaction.get(idempRef)
+      if (idempSnap.exists) {
+        return idempSnap.data().response
+      }
+    }
+
+    // 2. Validar trabajador (READ)
+    const workerRef = db.collection('union_workers').doc(workerId)
+    const workerSnap = await transaction.get(workerRef)
+    if (!workerSnap.exists) {
+      throw new HttpsError('not-found', 'El trabajador no existe.')
+    }
+    const worker = workerSnap.data()
+
+    // 3. Validar turno de caja si se paga en efectivo de caja de ventanilla (READ)
+    let shiftRef = null
+    let shiftData = null
+    if (paymentMethod === 'cash' && shiftId) {
+      shiftRef = db.collection('cash_shifts').doc(shiftId)
+      const cashShiftDoc = await transaction.get(shiftRef)
+      if (!cashShiftDoc.exists) {
+        throw new HttpsError('not-found', 'El turno de caja especificado no existe.')
+      }
+      shiftData = cashShiftDoc.data()
+      if (shiftData.status !== 'open') {
+        throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
+      }
+    }
+
+    // 4. Generar correlativo de recibo de pago (READ)
+    const counterRef = db.collection('counters').doc(`receipt_worker_${year}`)
+    const counterSnap = await transaction.get(counterRef)
+    const currentSeq = counterSnap.exists ? (counterSnap.data().lastSeq || 0) : 0
+    const nextSeq = currentSeq + 1
+    const receiptNumber = `REC-TRA-${year}-${String(nextSeq).padStart(5, '0')}`
+
+    // --- TODAS LAS ESCRITURAS A PARTIR DE AQUÍ ---
+    transaction.set(counterRef, { lastSeq: nextSeq, year }, { merge: true })
+
+    if (shiftRef && shiftData) {
+      const breakdown = shiftData.breakdown || {}
+      const currentExpenses = breakdown.expensesCents || 0
+      const currentExpected = shiftData.expectedCashCents || 0
+      transaction.update(shiftRef, {
+        expectedCashCents: currentExpected - cleanAmountCents,
+        'breakdown.expensesCents': currentExpenses + cleanAmountCents,
+        'breakdown.cashExpenseCents': (breakdown.cashExpenseCents || 0) + cleanAmountCents,
+        'breakdown.workerPayrollExpenseCents': (breakdown.workerPayrollExpenseCents || 0) + cleanAmountCents,
+        updatedAt: nowIso,
+      })
+    }
+
+    // 5. Crear documento de pago de personal
+    const paymentDocRef = db.collection('union_worker_payments').doc()
+    const paymentData = {
+      id: paymentDocRef.id,
+      paymentNumber: receiptNumber,
+      workerId,
+      workerCode: worker.workerCode || '',
+      workerName: worker.fullName || '',
+      workerRole: worker.role || '',
+      workerCi: worker.ci || '',
+      amountBob: cleanAmountCents / 100,
+      amountCents: cleanAmountCents,
+      concept: concept.trim(),
+      period: period ? String(period).trim() : `${year}-${String(now.getMonth() + 1).padStart(2, '0')}`,
+      paymentMethod,
+      shiftId: shiftId || null,
+      branchId: branchId || worker.branchId || 'punata',
+      paidAtIso: nowIso,
+      registeredByUid: callerUid,
+      registeredByName: caller.fullName || caller.email || 'Admin',
+      notes: notes || '',
+      status: 'completed',
+    }
+    transaction.set(paymentDocRef, paymentData)
+
+    // 6. Registrar movimiento financiero inmutable
+    const movementDocRef = db.collection('financial_movements').doc()
+    const movementData = {
+      id: movementDocRef.id,
+      movementNumber: `MOV-${receiptNumber}`,
+      type: 'worker_payroll',
+      category: 'egreso',
+      direction: 'out',
+      amountBob: cleanAmountCents / 100,
+      amountCents: cleanAmountCents,
+      paymentMethod,
+      branchId: branchId || worker.branchId || 'punata',
+      shiftId: shiftId || null,
+      operatorUid: callerUid,
+      operatorName: caller.fullName || caller.email || 'Admin',
+      referenceId: paymentDocRef.id,
+      description: `Pago de personal [${receiptNumber}]: ${worker.fullName} - ${concept.trim()}`,
+      timestamp: nowIso,
+      status: 'completed',
+    }
+    transaction.set(movementDocRef, movementData)
+
+    // 7. Audit log
+    const auditDocRef = db.collection('audit_logs').doc()
+    transaction.set(auditDocRef, {
+      timestamp: nowIso,
+      action: 'worker_payment_registered',
+      performedBy: callerUid,
+      performedByName: caller.fullName || caller.email || 'Admin',
+      details: `Pago de personal registrado: ${receiptNumber} por Bs ${cleanAmountCents / 100} a ${worker.fullName}`,
+      paymentId: paymentDocRef.id,
+      receiptNumber,
+      workerId,
+      amountCents: cleanAmountCents,
+    })
+
+    const response = {
+      success: true,
+      receiptNumber,
+      paymentId: paymentDocRef.id,
+      workerName: worker.fullName,
+      workerCode: worker.workerCode,
+      amountCents: cleanAmountCents,
+      amountBob: cleanAmountCents / 100,
+      concept: concept.trim(),
+      paymentMethod,
+      paidAtIso: nowIso,
+      paidByName: caller.fullName || caller.email || 'Admin',
+      message: `Pago ${receiptNumber} registrado exitosamente.`,
+    }
+
+    if (idempotencyKey) {
+      const idempRef = db.collection('idempotency_keys').doc(`worker_pay_${idempotencyKey}`)
+      transaction.set(idempRef, {
+        response,
+        createdAt: nowIso,
+        createdByUid: callerUid,
+      })
+    }
+
+    return response
+  })
+})
+
+// =========================================================================
+// ENTREGA 6: GESTIÓN DE EGRESOS / GASTOS OPERATIVOS (Alquiler, Luz, Agua, etc.)
+// =========================================================================
+
+export const registerGeneralExpense = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para registrar egresos operativos.')
+  }
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists || callerDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no activo.')
+  }
+  const caller = callerDoc.data()
+  const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'secretaria']
+  if (!allowedRoles.includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para registrar egresos operativos.')
+  }
+
+  const {
+    category,
+    branchId = 'punata',
+    concept,
+    amountCents,
+    amountBob,
+    supplier,
+    invoiceOrReceiptNumber,
+    paymentMethod = 'cash',
+    shiftId,
+    notes,
+    idempotencyKey,
+  } = request.data || {}
+
+  const validCategories = [
+    'alquiler',
+    'servicios_basicos',
+    'combustible',
+    'mantenimiento',
+    'material_escritorio',
+    'viaticos',
+    'impuestos_tasas',
+    'otro',
+  ]
+  if (!category || !validCategories.includes(category)) {
+    throw new HttpsError('invalid-argument', `Categoría de egreso inválida. Debe ser una de: ${validCategories.join(', ')}`)
+  }
+
+  if (!concept || typeof concept !== 'string' || concept.trim().length < 3) {
+    throw new HttpsError('invalid-argument', 'El concepto del egreso es obligatorio.')
+  }
+
+  const cleanAmountCents = amountCents !== undefined && Number.isInteger(amountCents)
+    ? amountCents
+    : Math.round((Number(amountBob) || 0) * 100)
+
+  if (!cleanAmountCents || cleanAmountCents <= 0) {
+    throw new HttpsError('invalid-argument', 'El monto del gasto debe ser mayor a 0.')
+  }
+
+  // Validación de autorización si supera el umbral de Bs 150 y es registrado por secretaria
+  if (caller.role === 'secretaria' && cleanAmountCents > 15000) {
+    throw new HttpsError('permission-denied', 'Los egresos superiores a Bs 150 requieren autorización de Encargado de Agencia o Directiva.')
+  }
+
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const year = now.getFullYear()
+
+  return await db.runTransaction(async (transaction) => {
+    // 1. Idempotencia (READ)
+    if (idempotencyKey) {
+      const idempRef = db.collection('idempotency_keys').doc(`gen_expense_${idempotencyKey}`)
+      const idempSnap = await transaction.get(idempRef)
+      if (idempSnap.exists) {
+        return idempSnap.data().response
+      }
+    }
+
+    // 2. Validar turno de caja si se paga en efectivo en sucursal (READ)
+    let shiftRef = null
+    let shiftData = null
+    if (paymentMethod === 'cash' && shiftId) {
+      shiftRef = db.collection('cash_shifts').doc(shiftId)
+      const shiftSnap = await transaction.get(shiftRef)
+      if (!shiftSnap.exists) {
+        throw new HttpsError('not-found', 'El turno de caja especificado no existe.')
+      }
+      shiftData = shiftSnap.data()
+      if (shiftData.status !== 'open') {
+        throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
+      }
+    }
+
+    // 3. Generar correlativo de comprobante de egreso (READ)
+    const counterRef = db.collection('counters').doc(`voucher_expense_${year}`)
+    const counterSnap = await transaction.get(counterRef)
+    const currentSeq = counterSnap.exists ? (counterSnap.data().lastSeq || 0) : 0
+    const nextSeq = currentSeq + 1
+    const voucherNumber = `EGR-${year}-${String(nextSeq).padStart(5, '0')}`
+
+    // --- TODAS LAS ESCRITURAS A PARTIR DE AQUÍ ---
+    transaction.set(counterRef, { lastSeq: nextSeq, year }, { merge: true })
+
+    if (shiftRef && shiftData) {
+      const breakdown = shiftData.breakdown || {}
+      const currentExpenses = breakdown.expensesCents || 0
+      const currentExpected = shiftData.expectedCashCents || 0
+      transaction.update(shiftRef, {
+        expectedCashCents: currentExpected - cleanAmountCents,
+        'breakdown.expensesCents': currentExpenses + cleanAmountCents,
+        'breakdown.cashExpenseCents': (breakdown.cashExpenseCents || 0) + cleanAmountCents,
+        updatedAt: nowIso,
+      })
+    }
+
+    // 4. Crear documento de egreso
+    const expenseDocRef = db.collection('union_expenses').doc()
+    const expenseData = {
+      id: expenseDocRef.id,
+      voucherNumber,
+      category,
+      branchId: branchId || 'punata',
+      concept: concept.trim(),
+      amountBob: cleanAmountCents / 100,
+      amountCents: cleanAmountCents,
+      supplier: supplier ? String(supplier).trim() : '',
+      invoiceOrReceiptNumber: invoiceOrReceiptNumber ? String(invoiceOrReceiptNumber).trim() : '',
+      paymentMethod,
+      shiftId: shiftId || null,
+      paidAtIso: nowIso,
+      createdAtIso: nowIso,
+      createdByUid: callerUid,
+      createdByName: caller.fullName || caller.email || 'Admin',
+      status: 'completed',
+      notes: notes || '',
+    }
+    transaction.set(expenseDocRef, expenseData)
+
+    // 5. Registrar movimiento financiero inmutable
+    const movementDocRef = db.collection('financial_movements').doc()
+    const movementData = {
+      id: movementDocRef.id,
+      movementNumber: `MOV-${voucherNumber}`,
+      type: 'expense',
+      category: 'egreso',
+      direction: 'out',
+      amountBob: cleanAmountCents / 100,
+      amountCents: cleanAmountCents,
+      paymentMethod,
+      branchId: branchId || 'punata',
+      shiftId: shiftId || null,
+      operatorUid: callerUid,
+      operatorName: caller.fullName || caller.email || 'Admin',
+      referenceId: expenseDocRef.id,
+      description: `Gasto operativo [${voucherNumber}] ${category.toUpperCase()}: ${concept.trim()}`,
+      timestamp: nowIso,
+      status: 'completed',
+    }
+    transaction.set(movementDocRef, movementData)
+
+    // 6. Audit log
+    const auditDocRef = db.collection('audit_logs').doc()
+    transaction.set(auditDocRef, {
+      timestamp: nowIso,
+      action: 'general_expense_registered',
+      performedBy: callerUid,
+      performedByName: caller.fullName || caller.email || 'Admin',
+      details: `Gasto registrado: ${voucherNumber} por Bs ${cleanAmountCents / 100} en categoría ${category}`,
+      expenseId: expenseDocRef.id,
+      voucherNumber,
+      category,
+      amountCents: cleanAmountCents,
+    })
+
+    const response = {
+      success: true,
+      voucherNumber,
+      expenseId: expenseDocRef.id,
+      category,
+      concept: concept.trim(),
+      amountCents: cleanAmountCents,
+      amountBob: cleanAmountCents / 100,
+      supplier: supplier || '',
+      paymentMethod,
+      createdAtIso: nowIso,
+      registeredByName: caller.fullName || caller.email || 'Admin',
+      message: `Egreso ${voucherNumber} registrado con éxito.`,
+    }
+
+    if (idempotencyKey) {
+      const idempRef = db.collection('idempotency_keys').doc(`gen_expense_${idempotencyKey}`)
+      transaction.set(idempRef, {
+        response,
+        createdAt: nowIso,
+        createdByUid: callerUid,
+      })
+    }
+
+    return response
+  })
+})
+
+// =========================================================================
+// ENTREGA 6: INVENTARIO DE BIENES FIJOS (Equipos, Impresoras, Muebles, Balanzas)
+// =========================================================================
+
+export const manageFixedAsset = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para administrar bienes fijos.')
+  }
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists || callerDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no activo.')
+  }
+  const caller = callerDoc.data()
+  if (!['directiva_admin', 'encargado_agencia', 'tesoreria'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para administrar el inventario de bienes fijos.')
+  }
+
+  const {
+    id,
+    action = 'create',
+    assetCode,
+    name,
+    category = 'oficina',
+    description,
+    branchId = 'punata',
+    physicalLocation,
+    responsiblePersonUid,
+    responsiblePersonName,
+    acquisitionDate,
+    acquisitionCostBob,
+    acquisitionCostCents,
+    status = 'available',
+    photoUrl,
+    notes,
+    disposedReason,
+  } = request.data || {}
+
+  const nowIso = new Date().toISOString()
+  const callerName = caller.fullName || caller.email || 'Admin'
+
+  // OPERACIÓN 1: ACTUALIZACIÓN / EDICIÓN GENERAL
+  if (action === 'update' && id) {
+    const assetRef = db.collection('fixed_assets').doc(id)
+    const assetSnap = await assetRef.get()
+    if (!assetSnap.exists) {
+      throw new HttpsError('not-found', 'El activo no existe.')
+    }
+    const currentAsset = assetSnap.data()
+
+    const updates = {
+      updatedAtIso: nowIso,
+      updatedByUid: callerUid,
+    }
+    if (name) updates.name = name.trim()
+    if (category) updates.category = category
+    if (description !== undefined) updates.description = description
+    if (physicalLocation) updates.physicalLocation = physicalLocation.trim()
+    if (responsiblePersonName) updates.responsiblePersonName = responsiblePersonName.trim()
+    if (responsiblePersonUid !== undefined) updates.responsiblePersonUid = responsiblePersonUid
+    if (notes !== undefined) updates.notes = notes
+    if (photoUrl !== undefined) updates.photoUrl = photoUrl
+    if (status) updates.status = status
+
+    const costCents = acquisitionCostCents !== undefined && Number.isInteger(acquisitionCostCents)
+      ? acquisitionCostCents
+      : (acquisitionCostBob !== undefined ? Math.round(Number(acquisitionCostBob) * 100) : undefined)
+    if (costCents !== undefined) {
+      updates.acquisitionCostCents = costCents
+      updates.acquisitionCostBob = costCents / 100
+    }
+
+    await assetRef.update(updates)
+
+    // Log en subcolección de auditoría del activo
+    await assetRef.collection('audit_logs').add({
+      assetId: id,
+      assetCode: currentAsset.assetCode,
+      action: 'update',
+      details: `Actualización de datos por ${callerName}`,
+      performedByUid: callerUid,
+      performedByName: callerName,
+      timestampIso: nowIso,
+    })
+
+    return {
+      success: true,
+      assetId: id,
+      message: 'Activo fijo actualizado correctamente.',
+    }
+  }
+
+  // OPERACIÓN 2: TRANSFERENCIA DE SUCURSAL / UBICACIÓN / RESPONSABLE
+  if (action === 'transfer' && id) {
+    const assetRef = db.collection('fixed_assets').doc(id)
+    const assetSnap = await assetRef.get()
+    if (!assetSnap.exists) {
+      throw new HttpsError('not-found', 'El activo no existe.')
+    }
+    const currentAsset = assetSnap.data()
+
+    if (!physicalLocation && !branchId && !responsiblePersonName) {
+      throw new HttpsError('invalid-argument', 'Debe especificar la nueva ubicación, sucursal o responsable.')
+    }
+
+    const updates = {
+      updatedAtIso: nowIso,
+      updatedByUid: callerUid,
+    }
+    if (branchId) updates.branchId = branchId
+    if (physicalLocation) updates.physicalLocation = physicalLocation.trim()
+    if (responsiblePersonName) updates.responsiblePersonName = responsiblePersonName.trim()
+    if (responsiblePersonUid !== undefined) updates.responsiblePersonUid = responsiblePersonUid
+
+    await assetRef.update(updates)
+
+    await assetRef.collection('audit_logs').add({
+      assetId: id,
+      assetCode: currentAsset.assetCode,
+      action: 'transfer',
+      previousLocation: currentAsset.physicalLocation,
+      newLocation: updates.physicalLocation || currentAsset.physicalLocation,
+      previousResponsible: currentAsset.responsiblePersonName,
+      newResponsible: updates.responsiblePersonName || currentAsset.responsiblePersonName,
+      details: `Transferencia registrada por ${callerName}`,
+      performedByUid: callerUid,
+      performedByName: callerName,
+      timestampIso: nowIso,
+    })
+
+    return {
+      success: true,
+      assetId: id,
+      message: 'Transferencia registrada exitosamente.',
+    }
+  }
+
+  // OPERACIÓN 3: CAMBIO DE ESTADO (Mantenimiento, En Uso, Dañado, etc.)
+  if (action === 'changeStatus' && id) {
+    const assetRef = db.collection('fixed_assets').doc(id)
+    const assetSnap = await assetRef.get()
+    if (!assetSnap.exists) {
+      throw new HttpsError('not-found', 'El activo no existe.')
+    }
+    const currentAsset = assetSnap.data()
+
+    if (!status) {
+      throw new HttpsError('invalid-argument', 'Debe especificar el nuevo estado del activo.')
+    }
+
+    await assetRef.update({
+      status,
+      updatedAtIso: nowIso,
+      updatedByUid: callerUid,
+    })
+
+    await assetRef.collection('audit_logs').add({
+      assetId: id,
+      assetCode: currentAsset.assetCode,
+      action: status === 'in_maintenance' ? 'maintenance' : 'status_change',
+      previousStatus: currentAsset.status,
+      newStatus: status,
+      details: notes || `Cambio de estado a ${status} por ${callerName}`,
+      performedByUid: callerUid,
+      performedByName: callerName,
+      timestampIso: nowIso,
+    })
+
+    return {
+      success: true,
+      assetId: id,
+      message: `Estado del activo cambiado a ${status}.`,
+    }
+  }
+
+  // OPERACIÓN 4: BAJA AUTORIZADA DE ACTIVO
+  if (action === 'dispose' && id) {
+    const assetRef = db.collection('fixed_assets').doc(id)
+    const assetSnap = await assetRef.get()
+    if (!assetSnap.exists) {
+      throw new HttpsError('not-found', 'El activo no existe.')
+    }
+    const currentAsset = assetSnap.data()
+
+    if (!disposedReason || typeof disposedReason !== 'string' || disposedReason.trim().length < 5) {
+      throw new HttpsError('invalid-argument', 'Debe indicar el motivo detallado de la baja del activo.')
+    }
+
+    await assetRef.update({
+      status: 'disposed',
+      disposedReason: disposedReason.trim(),
+      disposedAtIso: nowIso,
+      disposedByUid: callerUid,
+      disposedByName: callerName,
+      updatedAtIso: nowIso,
+      updatedByUid: callerUid,
+    })
+
+    await assetRef.collection('audit_logs').add({
+      assetId: id,
+      assetCode: currentAsset.assetCode,
+      action: 'disposed',
+      previousStatus: currentAsset.status,
+      newStatus: 'disposed',
+      details: `Baja definitiva: ${disposedReason.trim()}`,
+      performedByUid: callerUid,
+      performedByName: callerName,
+      timestampIso: nowIso,
+    })
+
+    return {
+      success: true,
+      assetId: id,
+      message: 'Baja del bien fijo registrada con éxito.',
+    }
+  }
+
+  // OPERACIÓN 5: REGISTRO DE NUEVO BIEN FIJO (CREATE)
+  if (!name || typeof name !== 'string' || name.trim().length < 3) {
+    throw new HttpsError('invalid-argument', 'El nombre del bien o equipo es obligatorio.')
+  }
+  if (!physicalLocation || typeof physicalLocation !== 'string' || physicalLocation.trim().length < 2) {
+    throw new HttpsError('invalid-argument', 'La ubicación física es obligatoria.')
+  }
+  if (!responsiblePersonName || typeof responsiblePersonName !== 'string' || responsiblePersonName.trim().length < 2) {
+    throw new HttpsError('invalid-argument', 'El responsable asignado es obligatorio.')
+  }
+
+  const cleanBranch = branchId === 'cochabamba' ? 'cochabamba' : 'punata'
+  const branchPrefix = cleanBranch === 'cochabamba' ? 'CBB' : 'PUN'
+
+  // Generar código único de activo: ACT-PUN-XXXX o ACT-CBB-XXXX
+  let finalAssetCode = assetCode ? assetCode.trim().toUpperCase() : ''
+  if (!finalAssetCode) {
+    const counterRef = db.collection('counters').doc(`asset_${cleanBranch}`)
+    const seq = await db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(counterRef)
+      const current = snap.exists ? (snap.data().lastSeq || 0) : 0
+      const next = current + 1
+      transaction.set(counterRef, { lastSeq: next, branchId: cleanBranch }, { merge: true })
+      return next
+    })
+    finalAssetCode = `ACT-${branchPrefix}-${String(seq).padStart(4, '0')}`
+  }
+
+  const costCents = acquisitionCostCents !== undefined && Number.isInteger(acquisitionCostCents)
+    ? acquisitionCostCents
+    : (acquisitionCostBob !== undefined ? Math.round(Number(acquisitionCostBob) * 100) : 0)
+
+  const newDocRef = db.collection('fixed_assets').doc()
+  const assetData = {
+    id: newDocRef.id,
+    assetCode: finalAssetCode,
+    barcodeQr: finalAssetCode,
+    name: name.trim(),
+    category,
+    description: description ? description.trim() : '',
+    branchId: cleanBranch,
+    physicalLocation: physicalLocation.trim(),
+    responsiblePersonUid: responsiblePersonUid || null,
+    responsiblePersonName: responsiblePersonName.trim(),
+    acquisitionDate: acquisitionDate || nowIso.slice(0, 10),
+    acquisitionCostBob: costCents / 100,
+    acquisitionCostCents: costCents,
+    status,
+    photoUrl: photoUrl || '',
+    notes: notes || '',
+    createdAtIso: nowIso,
+    createdByUid: callerUid,
+    createdByName: callerName,
+    updatedAtIso: nowIso,
+  }
+
+  await newDocRef.set(assetData)
+
+  // Subcolección audit_logs
+  await newDocRef.collection('audit_logs').add({
+    assetId: newDocRef.id,
+    assetCode: finalAssetCode,
+    action: 'created',
+    details: `Registro inicial del activo por ${callerName}`,
+    performedByUid: callerUid,
+    performedByName: callerName,
+    timestampIso: nowIso,
+  })
+
+  // Auditoría global
+  await db.collection('audit_logs').add({
+    timestamp: nowIso,
+    action: 'fixed_asset_created',
+    performedBy: callerUid,
+    performedByName: callerName,
+    details: `Activo registrado: ${finalAssetCode} - ${name.trim()} en ${cleanBranch}`,
+    assetId: newDocRef.id,
+    assetCode: finalAssetCode,
+  })
+
+  return {
+    success: true,
+    asset: assetData,
+    message: `Activo ${finalAssetCode} registrado exitosamente.`,
+  }
+})
