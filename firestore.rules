@@ -276,6 +276,19 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    // COLECCIÓN: branch_consumables (Inventario de insumos y consumibles)
+    // =========================================================================
+    match /branch_consumables/{consumableId} {
+      allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury() || isCashier());
+      allow write: if false; // Exclusivo de Cloud Functions (manageConsumable)
+
+      match /movements/{movementId} {
+        allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury() || isCashier());
+        allow write: if false;
+      }
+    }
+
+    // =========================================================================
     // COLECCIÓN: fixed_assets (Inventario / Bienes Fijos de Expreso Punata)
     // =========================================================================
     match /fixed_assets/{assetId} {
