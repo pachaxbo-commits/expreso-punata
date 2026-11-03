@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase/config.ts'
 import jsPDF from 'jspdf'
@@ -376,6 +377,17 @@ export async function fetchSystemReport(input: GetSystemReportInput): Promise<an
 /**
  * Exportador genérico a CSV con BOM UTF-8 (\uFEFF) para compatibilidad total con Excel en español
  */
+
+/**
+ * Exportador auténtico a formato Microsoft Excel (.xlsx) nativo
+ */
+export function exportToXlsx(filename: string, headers: string[], rows: (string | number)[][]) {
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+  XLSX.utils.book_append_sheet(wb, ws, 'Reporte Expreso Punata')
+  XLSX.writeFile(wb, `${filename}.xlsx`)
+}
+
 export function exportToCsv(filename: string, headers: string[], rows: (string | number)[][]) {
   const escapeCell = (val: string | number) => {
     if (val === null || val === undefined) return '""'

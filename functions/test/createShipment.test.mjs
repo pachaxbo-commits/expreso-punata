@@ -107,7 +107,28 @@ async function executeCreateShipment(callerAuth, data) {
     throw new Error('PERMISSION_DENIED: Los descuentos desde ventanilla están deshabilitados. Solo la Directiva / Administración puede aplicar descuentos.')
   }
   const safeDiscountCents = Math.min(subtotalCents, Math.max(0, rawDiscount))
-  const finalAmountCents = subtotalCents - safeDiscountCents
+  const suggestedAmountCents = subtotalCents - safeDiscountCents
+
+  let finalAmountCents = suggestedAmountCents
+  let isPriceAdjusted = false
+  let cleanAdjustmentReason = null
+
+  if (data.agreedAmountCents !== undefined && data.agreedAmountCents !== null) {
+    const rawAgreed = Number(data.agreedAmountCents)
+    if (!Number.isInteger(rawAgreed) || isNaN(rawAgreed) || rawAgreed < 0) {
+      throw new Error('INVALID_ARGUMENT: El precio acordado debe ser un número entero de centavos no negativo.')
+    }
+    if (rawAgreed === 0) {
+      if (!data.priceAdjustmentReason || typeof data.priceAdjustmentReason !== 'string' || data.priceAdjustmentReason.trim().length < 3) {
+        throw new Error('INVALID_ARGUMENT: Para encomiendas con precio Bs 0.00 es obligatorio especificar el motivo del acuerdo comercial.')
+      }
+    }
+    finalAmountCents = rawAgreed
+    if (finalAmountCents !== suggestedAmountCents) {
+      isPriceAdjusted = true
+      cleanAdjustmentReason = data.priceAdjustmentReason ? String(data.priceAdjustmentReason).trim() : null
+    }
+  }
 
   // Huella de datos exhaustiva para protección de idempotencia completa
   const payloadFingerprint = JSON.stringify({
@@ -193,7 +214,7 @@ async function executeCreateShipment(callerAuth, data) {
     const counterDoc = await transaction.get(counterDocRef)
     const nextSeq = counterDoc.exists ? (Number(counterDoc.data().current) || 0) + 1 : 1
     const seqStr = String(nextSeq).padStart(5, '0')
-    const trackingCode = `${branchCode}-${currentYear}-${seqStr}`
+    const trackingCode = `${branchCode}${currentYear}${seqStr}`
 
     if (isDefinitivePayment) {
       movementId = `MOV-${trackingCode}`
@@ -211,7 +232,11 @@ async function executeCreateShipment(callerAuth, data) {
       items,
       packageCount,
       totalWeightKg,
+      suggestedAmountCents,
+      agreedAmountCents: finalAmountCents,
       finalAmountCents,
+      isPriceAdjusted,
+      priceAdjustmentReason: cleanAdjustmentReason,
       discountCents: safeDiscountCents,
       paymentTiming,
       paymentStatus: isDefinitivePayment ? 'paid' : 'pending',
@@ -625,4 +650,122 @@ test('12. Idempotencia completa: Misma clave con ítems o pesos diferentes es RE
       return true
     }
   )
+})
+
+test('13. FASE 1: Precio acordado editable: secretaria registra precio superior al sugerido', async () => {
+  const payloadSuperior = {
+    originBranchId: 'punata',
+    destinationBranchId: 'cochabamba',
+    deliveryType: 'agency',
+    sender: { name: 'Comerciante Mayorista', phone: '71711122' },
+    recipient: { name: 'Tienda La Cancha', phone: '72233344' },
+    items: [{ description: 'Bulto grande de mercadería', quantity: 1, weightKg: 2 }],
+    // Tarifa sugerida sería 1500 centavos (Bs 15)
+    agreedAmountCents: 2500, // Secretaria pacta Bs 25 por volumen
+    priceAdjustmentReason: 'Paquete de alto volumen pactado con cliente',
+    paymentTiming: 'destination_cod',
+    prohibitedGoodsNoticeAccepted: true,
+    idempotencyKey: `price-sup-${Date.now()}`,
+  }
+
+  const result = await executeCreateShipment({ uid: 'sec-test-fin' }, payloadSuperior)
+  assert.equal(result.isDuplicate, false)
+  assert.equal(result.shipment.finalAmountCents, 2500)
+  assert.equal(result.shipment.agreedAmountCents, 2500)
+  assert.equal(result.shipment.suggestedAmountCents, 1500)
+  assert.equal(result.shipment.isPriceAdjusted, true)
+  assert.equal(result.shipment.priceAdjustmentReason, 'Paquete de alto volumen pactado con cliente')
+  assert.ok(/^[A-Z]{3}\d{9}$/.test(result.shipment.trackingCode))
+})
+
+test('14. FASE 1: Precio acordado editable: secretaria registra precio inferior (rebaja comercial legítima)', async () => {
+  const payloadInferior = {
+    originBranchId: 'punata',
+    destinationBranchId: 'cochabamba',
+    deliveryType: 'agency',
+    sender: { name: 'Estudiante Universitario', phone: '71799887' },
+    recipient: { name: 'Familiar Cochabamba', phone: '72211223' },
+    items: [{ description: 'Libros y apuntes', quantity: 1, weightKg: 1 }],
+    // Tarifa sugerida 1500 centavos
+    agreedAmountCents: 1000, // Secretaria aplica tarifa convenida Bs 10
+    priceAdjustmentReason: 'Tarifa preferencial para estudiante universitario',
+    paymentTiming: 'destination_cod',
+    prohibitedGoodsNoticeAccepted: true,
+    idempotencyKey: `price-inf-${Date.now()}`,
+  }
+
+  const result = await executeCreateShipment({ uid: 'sec-test-fin' }, payloadInferior)
+  assert.equal(result.isDuplicate, false)
+  assert.equal(result.shipment.finalAmountCents, 1000)
+  assert.equal(result.shipment.suggestedAmountCents, 1500)
+  assert.equal(result.shipment.isPriceAdjusted, true)
+})
+
+test('15. FASE 1: Precio cero exige justificación obligatoria y rechaza montos negativos/NaN', async () => {
+  const payloadCeroSinMotivo = {
+    originBranchId: 'punata',
+    destinationBranchId: 'cochabamba',
+    deliveryType: 'agency',
+    sender: { name: 'Directiva Institucional', phone: '71700000' },
+    recipient: { name: 'Agencia Central', phone: '72200000' },
+    items: [{ description: 'Correspondencia interna', quantity: 1, weightKg: 1 }],
+    agreedAmountCents: 0,
+    priceAdjustmentReason: '', // Vacío: debe ser rechazado
+    paymentTiming: 'destination_cod',
+    prohibitedGoodsNoticeAccepted: true,
+    idempotencyKey: `price-cero-no-${Date.now()}`,
+  }
+
+  await assert.rejects(
+    async () => executeCreateShipment({ uid: 'sec-test-fin' }, payloadCeroSinMotivo),
+    (err) => {
+      assert.match(err.message, /INVALID_ARGUMENT: Para encomiendas con precio Bs 0.00 es obligatorio/i)
+      return true
+    }
+  )
+
+  // Precio cero CON justificación: aceptado
+  const payloadCeroConMotivo = {
+    ...payloadCeroSinMotivo,
+    priceAdjustmentReason: 'Documentación interna administrativa institucional sin costo',
+    idempotencyKey: `price-cero-ok-${Date.now()}`,
+  }
+  const resultCero = await executeCreateShipment({ uid: 'sec-test-fin' }, payloadCeroConMotivo)
+  assert.equal(resultCero.shipment.finalAmountCents, 0)
+
+  // Precio negativo: rechazado
+  const payloadNegativo = {
+    ...payloadCeroSinMotivo,
+    agreedAmountCents: -500,
+    idempotencyKey: `price-neg-${Date.now()}`,
+  }
+  await assert.rejects(
+    async () => executeCreateShipment({ uid: 'sec-test-fin' }, payloadNegativo),
+    (err) => {
+      assert.match(err.message, /INVALID_ARGUMENT: El precio acordado debe ser un número entero de centavos no negativo/i)
+      return true
+    }
+  )
+})
+
+test('16. FASE 4: Número de guía alfanumérico limpio sin guiones, barras ni símbolos', async () => {
+  const payload = {
+    originBranchId: 'punata',
+    destinationBranchId: 'cochabamba',
+    deliveryType: 'agency',
+    sender: { name: 'Don Walter', phone: '71755555' },
+    recipient: { name: 'Doña Rosa', phone: '72266666' },
+    items: [{ description: 'Queso y rosquitas de Punata', quantity: 1, weightKg: 2 }],
+    paymentTiming: 'destination_cod',
+    prohibitedGoodsNoticeAccepted: true,
+    idempotencyKey: `tracking-clean-${Date.now()}`,
+  }
+
+  const result = await executeCreateShipment({ uid: 'sec-test-fin' }, payload)
+  const code = result.shipment.trackingCode
+  // Formato: 3 letras de sucursal (PUN) + 4 dígitos año (2026) + 5 dígitos correlativo (0000X)
+  assert.match(code, /^PUN2026\d{5}$/)
+  assert.equal(code.includes('-'), false)
+  assert.equal(code.includes('/'), false)
+  assert.equal(code.includes(' '), false)
 })

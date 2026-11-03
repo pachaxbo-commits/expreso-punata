@@ -124,3 +124,24 @@ export function formatCurrencyBob(centsOrBob: number, isCents = false): string {
   const amount = isCents ? centsOrBob / 100 : centsOrBob
   return `Bs. ${amount.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
+
+
+/**
+ * Valida un precio acordado en ventanilla en Bolivianos o centavos.
+ * Asegura que no sea NaN, negativo ni inconsistente.
+ * Si el precio es 0, exige motivo formal.
+ */
+export function validateAgreedPrice(
+  agreedPriceBob: number | string,
+  reason?: string
+): { isValid: boolean; agreedCents: number; error?: string } {
+  const numeric = typeof agreedPriceBob === 'string' ? parseFloat(agreedPriceBob) : agreedPriceBob
+  if (isNaN(numeric) || numeric < 0) {
+    return { isValid: false, agreedCents: 0, error: 'El precio del envío debe ser un monto numérico válido y no negativo.' }
+  }
+  const agreedCents = Math.round(numeric * 100)
+  if (agreedCents === 0 && (!reason || reason.trim().length < 3)) {
+    return { isValid: false, agreedCents: 0, error: 'Para tarifas Bs 0.00 es obligatorio registrar el motivo del acuerdo comercial o cortesía.' }
+  }
+  return { isValid: true, agreedCents }
+}

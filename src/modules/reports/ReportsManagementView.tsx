@@ -20,6 +20,7 @@ import {
 import {
   fetchSystemReport,
   exportToCsv,
+  exportToXlsx,
   exportReportToPdf,
   type ReportType,
   type ShipmentsReportResult,
@@ -424,8 +425,15 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
     }
   }
 
-  const handleExportCsv = () => {
+  const handleExportData = (format: 'csv' | 'xlsx') => {
     if (!reportData) return
+    const saveExport = (filename: string, headers: string[], rows: (string | number)[][]) => {
+      if (format === 'csv') {
+        exportToCsv(filename, headers, rows)
+      } else {
+        exportToXlsx(filename, headers, rows)
+      }
+    }
     if (activeTab === 'shipments') {
       const data = reportData as ShipmentsReportResult
       const headers = [
@@ -464,7 +472,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         s.createdAt,
         s.deliveredAt || '',
       ])
-      exportToCsv(`Expreso_Punata_Encomiendas_${startDate || 'mes'}`, headers, rows)
+      saveExport(`Expreso_Punata_Encomiendas_${startDate || 'mes'}`, headers, rows)
     } else if (activeTab === 'cash_financial') {
       const data = reportData as CashFinancialReportResult
       const headers = ['ID Movimiento', 'Sucursal', 'Tipo', 'Monto Bs', 'Monto Cents', 'Método', 'Operador', 'Fecha Hora']
@@ -478,7 +486,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         m.operatorName || '',
         m.timestamp,
       ])
-      exportToCsv(`Expreso_Punata_Caja_Finanzas_${startDate || 'mes'}`, headers, rows)
+      saveExport(`Expreso_Punata_Caja_Finanzas_${startDate || 'mes'}`, headers, rows)
     } else if (activeTab === 'drivers') {
       const data = reportData as DriversReportResult
       const headers = [
@@ -505,7 +513,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         (d.pendingCustodyCents / 100).toFixed(2),
         d.incidentsCount,
       ])
-      exportToCsv(`Expreso_Punata_Conductores_Custodia_${startDate || 'mes'}`, headers, rows)
+      saveExport(`Expreso_Punata_Conductores_Custodia_${startDate || 'mes'}`, headers, rows)
     } else if (activeTab === 'dues') {
       const data = reportData as UnionDuesReportResult
       const headers = ['Socio ID', 'Nº Socio', 'Nombre Socio', 'Cuotas Pendientes', 'Período Más Antiguo', 'Deuda Total Bs', 'Deuda Cents']
@@ -518,7 +526,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         (d.totalDebtCents / 100).toFixed(2),
         d.totalDebtCents,
       ])
-      exportToCsv(`Expreso_Punata_Socios_Deudores_${data.period || 'mes'}`, headers, rows)
+      saveExport(`Expreso_Punata_Socios_Deudores_${data.period || 'mes'}`, headers, rows)
     } else if (activeTab === 'payroll_expenses') {
       const data = reportData as PayrollExpensesReportResult
       const headers = ['Tipo Registro', 'ID', 'Beneficiario / Proveedor', 'Categoría', 'Sucursal', 'Monto Bs', 'Fecha']
@@ -542,7 +550,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           e.createdAtIso,
         ]),
       ]
-      exportToCsv(`Expreso_Punata_Nomina_Gastos_${startDate || 'mes'}`, headers, rows)
+      saveExport(`Expreso_Punata_Nomina_Gastos_${startDate || 'mes'}`, headers, rows)
     } else if (activeTab === 'fixed_assets') {
       const data = reportData as FixedAssetsReportResult
       const headers = [
@@ -567,9 +575,12 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         a.acquisitionDate,
         a.status,
       ])
-      exportToCsv(`Expreso_Punata_Inventario_Bienes_Fijos_${new Date().toISOString().slice(0, 10)}`, headers, rows)
+      saveExport(`Expreso_Punata_Inventario_Bienes_Fijos_${new Date().toISOString().slice(0, 10)}`, headers, rows)
     }
   }
+
+  const handleExportCsv = () => handleExportData('csv')
+  const handleExportXlsx = () => handleExportData('xlsx')
 
   return (
     <div className="space-y-5">
@@ -741,12 +752,24 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
 
               <button
                 type="button"
-                onClick={handleExportCsv}
+                onClick={handleExportXlsx}
                 disabled={loading || !reportData}
                 className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+                title="Descargar libro nativo Microsoft Excel"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Excel (CSV)</span>
+                <span>Excel (.xlsx)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                disabled={loading || !reportData}
+                className="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+                title="Descargar datos en formato plano CSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>CSV</span>
               </button>
             </>
           )}

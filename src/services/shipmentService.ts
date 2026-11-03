@@ -24,6 +24,9 @@ export interface CreateShipmentInput {
   paymentTiming: PaymentTiming
   paymentMethod?: PaymentMethod
   discountCents?: number
+  suggestedAmountCents?: number
+  agreedAmountCents?: number
+  priceAdjustmentReason?: string
   cashShiftId?: string
   allowPendingFallback?: boolean
   prohibitedGoodsNoticeAccepted: boolean
@@ -35,6 +38,32 @@ export interface CreateShipmentResult {
   trackingCode: string
   isDuplicate: boolean
   shipment: Shipment
+}
+
+export interface UpdateShipmentInput {
+  trackingCode: string
+  sender?: {
+    name?: string
+    phone?: string
+    docNumber?: string
+  }
+  recipient?: {
+    name?: string
+    phone?: string
+    docNumber?: string
+  }
+  deliveryAddress?: string
+  handlingNotes?: string
+  agreedAmountCents?: number
+  priceAdjustmentReason?: string
+  rectificationReason?: string
+}
+
+export interface UpdateShipmentResult {
+  success: boolean
+  trackingCode: string
+  shipment: Shipment
+  message?: string
 }
 
 /**
@@ -85,19 +114,47 @@ export async function createShipmentThroughBackend(
 }
 
 /**
+ * Invoca la Cloud Function transaccional `updateShipment` para editar o rectificar datos
+ * de una encomienda autorizadamente y con trazabilidad de auditoría.
+ */
+export async function updateShipmentThroughBackend(
+  input: UpdateShipmentInput
+): Promise<UpdateShipmentResult> {
+  if (!auth.currentUser) {
+    throw new Error('Debe iniciar sesión para modificar una encomienda.')
+  }
+
+  const callable = httpsCallable<UpdateShipmentInput, UpdateShipmentResult>(
+    functions,
+    'updateShipment'
+  )
+
+  try {
+    const res = await callable(input)
+    return res.data
+  } catch (err: unknown) {
+    console.error('[shipmentService] Error al invocar updateShipment:', err)
+    const errorObj = err as { code?: string; message?: string }
+    const msg = errorObj.message || 'Error al actualizar la encomienda.'
+    throw new Error(msg)
+  }
+}
+
+/**
  * Suscribe reactivamente a los envíos de una sucursal en Firestore con onSnapshot.
  */
 export function subscribeShipmentsByBranch(
   branchId: string,
   onUpdate: (shipments: Shipment[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  maxDocs: number = 200
 ): () => void {
   const shipmentsRef = collection(db, 'shipments')
 
   // Consulta por sucursal de origen o de llegada/destino (multisucursal compatible con Firestore Rules)
   let q
   if (branchId === 'all') {
-    q = query(shipmentsRef, limit(100))
+    q = query(shipmentsRef, limit(maxDocs))
   } else {
     q = query(
       shipmentsRef,
@@ -105,7 +162,7 @@ export function subscribeShipmentsByBranch(
         where('originBranchId', '==', branchId),
         where('destinationBranchId', '==', branchId)
       ),
-      limit(100)
+      limit(maxDocs)
     )
   }
 
@@ -140,6 +197,8 @@ export function subscribeShipmentsByBranch(
 
 /**
  * Busca una encomienda por su código de guía único exacto en Firestore.
+ * Brinda compatibilidad retroactiva completa con guías antiguas con guiones (PUN-2026-00042)
+ * y el nuevo formato alfanumérico limpio sin símbolos (PUN202600042).
  */
 export async function fetchShipmentByTrackingCode(
   trackingCode: string
@@ -147,17 +206,44 @@ export async function fetchShipmentByTrackingCode(
   const cleanCode = trackingCode.trim().toUpperCase()
   if (!cleanCode) return null
 
-  const docSnap = await getDoc(doc(db, 'shipments', cleanCode))
-  if (!docSnap.exists()) {
-    return null
+  // 1. Búsqueda directa por el código ingresado
+  let docSnap = await getDoc(doc(db, 'shipments', cleanCode))
+  if (docSnap.exists()) {
+    const data = docSnap.data() as Shipment
+    return {
+      ...data,
+      id: docSnap.id,
+      trackingCode: data.trackingCode || docSnap.id,
+    }
   }
 
-  const data = docSnap.data() as Shipment
-  return {
-    ...data,
-    id: docSnap.id,
-    trackingCode: data.trackingCode || docSnap.id,
+  // 2. Si contenía guiones, buscar en formato limpio sin guiones
+  if (cleanCode.includes('-')) {
+    const noDashes = cleanCode.replace(/-/g, '')
+    docSnap = await getDoc(doc(db, 'shipments', noDashes))
+    if (docSnap.exists()) {
+      const data = docSnap.data() as Shipment
+      return {
+        ...data,
+        id: docSnap.id,
+        trackingCode: data.trackingCode || docSnap.id,
+      }
+    }
+  } else if (/^[A-Z]{3}\d{9}$/.test(cleanCode)) {
+    // 3. Si no contenía guiones pero tiene formato PUN202600001, buscar en formato antiguo con guiones
+    const withDashes = `${cleanCode.slice(0, 3)}-${cleanCode.slice(3, 7)}-${cleanCode.slice(7)}`
+    docSnap = await getDoc(doc(db, 'shipments', withDashes))
+    if (docSnap.exists()) {
+      const data = docSnap.data() as Shipment
+      return {
+        ...data,
+        id: docSnap.id,
+        trackingCode: data.trackingCode || docSnap.id,
+      }
+    }
   }
+
+  return null
 }
 
 /**

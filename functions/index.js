@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { initializeApp, getApps } from 'firebase-admin/app'
-import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 import { getStorage } from 'firebase-admin/storage'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
@@ -160,7 +160,29 @@ export const createShipment = onCall({ cors: true }, async (request) => {
   const homeDeliveryFeeCents = deliveryType === 'home' ? TARIFFS_DEV_REFERENCE.homeDeliveryFeeCents : 0
   const subtotalCents = baseFeeCents + weightSurchargeCents + homeDeliveryFeeCents
   const safeDiscountCents = Math.min(subtotalCents, Math.round(rawDiscount))
-  const finalAmountCents = subtotalCents - safeDiscountCents
+  const suggestedAmountCents = subtotalCents - safeDiscountCents
+
+  // FASE 1: Precio de envío editable en ventanilla (Tarifa acordada vs sugerida)
+  let finalAmountCents = suggestedAmountCents
+  let isPriceAdjusted = false
+  let cleanAdjustmentReason = null
+
+  if (payload.agreedAmountCents !== undefined && payload.agreedAmountCents !== null) {
+    const rawAgreed = Number(payload.agreedAmountCents)
+    if (!Number.isInteger(rawAgreed) || isNaN(rawAgreed) || rawAgreed < 0) {
+      throw new HttpsError('invalid-argument', 'El precio acordado debe ser un número entero de centavos no negativo.')
+    }
+    if (rawAgreed === 0) {
+      if (!payload.priceAdjustmentReason || typeof payload.priceAdjustmentReason !== 'string' || payload.priceAdjustmentReason.trim().length < 3) {
+        throw new HttpsError('invalid-argument', 'Para encomiendas con precio Bs 0.00 (cortesía o exoneración) es obligatorio especificar el motivo del acuerdo comercial.')
+      }
+    }
+    finalAmountCents = rawAgreed
+    if (finalAmountCents !== suggestedAmountCents) {
+      isPriceAdjusted = true
+      cleanAdjustmentReason = payload.priceAdjustmentReason ? String(payload.priceAdjustmentReason).trim() : null
+    }
+  }
 
   // Huella de datos exhaustiva para protección de idempotencia completa
   const payloadFingerprint = JSON.stringify({
@@ -189,6 +211,8 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     packageCount,
     totalWeightKg,
     discountCents: safeDiscountCents,
+      suggestedAmountCents,
+      agreedAmountCents: finalAmountCents,
     finalAmountCents,
     declaredValueTotal: Number(payload.declaredValueTotal) || 0,
     paymentTiming,
@@ -284,7 +308,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     }
 
     const seqPadded = String(nextSeq).padStart(5, '0')
-    const trackingCode = `${branchCode}-${currentYear}-${seqPadded}`
+    const trackingCode = `${branchCode}${currentYear}${seqPadded}`
     if (isDefinitivePayment) {
       movementId = `MOV-${trackingCode}`
     }
@@ -333,7 +357,14 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       weightSurchargeCents,
       homeDeliveryFeeCents,
       discountCents: safeDiscountCents,
+      suggestedAmountCents,
+      agreedAmountCents: finalAmountCents,
       finalAmountCents,
+      isPriceAdjusted,
+      priceAdjustmentReason: cleanAdjustmentReason,
+      priceAdjustedByUid: isPriceAdjusted ? callerUid : null,
+      priceAdjustedByName: isPriceAdjusted ? (userProfile.fullName || 'Operador') : null,
+      priceAdjustedAt: isPriceAdjusted ? nowIso : null,
 
       // Condición de cobro y movimiento financiero auditable
       paymentTiming,
@@ -448,6 +479,223 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     isDuplicate: result.isDuplicate,
     shipment: result.shipment,
   }
+})
+
+/**
+ * Cloud Function Callable para edición y rectificación autoritativa de encomiendas.
+ * Permite corregir datos legítimos de una encomienda recién registrada sin crear otra guía.
+ * Aplica reglas estrictas de autorización por estado:
+ * - Antes de despacho: permite corregir remitente, destinatario, dirección, notas y precio (si no está cobrado).
+ * - Después de despacho: requiere motivo de rectificación formal y registra historial de auditoría inmutable.
+ * - Una vez entregada: prohíbe terminantemente alterar montos o revertir el estado a no entregada.
+ * - En todos los casos: el identificador y correlativo de guía son inmutables.
+ */
+export const updateShipment = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para modificar encomiendas.')
+  }
+
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists || userDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no registrado o inactivo.')
+  }
+
+  const userProfile = userDoc.data() || {}
+  const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
+  if (!allowedRoles.includes(userProfile.role)) {
+    throw new HttpsError('permission-denied', `El rol '${userProfile.role}' no tiene permiso para editar encomiendas.`)
+  }
+
+  const payload = request.data || {}
+  const {
+    trackingCode,
+    sender,
+    recipient,
+    deliveryAddress,
+    handlingNotes,
+    agreedAmountCents,
+    priceAdjustmentReason,
+    rectificationReason,
+  } = payload
+
+  if (!trackingCode || typeof trackingCode !== 'string' || trackingCode.trim().length < 6) {
+    throw new HttpsError('invalid-argument', 'Código de guía requerido.')
+  }
+
+  const cleanTracking = trackingCode.trim()
+  const shipmentRef = db.collection('shipments').doc(cleanTracking)
+  const nowIso = new Date().toISOString()
+
+  return await db.runTransaction(async (transaction) => {
+    const shipmentDoc = await transaction.get(shipmentRef)
+    if (!shipmentDoc.exists) {
+      throw new HttpsError('not-found', `No existe la encomienda con guía '${cleanTracking}'.`)
+    }
+
+    const currentData = shipmentDoc.data() || {}
+    const currentStatus = currentData.status
+    const isPaid = currentData.paymentStatus === 'paid'
+
+    // Validación de permisos por sucursal
+    const userAllowedBranches = userProfile.allowedBranchIds || [userProfile.primaryBranchId]
+    const isOriginBranch = userAllowedBranches.includes(currentData.originBranchId)
+    const isDestBranch = userAllowedBranches.includes(currentData.destinationBranchId)
+
+    if (userProfile.role !== 'directiva_admin' && !isOriginBranch && !isDestBranch) {
+      throw new HttpsError('permission-denied', 'No tiene permisos sobre la sucursal de esta encomienda.')
+    }
+
+    // Regla de inmutabilidad de entregas
+    if (currentStatus === 'delivered' && userProfile.role === 'secretaria') {
+      throw new HttpsError('permission-denied', 'Las encomiendas ya entregadas solo pueden ser rectificadas administrativamente por el Encargado de Agencia o Directiva.')
+    }
+
+    // Si el estado ya avanzó más allá de ventanilla inicial, exigir motivo de rectificación
+    const isPostDispatch = ['dispatched', 'in_transit', 'received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery', 'delivered'].includes(currentStatus)
+    if (isPostDispatch) {
+      if (!rectificationReason || typeof rectificationReason !== 'string' || rectificationReason.trim().length < 5) {
+        throw new HttpsError('invalid-argument', 'Para rectificar una encomienda despachada, en tránsito o entregada es obligatorio ingresar un motivo formal de rectificación (mínimo 5 caracteres).')
+      }
+    }
+
+    const updates = {
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedAtIso: nowIso,
+      lastModifiedByUid: callerUid,
+      lastModifiedByName: userProfile.fullName || 'Operador',
+    }
+
+    const previousValues = {}
+    const newValues = {}
+
+    // 1. Actualización de remitente
+    if (sender) {
+      const updatedSender = { ...currentData.sender }
+      let changed = false
+      if (sender.name && sender.name.trim().length >= 2 && sender.name.trim() !== currentData.sender?.name) {
+        previousValues['sender.name'] = currentData.sender?.name
+        newValues['sender.name'] = sender.name.trim()
+        updatedSender.name = sender.name.trim()
+        changed = true
+      }
+      if (sender.phone && sender.phone.trim().length >= 5 && sender.phone.trim() !== currentData.sender?.phone) {
+        previousValues['sender.phone'] = currentData.sender?.phone
+        newValues['sender.phone'] = sender.phone.trim()
+        updatedSender.phone = sender.phone.trim()
+        changed = true
+      }
+      if (sender.docNumber !== undefined && sender.docNumber !== currentData.sender?.docNumber) {
+        previousValues['sender.docNumber'] = currentData.sender?.docNumber
+        newValues['sender.docNumber'] = sender.docNumber ? sender.docNumber.trim() : null
+        updatedSender.docNumber = sender.docNumber ? sender.docNumber.trim() : null
+        changed = true
+      }
+      if (changed) {
+        updates.sender = updatedSender
+      }
+    }
+
+    // 2. Actualización de destinatario
+    if (recipient) {
+      const updatedRecipient = { ...currentData.recipient }
+      let changed = false
+      if (recipient.name && recipient.name.trim().length >= 2 && recipient.name.trim() !== currentData.recipient?.name) {
+        previousValues['recipient.name'] = currentData.recipient?.name
+        newValues['recipient.name'] = recipient.name.trim()
+        updatedRecipient.name = recipient.name.trim()
+        changed = true
+      }
+      if (recipient.phone && recipient.phone.trim().length >= 5 && recipient.phone.trim() !== currentData.recipient?.phone) {
+        previousValues['recipient.phone'] = currentData.recipient?.phone
+        newValues['recipient.phone'] = recipient.phone.trim()
+        updatedRecipient.phone = recipient.phone.trim()
+        changed = true
+      }
+      if (recipient.docNumber !== undefined && recipient.docNumber !== currentData.recipient?.docNumber) {
+        previousValues['recipient.docNumber'] = currentData.recipient?.docNumber
+        newValues['recipient.docNumber'] = recipient.docNumber ? recipient.docNumber.trim() : null
+        updatedRecipient.docNumber = recipient.docNumber ? recipient.docNumber.trim() : null
+        changed = true
+      }
+      if (changed) {
+        updates.recipient = updatedRecipient
+      }
+    }
+
+    // 3. Dirección de entrega a domicilio y notas
+    if (deliveryAddress !== undefined && deliveryAddress !== currentData.deliveryAddress) {
+      previousValues.deliveryAddress = currentData.deliveryAddress
+      newValues.deliveryAddress = deliveryAddress ? deliveryAddress.trim() : null
+      updates.deliveryAddress = deliveryAddress ? deliveryAddress.trim() : null
+    }
+    if (handlingNotes !== undefined && handlingNotes !== currentData.handlingNotes) {
+      previousValues.handlingNotes = currentData.handlingNotes
+      newValues.handlingNotes = handlingNotes ? handlingNotes.trim() : null
+      updates.handlingNotes = handlingNotes ? handlingNotes.trim() : null
+    }
+
+    // 4. Edición de precio (solo permitido si aún no ha sido cobrado)
+    if (agreedAmountCents !== undefined && agreedAmountCents !== null) {
+      if (isPaid) {
+        throw new HttpsError('failed-precondition', 'No se puede modificar directamente el importe de una encomienda ya cobrada. Debe realizarse una anulación y emisión formal por motivos contables.')
+      }
+      if (currentStatus !== 'received' && currentStatus !== 'pending_dispatch') {
+        throw new HttpsError('failed-precondition', 'El precio solo puede modificarse en la agencia de origen antes del despacho.')
+      }
+      const rawPrice = Number(agreedAmountCents)
+      if (!Number.isInteger(rawPrice) || rawPrice < 0) {
+        throw new HttpsError('invalid-argument', 'El precio acordado debe ser un número entero de centavos no negativo.')
+      }
+      if (rawPrice !== currentData.finalAmountCents) {
+        previousValues.finalAmountCents = currentData.finalAmountCents
+        newValues.finalAmountCents = rawPrice
+        updates.finalAmountCents = rawPrice
+        updates.agreedAmountCents = rawPrice
+        updates.isPriceAdjusted = true
+        updates.priceAdjustmentReason = priceAdjustmentReason ? String(priceAdjustmentReason).trim() : 'Ajuste en ventanilla'
+        updates.priceAdjustedByUid = callerUid
+        updates.priceAdjustedByName = userProfile.fullName || 'Operador'
+        updates.priceAdjustedAt = nowIso
+      }
+    }
+
+    if (Object.keys(newValues).length === 0) {
+      return { success: true, message: 'No se realizaron cambios.', shipment: currentData }
+    }
+
+    // 5. Registrar entrada en historial de auditoría
+    const auditEntry = {
+      changedAt: nowIso,
+      operatorUid: callerUid,
+      operatorName: userProfile.fullName || 'Operador',
+      operatorRole: userProfile.role,
+      reason: rectificationReason ? rectificationReason.trim() : (priceAdjustmentReason || 'Corrección operativa de datos'),
+      previousValues,
+      newValues,
+    }
+
+    const currentAuditHistory = Array.isArray(currentData.auditHistory) ? currentData.auditHistory : []
+    updates.auditHistory = [...currentAuditHistory, auditEntry]
+
+    transaction.update(shipmentRef, updates)
+
+    // Subcolección audit_logs para historial inmutable
+    const auditSubDoc = shipmentRef.collection('audit_logs').doc()
+    transaction.set(auditSubDoc, {
+      ...auditEntry,
+      createdAt: FieldValue.serverTimestamp(),
+    })
+
+    return {
+      success: true,
+      trackingCode: cleanTracking,
+      shipment: {
+        ...currentData,
+        ...updates,
+      },
+    }
+  })
 })
 
 /**
@@ -5662,13 +5910,49 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
   // REPORTE B1: ENCOMIENDAS Y LOGÍSTICA
   // =========================================================================
   if (reportType === 'shipments') {
-    let query = db.collection('shipments')
-      .where('createdAt', '>=', startIso)
-      .where('createdAt', '<=', endIso)
-      .orderBy('createdAt', 'desc')
+    const startTimestamp = Timestamp.fromDate(new Date(startIso))
+    const endTimestamp = Timestamp.fromDate(new Date(endIso))
 
-    const snap = await query.get()
-    let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    let docs = []
+    try {
+      // 1. Intentar consulta por Timestamp (campo nativo de Firestore)
+      const snap = await db.collection('shipments')
+        .where('createdAt', '>=', startTimestamp)
+        .where('createdAt', '<=', endTimestamp)
+        .orderBy('createdAt', 'desc')
+        .get()
+      if (!snap.empty) {
+        docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      }
+    } catch (err) {
+      console.warn('[getSystemReport] Consulta por createdAt Timestamp:', err?.message)
+    }
+
+    // 2. Si docs sigue vacío, consultar por createdAtIso (cadena de texto ISO)
+    if (docs.length === 0) {
+      try {
+        const isoSnap = await db.collection('shipments')
+          .where('createdAtIso', '>=', startIso)
+          .where('createdAtIso', '<=', endIso)
+          .orderBy('createdAtIso', 'desc')
+          .get()
+        if (!isoSnap.empty) {
+          docs = isoSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        }
+      } catch (err) {
+        console.warn('[getSystemReport] Consulta por createdAtIso:', err?.message)
+      }
+    }
+
+    // 3. Fallback de resiliencia si aún no hay docs (ej. base inicial de desarrollo)
+    if (docs.length === 0) {
+      const allRecentSnap = await db.collection('shipments').limit(200).get()
+      docs = allRecentSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => {
+        const sDate = s.createdAtIso || (s.createdAt?.toDate ? s.createdAt.toDate().toISOString() : null)
+        if (!sDate) return true
+        return sDate >= startIso && sDate <= endIso
+      })
+    }
 
     // Filtrado en memoria para criterios combinados
     if (effectiveBranchId && effectiveBranchId !== 'all') {
@@ -5684,7 +5968,12 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       docs = docs.filter(s => s.paymentMethod === paymentMethod)
     }
     if (operatorUid) {
-      docs = docs.filter(s => s.createdByUid === operatorUid || s.deliveredByUid === operatorUid)
+      docs = docs.filter(s =>
+        s.registeredByUid === operatorUid ||
+        s.createdByUid === operatorUid ||
+        s.paidCashierUid === operatorUid ||
+        s.deliveredByUid === operatorUid
+      )
     }
 
     let totalPackages = 0
@@ -5695,14 +5984,18 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
 
     const byStatus = {
       received: 0,
-      in_warehouse: 0,
+      pending_dispatch: 0,
+      dispatched: 0,
       in_transit: 0,
-      arrived_at_destination: 0,
+      received_at_dest: 0,
+      stored: 0,
+      ready_for_pickup: 0,
       in_delivery: 0,
       delivered: 0,
       returned: 0,
       cancelled: 0,
       lost: 0,
+      damaged: 0,
     }
 
     const byRoute = {
@@ -5729,9 +6022,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
 
     for (const s of docs) {
       const finalCents = s.finalAmountCents || Math.round((Number(s.amountBob) || 0) * 100) || 0
-      const pkgs = Array.isArray(s.items) && s.items.length > 0
+      const pkgs = Number(s.packageCount) || (Array.isArray(s.items) && s.items.length > 0
         ? s.items.reduce((acc, it) => acc + (Number(it.quantity) || 1), 0)
-        : (s.totalPackages || 1)
+        : (s.totalPackages || 1))
       const weight = Number(s.totalWeightKg) || 0
 
       totalPackages += pkgs
@@ -5744,8 +6037,13 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         totalPendingCodCents += finalCents
       }
 
-      // Conteo por estado
-      if (byStatus[s.status] !== undefined) {
+      // Conteo por estado con soporte para alias
+      const normalizedStatus = s.status === 'in_warehouse' ? 'stored' :
+                               s.status === 'arrived_at_destination' ? 'received_at_dest' :
+                               s.status
+      if (byStatus[normalizedStatus] !== undefined) {
+        byStatus[normalizedStatus]++
+      } else if (byStatus[s.status] !== undefined) {
         byStatus[s.status]++
       }
 
