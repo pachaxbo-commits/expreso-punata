@@ -153,14 +153,55 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Los descuentos desde ventanilla están deshabilitados. Solo la Directiva / Administración puede aplicar descuentos.')
   }
 
-  // 11. Cálculo canónico del costo en centavos enteros desde la configuración oficial o tarifas base
+  // 11. Cálculo canónico del costo en centavos enteros desde la configuración oficial
+  const isFunctionsEmulator = Boolean(
+    process.env.FUNCTIONS_EMULATOR === 'true' ||
+    process.env.FIRESTORE_EMULATOR_HOST
+  )
   const sysConfigSnap = await db.collection('system_config').doc('expreso_punata').get()
   const sysConfig = sysConfigSnap.exists ? sysConfigSnap.data() : null
 
-  const baseFeeCents = Number(sysConfig?.tariffs?.baseFeeCents) || TARIFFS_DEV_REFERENCE.baseFeeCents
-  const freeWeightKg = Number(sysConfig?.tariffs?.freeWeightKg) || TARIFFS_DEV_REFERENCE.freeWeightKg
-  const extraKgRateCents = Number(sysConfig?.tariffs?.extraKgRateCents) || TARIFFS_DEV_REFERENCE.extraKgRateCents
-  const homeDeliveryRateCents = Number(sysConfig?.tariffs?.homeDeliveryFeeCents) || TARIFFS_DEV_REFERENCE.homeDeliveryFeeCents
+  let baseFeeCents = null
+  let freeWeightKg = null
+  let extraKgRateCents = null
+  let homeDeliveryRateCents = null
+
+  const hasOfficialConfig = sysConfig && (sysConfig.isOfficial === true || sysConfig.status === 'configured') && sysConfig.tariffs && typeof sysConfig.tariffs === 'object'
+
+  if (hasOfficialConfig) {
+    const t = sysConfig.tariffs
+    baseFeeCents = t.baseFeeCents !== undefined && t.baseFeeCents !== null ? Number(t.baseFeeCents) : null
+    freeWeightKg = t.freeWeightKg !== undefined && t.freeWeightKg !== null ? Number(t.freeWeightKg) : null
+    extraKgRateCents = t.extraKgRateCents !== undefined && t.extraKgRateCents !== null ? Number(t.extraKgRateCents) : null
+    homeDeliveryRateCents = t.homeDeliveryFeeCents !== undefined && t.homeDeliveryFeeCents !== null ? Number(t.homeDeliveryFeeCents) : null
+  }
+
+  if (!isFunctionsEmulator) {
+    if (
+      !hasOfficialConfig ||
+      baseFeeCents === null || isNaN(baseFeeCents) ||
+      freeWeightKg === null || isNaN(freeWeightKg) ||
+      extraKgRateCents === null || isNaN(extraKgRateCents) ||
+      homeDeliveryRateCents === null || isNaN(homeDeliveryRateCents)
+    ) {
+      const missing = []
+      if (!hasOfficialConfig) {
+        missing.push('Configuración oficial de tarifas aprobada (system_config/expreso_punata)')
+      } else {
+        if (baseFeeCents === null || isNaN(baseFeeCents)) missing.push('tarifa base (baseFeeCents)')
+        if (freeWeightKg === null || isNaN(freeWeightKg)) missing.push('peso libre (freeWeightKg)')
+        if (extraKgRateCents === null || isNaN(extraKgRateCents)) missing.push('tarifa por kg adicional (extraKgRateCents)')
+        if (homeDeliveryRateCents === null || isNaN(homeDeliveryRateCents)) missing.push('tarifa de entrega a domicilio (homeDeliveryFeeCents)')
+      }
+      throw new HttpsError('failed-precondition', `El sistema no cuenta con configuración tarifaria oficial aprobada en Administración. Faltan los siguientes parámetros: ${missing.join(', ')}. Configure y guarde los parámetros oficiales antes de emitir guías en producción.`)
+    }
+  } else {
+    // Modo emulador local / suite de pruebas: usar TARIFFS_DEV_REFERENCE sólo si no están configurados
+    if (baseFeeCents === null || isNaN(baseFeeCents)) baseFeeCents = TARIFFS_DEV_REFERENCE.baseFeeCents
+    if (freeWeightKg === null || isNaN(freeWeightKg)) freeWeightKg = TARIFFS_DEV_REFERENCE.freeWeightKg
+    if (extraKgRateCents === null || isNaN(extraKgRateCents)) extraKgRateCents = TARIFFS_DEV_REFERENCE.extraKgRateCents
+    if (homeDeliveryRateCents === null || isNaN(homeDeliveryRateCents)) homeDeliveryRateCents = TARIFFS_DEV_REFERENCE.homeDeliveryFeeCents
+  }
 
   const chargeableExcessWeightKg = Math.max(0, Math.round((totalWeightKg - freeWeightKg) * 100) / 100)
   const weightSurchargeCents = Math.round(chargeableExcessWeightKg * extraKgRateCents)
@@ -5978,15 +6019,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       }
     }
 
-    // 4. Si aún no hay documentos y no hubo error de índice, consultar colección completa sin truncamiento arbitrario
-    if (docs.length === 0 && !queryError) {
-      const allSnap = await db.collection('shipments').get()
-      docs = allSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => {
-        const sDate = s.createdAtIso || (s.createdAt?.toDate ? s.createdAt.toDate().toISOString() : s.createdAt)
-        if (!sDate) return false
-        return sDate >= startIso && sDate <= endIso
-      })
-    }
+    // 4. Si no hubo resultados en las consultas indexadas, el período no registra encomiendas (docs = [])
 
     // Filtrado en memoria para criterios combinados
     if (effectiveBranchId && effectiveBranchId !== 'all') {
@@ -7849,6 +7882,8 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
 
   const updatedConfig = {
     ...existing,
+    status: 'configured',
+    isOfficial: true,
     updatedAtIso: nowIso,
     updatedByUid: callerUid,
     updatedByName: callerName,
@@ -7872,20 +7907,24 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
   }
 
   if (tariffs && typeof tariffs === 'object') {
-    const baseCents = Number.isInteger(tariffs.baseFeeCents) && tariffs.baseFeeCents >= 0
+    const baseCents = (Number.isInteger(tariffs.baseFeeCents) && tariffs.baseFeeCents >= 0)
       ? tariffs.baseFeeCents
-      : (tariffs.baseFeeBob ? Math.round(tariffs.baseFeeBob * 100) : 1500)
-    const extraCents = Number.isInteger(tariffs.extraKgRateCents) && tariffs.extraKgRateCents >= 0
+      : (tariffs.baseFeeBob !== undefined && tariffs.baseFeeBob !== null && !isNaN(Number(tariffs.baseFeeBob)) && Number(tariffs.baseFeeBob) >= 0 ? Math.round(Number(tariffs.baseFeeBob) * 100) : (existing.tariffs?.baseFeeCents ?? 0))
+    const extraCents = (Number.isInteger(tariffs.extraKgRateCents) && tariffs.extraKgRateCents >= 0)
       ? tariffs.extraKgRateCents
-      : (tariffs.extraKgRateBob ? Math.round(tariffs.extraKgRateBob * 100) : 200)
-    const homeCents = Number.isInteger(tariffs.homeDeliveryFeeCents) && tariffs.homeDeliveryFeeCents >= 0
+      : (tariffs.extraKgRateBob !== undefined && tariffs.extraKgRateBob !== null && !isNaN(Number(tariffs.extraKgRateBob)) && Number(tariffs.extraKgRateBob) >= 0 ? Math.round(Number(tariffs.extraKgRateBob) * 100) : (existing.tariffs?.extraKgRateCents ?? 0))
+    const homeCents = (Number.isInteger(tariffs.homeDeliveryFeeCents) && tariffs.homeDeliveryFeeCents >= 0)
       ? tariffs.homeDeliveryFeeCents
-      : (tariffs.homeDeliveryFeeBob ? Math.round(tariffs.homeDeliveryFeeBob * 100) : 1200)
+      : (tariffs.homeDeliveryFeeBob !== undefined && tariffs.homeDeliveryFeeBob !== null && !isNaN(Number(tariffs.homeDeliveryFeeBob)) && Number(tariffs.homeDeliveryFeeBob) >= 0 ? Math.round(Number(tariffs.homeDeliveryFeeBob) * 100) : (existing.tariffs?.homeDeliveryFeeCents ?? 0))
+
+    const freeWeight = tariffs.freeWeightKg !== undefined && tariffs.freeWeightKg !== null && !isNaN(Number(tariffs.freeWeightKg))
+      ? Math.max(0, Number(tariffs.freeWeightKg))
+      : (existing.tariffs?.freeWeightKg ?? 0)
 
     updatedConfig.tariffs = {
       baseFeeCents: baseCents,
       baseFeeBob: baseCents / 100,
-      freeWeightKg: Number(tariffs.freeWeightKg) || 3,
+      freeWeightKg: freeWeight,
       extraKgRateCents: extraCents,
       extraKgRateBob: extraCents / 100,
       homeDeliveryFeeCents: homeCents,
@@ -7894,21 +7933,34 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
   }
 
   if (commissions && typeof commissions === 'object') {
+    const commVal = commissions.defaultValue !== undefined && commissions.defaultValue !== null && !isNaN(Number(commissions.defaultValue))
+      ? Math.max(0, Number(commissions.defaultValue))
+      : (existing.commissions?.defaultValue ?? 0)
+
     updatedConfig.commissions = {
-      defaultType: ['percentage', 'fixed_per_shipment'].includes(commissions.defaultType) ? commissions.defaultType : 'percentage',
-      defaultValue: Number(commissions.defaultValue) >= 0 ? Number(commissions.defaultValue) : 10,
+      defaultType: ['percentage', 'fixed_per_shipment'].includes(commissions.defaultType) ? commissions.defaultType : (existing.commissions?.defaultType || 'percentage'),
+      defaultValue: commVal,
     }
   }
 
   if (dues && typeof dues === 'object') {
-    const dueCents = Number.isInteger(dues.monthlyDueCents) && dues.monthlyDueCents >= 0
+    const dueCents = (Number.isInteger(dues.monthlyDueCents) && dues.monthlyDueCents >= 0)
       ? dues.monthlyDueCents
-      : (dues.monthlyDueBob ? Math.round(dues.monthlyDueBob * 100) : 5000)
+      : (dues.monthlyDueBob !== undefined && dues.monthlyDueBob !== null && !isNaN(Number(dues.monthlyDueBob)) && Number(dues.monthlyDueBob) >= 0 ? Math.round(Number(dues.monthlyDueBob) * 100) : (existing.dues?.monthlyDueCents ?? 0))
+
+    const lateFee = dues.lateFeePercentage !== undefined && dues.lateFeePercentage !== null && !isNaN(Number(dues.lateFeePercentage))
+      ? Math.max(0, Number(dues.lateFeePercentage))
+      : (existing.dues?.lateFeePercentage ?? 0)
+
+    const graceDays = dues.gracePeriodDays !== undefined && dues.gracePeriodDays !== null && !isNaN(Number(dues.gracePeriodDays))
+      ? Math.max(0, Math.floor(Number(dues.gracePeriodDays)))
+      : (existing.dues?.gracePeriodDays ?? 0)
+
     updatedConfig.dues = {
       monthlyDueCents: dueCents,
       monthlyDueBob: dueCents / 100,
-      lateFeePercentage: Number(dues.lateFeePercentage) >= 0 ? Number(dues.lateFeePercentage) : 10,
-      gracePeriodDays: Number(dues.gracePeriodDays) >= 0 ? Number(dues.gracePeriodDays) : 10,
+      lateFeePercentage: lateFee,
+      gracePeriodDays: graceDays,
     }
   }
 

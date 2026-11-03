@@ -33,22 +33,23 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
     try {
       setLoading(true)
       const data = await fetchSystemConfig()
-      if (data.status === 'unconfigured' || !data.config) {
+      if (data.status === 'error') {
+        setConfigStatus('error')
+        setFeedback({
+          type: 'error',
+          message: data.error || 'Error de conexión o permisos al consultar la configuración oficial en Cloud Firestore.',
+        })
+      } else if (data.status === 'unconfigured' || !data.config) {
         setConfig(BLANK_UNCONFIGURED_TEMPLATE)
         setConfigStatus('unconfigured')
         setFeedback({
           type: 'error',
           message: 'Configuración pendiente de aprobación: El sistema aún no cuenta con datos oficiales registrados. Por favor ingrese los datos corporativos, tarifas y comisiones confirmadas.',
         })
-      } else if (data.status === 'error') {
-        setConfigStatus('error')
-        setFeedback({
-          type: 'error',
-          message: data.error || 'Error al conectar con el servidor para obtener la configuración oficial.',
-        })
       } else {
         setConfig(data.config)
         setConfigStatus('configured')
+        setFeedback(null)
       }
     } catch (err: any) {
       console.error('Error cargando configuración:', err)
@@ -67,10 +68,31 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
     e.preventDefault()
     if (!config) return
 
+    // Validación preventiva de parámetros requeridos
+    const baseFee = Number(config.tariffs?.baseFeeBob)
+    const extraKg = Number(config.tariffs?.extraKgRateBob)
+    if (isNaN(baseFee) || baseFee <= 0) {
+      setFeedback({
+        type: 'error',
+        message: 'La Tarifa Base (Bs) es obligatoria y debe ser mayor a 0 para admitir encomiendas.',
+      })
+      setActiveSection('tariffs')
+      return
+    }
+    if (isNaN(extraKg) || extraKg < 0) {
+      setFeedback({
+        type: 'error',
+        message: 'La Tarifa por Kg Adicional (Bs) no puede ser negativa.',
+      })
+      setActiveSection('tariffs')
+      return
+    }
+
     try {
       setSaving(true)
       const res = await updateSystemConfig(config)
       setConfig(res.config)
+      setConfigStatus('configured')
       setFeedback({ type: 'success', message: '¡Configuración oficial guardada exitosamente en Cloud Firestore!' })
     } catch (err: any) {
       console.error('Error guardando configuración:', err)
@@ -88,19 +110,23 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
     )
   }
 
-  if (configStatus === 'error' && !config) {
+  if (configStatus === 'error' && (!config || config.isOfficial === false)) {
     return (
-      <div className="bg-white rounded-2xl border border-rose-200 p-12 text-center space-y-4">
-        <div className="text-rose-600 font-bold text-sm">Error al cargar la configuración oficial</div>
-        <p className="text-xs text-slate-500 max-w-md mx-auto">
-          No se pudo conectar con Cloud Firestore para consultar los parámetros del sistema.
+      <div className="bg-white rounded-2xl border border-rose-200 p-12 text-center space-y-4 shadow-sm">
+        <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto font-bold text-xl">
+          !
+        </div>
+        <div className="text-rose-700 font-black text-base">Error al cargar la configuración oficial</div>
+        <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+          {feedback?.message || 'No se pudo conectar con Cloud Firestore para consultar los parámetros del sistema. Compruebe su conexión o permisos.'}
         </p>
         <button
           type="button"
           onClick={loadConfig}
-          className="px-4 py-2 bg-[#064e3b] text-white rounded-xl text-xs font-bold shadow hover:bg-[#065f46]"
+          className="px-5 py-2.5 bg-[#064e3b] hover:bg-[#065f46] text-white rounded-xl text-xs font-bold shadow transition flex items-center gap-2 mx-auto"
         >
-          Reintentar conexión
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Reintentar conexión</span>
         </button>
       </div>
     )

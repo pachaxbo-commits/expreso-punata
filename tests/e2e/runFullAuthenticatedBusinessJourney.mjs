@@ -544,46 +544,45 @@ async function runJourney() {
     })
     const page = await context.newPage()
 
-    // Sembrar perfil de operador secretaria en localStorage
-    await page.goto('http://127.0.0.1:4173')
-    await page.evaluate(() => {
-      localStorage.setItem('expreso_punata_user', JSON.stringify({
-        uid: 'usr-sec-punata',
-        email: 'secretaria.punata@expresopunata.com',
-        fullName: 'Beatriz Salazar (Secretaria Punata)',
-        role: 'secretaria',
-        primaryBranchId: 'punata',
-        allowedBranchIds: ['punata'],
-        isActive: true,
-      }))
-    })
-    await page.reload()
-    await page.waitForTimeout(2000)
+    // Navegar y autenticar a través del formulario oficial sin inyecciones mock
+    await page.goto('http://127.0.0.1:4173', { waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('text=EXPRESO PUNATA', { timeout: 10000 })
 
-    // Captura 47: Ventanilla
+    // Iniciar sesión interactiva con cuenta de Secretaria Punata
+    const secBtn = page.locator('button:has-text("Secretaria Punata")')
+    if (await secBtn.count() > 0) {
+      await secBtn.click()
+    } else {
+      await page.fill('input[type="email"]', 'secretaria.punata@expresopunata.com')
+      await page.fill('input[type="password"]', 'Punata2026!')
+      await page.click('button[type="submit"]')
+    }
+
+    await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 10000 })
+    console.log('   ✓ Sesión autenticada en ventanilla Punata.')
+
+    // Prueba de persistencia real tras F5 (recarga de navegador)
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 10000 })
+    console.log('   ✓ Persistencia validada: sesión se mantiene activa tras F5 sin perfiles mock.')
+
+    // Captura 47: Ventanilla con precios acordados
     await page.screenshot({ path: path.join(evidenceDir, '47-ventanilla-precios-acordados.png') })
     console.log('   ✓ Captura 47: Ventanilla con precios acordados guardada.')
 
-    // Cambiar a administrador para vista de reportes
-    await page.evaluate(() => {
-      localStorage.setItem('expreso_punata_user', JSON.stringify({
-        uid: 'usr-admin-e2e',
-        email: 'admin.punata@expresopunata.com',
-        fullName: 'Lic. Walter Cossío (Presidente)',
-        role: 'directiva_admin',
-        primaryBranchId: 'punata',
-        allowedBranchIds: ['punata', 'cochabamba'],
-        isActive: true,
-      }))
-    })
-    await page.reload()
-    await page.waitForTimeout(2000)
+    // Abrir ficha de detalle de la primera encomienda para comprobar trazabilidad y auditoría
+    const firstRow = page.locator('tbody tr').first()
+    if (await firstRow.count() > 0) {
+      await firstRow.click()
+      await page.waitForSelector('text=Detalle de Encomienda', { timeout: 5000 })
+      console.log('   ✓ Ficha de detalle y trazabilidad abierta.')
+    }
 
-    // Captura 48: Vista de Encomiendas / Historial
+    // Captura 48: Detalle de Guía y Auditoría
     await page.screenshot({ path: path.join(evidenceDir, '48-detalle-guia-y-auditoria.png') })
-    console.log('   ✓ Captura 48: Historial y trazabilidad guardada.')
+    console.log('   ✓ Captura 48: Detalle de guía y auditoría guardada.')
 
-    // Mobile Viewport
+    // Mobile Viewport (375x812 - iPhone 13/14)
     await page.setViewportSize({ width: 375, height: 812 })
     await page.waitForTimeout(1000)
     await page.screenshot({ path: path.join(evidenceDir, '49-mobile-operativa-completa.png') })

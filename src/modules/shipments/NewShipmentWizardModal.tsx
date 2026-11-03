@@ -131,12 +131,29 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   const totalWeight = items.reduce((sum, it) => sum + (Number(it.weightKg) || 0), 0)
   const pricing = calculateParcelPricing(totalWeight, deliveryType, discountBob, systemTariffs || undefined)
   const suggestedAmountCents = pricing.finalAmountCents
-  const numericCustomBob = parseFloat(customPriceBob)
-  const isCustomValid = isPriceCustomized && !isNaN(numericCustomBob) && numericCustomBob >= 0
-  const agreedAmountCents = isCustomValid ? Math.round(numericCustomBob * 100) : suggestedAmountCents
-  const effectiveFinalAmountCents = agreedAmountCents
+  // Validación estricta del precio de ventanilla
+  const customPriceTrimmed = customPriceBob.trim()
+  const isValidNumberFormat = /^\d+(\.\d{1,2})?$/.test(customPriceTrimmed)
+  const numericCustomBob = isValidNumberFormat ? parseFloat(customPriceTrimmed) : NaN
+  const isCustomNumberValid = isPriceCustomized ? (!isNaN(numericCustomBob) && numericCustomBob >= 0) : true
+
+  // Error explícito para feedback visual y bloqueo preventivo
+  let customPriceError: string | null = null
+  if (isPriceCustomized) {
+    if (!isValidNumberFormat || isNaN(numericCustomBob) || numericCustomBob < 0) {
+      customPriceError = 'Ingrese un monto válido en Bs (número positivo, máx. 2 decimales).'
+    } else if (numericCustomBob === 0 && priceAdjustmentReason.trim().length < 3) {
+      customPriceError = 'Para envíos con precio Bs 0.00 (cortesía/exoneración) es obligatorio especificar el motivo.'
+    }
+  }
+
+  // Si el precio es personalizado pero inválido, NO hacer fallback silencioso (-1 bloquea)
+  const effectiveFinalAmountCents = isPriceCustomized
+    ? (isCustomNumberValid && isValidNumberFormat ? Math.round(numericCustomBob * 100) : -1)
+    : suggestedAmountCents
+
   const isZeroPrice = effectiveFinalAmountCents === 0
-  const priceDiffCents = effectiveFinalAmountCents - suggestedAmountCents
+  const priceDiffCents = effectiveFinalAmountCents >= 0 ? effectiveFinalAmountCents - suggestedAmountCents : 0
 
   // Validaciones por paso
   const canProceedStep1 = originBranchId !== destinationBranchId && (deliveryType !== 'home' || deliveryAddress.trim().length >= 4)
@@ -148,7 +165,12 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   const canProceedStep3 =
     items.length > 0 &&
     items.every(it => it.description.trim().length >= 2 && it.quantity > 0) &&
-    prohibitedNoticeAccepted
+    prohibitedNoticeAccepted &&
+    (!isPriceCustomized || customPriceError === null)
+  const canProceedStep4 =
+    canProceedStep1 && canProceedStep2 && canProceedStep3 &&
+    effectiveFinalAmountCents >= 0 &&
+    (!isZeroPrice || priceAdjustmentReason.trim().length >= 3)
 
   const handleAddItem = () => {
     setItems(prev => [
@@ -198,8 +220,13 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
     setRecipientSearchQuery('')
   }
 
-  // Envío final transaccional al backend
+  // Envío final transaccional al backend con protección de concurrencia y validación estricta
   const handleSubmitShipment = async () => {
+    if (isSubmitting) return
+    if (!canProceedStep4) {
+      setErrorMessage(customPriceError || 'Por favor verifique los datos del envío antes de continuar.')
+      return
+    }
     setIsSubmitting(true)
     setErrorMessage(null)
 
@@ -829,6 +856,14 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                   </div>
                 </div>
 
+                {/* Feedback de error si el precio manual es inválido */}
+                {customPriceError && (
+                  <div className="bg-rose-50 border border-rose-300 text-rose-800 text-xs px-3 py-2 rounded-lg flex items-center gap-2 font-semibold">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{customPriceError}</span>
+                  </div>
+                )}
+
                 {/* Resumen de diferencia de precio acordado vs sugerido */}
                 {isPriceCustomized && priceDiffCents !== 0 && (
                   <div className="pt-2 border-t border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -1135,7 +1170,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
             ) : (
               <button
                 type="button"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !canProceedStep4}
                 onClick={handleSubmitShipment}
                 className="px-6 py-2.5 bg-[#064e3b] hover:bg-[#065f46] disabled:bg-emerald-800 text-[#facc15] text-xs font-extrabold rounded-lg shadow-md flex items-center gap-2 transition-all"
               >
