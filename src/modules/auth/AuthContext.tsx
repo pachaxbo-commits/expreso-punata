@@ -3,6 +3,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut as fbSignOut,
+  sendPasswordResetEmail,
   User as FirebaseUser,
 } from 'firebase/auth'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
@@ -15,9 +16,11 @@ interface AuthContextType {
   authError: string | null
   currentBranchId: string
   setCurrentBranchId: (branchId: string) => void
+  switchBranch: (branchId: string) => boolean
   isLoading: boolean
   signIn: (email: string, pass: string) => Promise<void>
   signOut: () => Promise<void>
+  resetPassword: (email: string) => Promise<void>
   devSwitchRole: (role: UserRole, branchId?: string) => Promise<void>
   hasRole: (roles: UserRole[]) => boolean
 }
@@ -39,19 +42,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   })
 
-  const [currentBranchId, setCurrentBranchId] = useState<string>(() => {
-    if (isEmulatedEnvironment) {
-      try {
-        const saved = localStorage.getItem('expreso_punata_user_profile')
-        if (saved) {
-          const parsed = JSON.parse(saved)
-          if (parsed.primaryBranchId) return parsed.primaryBranchId
-        }
-      } catch {}
-    }
-    return 'punata'
-  })
-
+  const [currentBranchId, _setCurrentBranchId] = useState<string>('punata')
   const [isLoading, setIsLoading] = useState(true)
 
   const saveProfile = (p: UserProfile | null) => {
@@ -84,13 +75,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (data.isActive === false) {
               setAuthError('Su cuenta de usuario se encuentra inactiva. Comuníquese con la administración de Expreso Punata.')
               setUserProfile(null)
+              _setCurrentBranchId('punata')
               saveProfile(null)
             } else {
               // 2. Usuario activo con perfil legítimo en Firestore
               setUserProfile(data)
-              if (data.primaryBranchId) {
-                setCurrentBranchId(data.primaryBranchId)
-              }
+              // Asignación automática autoritativa de la sucursal asignada en Firestore
+              const assignedBranch = data.primaryBranchId || 'punata'
+              _setCurrentBranchId(assignedBranch)
+
               if (isEmulatedEnvironment) {
                 saveProfile(data)
               }
@@ -98,7 +91,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } else {
             // 3. Usuario autenticado sin perfil registrado en Firestore
             if (isEmulatedEnvironment) {
-              // Exclusivo de emulador local para desarrollo ágil offline
               const defaultProfile: UserProfile = {
                 uid: user.uid,
                 fullName: user.displayName || user.email?.split('@')[0] || 'Operador Local Emulador',
@@ -106,7 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 phone: '71798765',
                 role: 'secretaria',
                 primaryBranchId: 'punata',
-                allowedBranchIds: ['punata', 'cochabamba'],
+                allowedBranchIds: ['punata'],
                 isActive: true,
                 createdAt: new Date().toISOString(),
               }
@@ -114,12 +106,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 await setDoc(doc(db, 'users', user.uid), defaultProfile)
               } catch {}
               setUserProfile(defaultProfile)
+              _setCurrentBranchId('punata')
               saveProfile(defaultProfile)
             } else {
-              // En entorno Cloud Real: PROHIBIDO autocrear perfiles privilegiados desde el cliente
               console.warn('[Auth Seguridad] Usuario autenticado sin perfil en Firestore:', user.uid)
               setAuthError('Su cuenta no tiene un perfil operativo asignado en Expreso Punata. Contacte a la administración para habilitar su sucursal y rol.')
               setUserProfile(null)
+              _setCurrentBranchId('punata')
               saveProfile(null)
             }
           }
@@ -127,18 +120,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('[Auth Error] Error al verificar perfil en Firestore:', e)
           setAuthError('Error de verificación de perfil. Verifique su conexión al sistema.')
           setUserProfile(null)
+          _setCurrentBranchId('punata')
           saveProfile(null)
         }
       } else {
-        // Usuario no autenticado
-        if (!isEmulatedEnvironment) {
-          saveProfile(null)
-        } else {
-          // Mantener perfil simulado en emuladores solo si ya existía para testing de vistas
-          if (!localStorage.getItem('expreso_punata_user_profile')) {
-            saveProfile(null)
-          }
-        }
+        // Usuario no autenticado: limpiar todo estado sensible y reiniciar sucursal
+        setUserProfile(null)
+        _setCurrentBranchId('punata')
+        saveProfile(null)
       }
       setIsLoading(false)
     })
@@ -150,7 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true)
     setAuthError(null)
     try {
-      await signInWithEmailAndPassword(auth, email, pass)
+      await signInWithEmailAndPassword(auth, email.trim(), pass)
     } finally {
       setIsLoading(false)
     }
@@ -161,10 +150,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await fbSignOut(auth)
     } catch {}
     setAuthError(null)
+    setUserProfile(null)
+    _setCurrentBranchId('punata')
     saveProfile(null)
+    localStorage.removeItem('expreso_punata_user_profile')
   }
 
-  // Permite simular rápidamente roles ÚNICAMENTE en entorno de emuladores locales
+  const resetPassword = async (emailToReset: string) => {
+    if (!emailToReset || !emailToReset.includes('@')) {
+      throw new Error('Debe ingresar un correo electrónico válido para solicitar el restablecimiento.')
+    }
+    await sendPasswordResetEmail(auth, emailToReset.trim())
+  }
+
+  // Cambio seguro y controlado de sucursal con validación estricta de RBAC
+  const switchBranch = (branchId: string): boolean => {
+    if (!userProfile || !userProfile.isActive) return false
+
+    // Las secretarias tienen una sola agencia fija inmutable
+    if (userProfile.role === 'secretaria') {
+      console.warn('[RBAC Seguridad] Las secretarias no tienen autorización para alternar entre agencias.')
+      return false
+    }
+
+    // Directiva / Admin General tiene acceso irrestricto a ambas sucursales
+    if (userProfile.role === 'directiva_admin') {
+      _setCurrentBranchId(branchId)
+      return true
+    }
+
+    // Encargados y Tesorería: únicamente entre sus sucursales autorizadas
+    const allowed = Array.isArray(userProfile.allowedBranchIds) && userProfile.allowedBranchIds.length > 0
+      ? userProfile.allowedBranchIds
+      : [userProfile.primaryBranchId]
+
+    if (allowed.includes(branchId)) {
+      _setCurrentBranchId(branchId)
+      return true
+    }
+
+    console.warn(`[RBAC Seguridad] Acceso denegado a sucursal '${branchId}' para usuario '${userProfile.email}'.`)
+    return false
+  }
+
+  // Wrapper seguro para compatibilidad
+  const setCurrentBranchId = (branchId: string) => {
+    switchBranch(branchId)
+  }
+
+  // Simulación de roles ÚNICAMENTE en emuladores locales en localhost
   const devSwitchRole = async (role: UserRole, branchId = 'punata') => {
     if (!isEmulatedEnvironment) {
       const securityErr = 'Simulación de roles rechazada: esta función está estrictamente deshabilitada en entornos Cloud y producción.'
@@ -187,7 +221,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       role,
       primaryBranchId: branchId,
       allowedBranchIds:
-        role === 'directiva_admin' || role === 'tesoreria' ? ['punata', 'cochabamba'] : [branchId],
+        role === 'directiva_admin' || role === 'tesoreria'
+          ? ['punata', 'cochabamba']
+          : role === 'secretaria'
+            ? [branchId] // Secretaria strictly 1 branch
+            : [branchId],
       assignedVehiclePlate: role === 'conductor' ? '2345-TGB' : undefined,
       assignedMobileNumber: role === 'conductor' ? 'M-14' : undefined,
       isActive: true,
@@ -203,7 +241,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     saveProfile(updated)
-    setCurrentBranchId(branchId)
+    _setCurrentBranchId(branchId)
   }
 
   const hasRole = (roles: UserRole[]) => {
@@ -219,9 +257,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authError,
         currentBranchId,
         setCurrentBranchId,
+        switchBranch,
         isLoading,
         signIn,
         signOut,
+        resetPassword,
         devSwitchRole,
         hasRole,
       }}

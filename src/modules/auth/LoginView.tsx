@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import {
   ShieldCheck,
-  Building2,
   Lock,
   Mail,
   Truck,
@@ -9,10 +8,16 @@ import {
   Sparkles,
   AlertTriangle,
   LogOut,
+  Eye,
+  EyeOff,
+  HelpCircle,
+  CheckCircle2,
+  X,
+  Loader2,
 } from 'lucide-react'
 import { useAuth } from './AuthContext'
 import { isEmulatedEnvironment } from '../../firebase/config'
-import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../../domain/expresoPunataConfig'
+import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY } from '../../domain/expresoPunataConfig'
 import type { UserRole } from '../../types'
 
 export const LoginView: React.FC = () => {
@@ -22,11 +27,42 @@ export const LoginView: React.FC = () => {
       window.location.hostname === '127.0.0.1' ||
       window.location.hostname.endsWith('.local'))
   )
-  const { currentUser, userProfile, authError, signIn, signOut, devSwitchRole, setCurrentBranchId, currentBranchId } = useAuth()
+  const { currentUser, userProfile, authError, signIn, signOut, resetPassword, devSwitchRole } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // Estado para modal / flujo de restablecimiento de contraseña
+  const [showResetModal, setShowResetModal] = useState(false)
+  const [resetEmailInput, setResetEmailInput] = useState('')
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetSuccess, setResetSuccess] = useState(false)
+  const [resetError, setResetError] = useState<string | null>(null)
+
+  const formatAuthError = (err: unknown): string => {
+    if (!(err instanceof Error)) return 'No se pudo iniciar sesión. Verifique sus credenciales.'
+    const msg = err.message
+    if (
+      msg.includes('auth/invalid-credential') ||
+      msg.includes('auth/wrong-password') ||
+      msg.includes('auth/user-not-found') ||
+      msg.includes('auth/invalid-login-credentials')
+    ) {
+      return 'Credenciales inválidas. Por favor verifique su correo electrónico y contraseña.'
+    }
+    if (msg.includes('auth/too-many-requests')) {
+      return 'Acceso temporalmente restringido por demasiados intentos fallidos. Intente nuevamente en unos minutos o solicite un restablecimiento de contraseña.'
+    }
+    if (msg.includes('auth/user-disabled')) {
+      return 'Esta cuenta de usuario ha sido suspendida. Comuníquese con la administración de Expreso Punata.'
+    }
+    if (msg.includes('auth/network-request-failed')) {
+      return 'Error de red o conexión al servidor. Compruebe su conexión a internet.'
+    }
+    return msg
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -35,10 +71,24 @@ export const LoginView: React.FC = () => {
     try {
       await signIn(email, password)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error al iniciar sesión'
-      setError(msg)
+      setError(formatAuthError(err))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setResetError(null)
+    setResetLoading(true)
+    try {
+      await resetPassword(resetEmailInput || email)
+      setResetSuccess(true)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al solicitar el enlace'
+      setResetError(msg)
+    } finally {
+      setResetLoading(false)
     }
   }
 
@@ -75,7 +125,7 @@ export const LoginView: React.FC = () => {
             {EXPRESO_PUNATA_COMPANY.name}
           </h1>
           <p className="text-xs text-emerald-200 mt-1 font-medium">
-            'Servicio Interprovincial Punata - Cochabamba'
+            Servicio Interprovincial Punata - Cochabamba
           </p>
           <div className="mt-3 flex flex-col items-center gap-1.5">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-950/70 border border-emerald-700/60 rounded-full text-[11px] text-emerald-300">
@@ -123,26 +173,6 @@ export const LoginView: React.FC = () => {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Sucursal de Ingreso
-                </label>
-                <div className="relative">
-                  <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <select
-                    value={currentBranchId}
-                    onChange={e => setCurrentBranchId(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] bg-white text-slate-800 font-medium"
-                  >
-                    {INITIAL_BRANCHES.map(branch => (
-                      <option key={branch.id} value={branch.id}>
-                        {branch.name} — {branch.city}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Correo Electrónico
                 </label>
                 <div className="relative">
@@ -151,9 +181,10 @@ export const LoginView: React.FC = () => {
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
-                    placeholder="usuario@expreso-punata.bo"
+                    placeholder="operador@expresopunata.com"
                     className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
                     required
+                    autoComplete="email"
                   />
                 </div>
               </div>
@@ -165,25 +196,142 @@ export const LoginView: React.FC = () => {
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
+                    className="w-full pl-9 pr-10 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
                     required
+                    autoComplete="current-password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(prev => !prev)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none"
+                    title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
+              </div>
+
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetEmailInput(email)
+                    setResetSuccess(false)
+                    setResetError(null)
+                    setShowResetModal(true)
+                  }}
+                  className="text-xs font-medium text-emerald-800 hover:text-emerald-950 hover:underline"
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 bg-[#064e3b] hover:bg-[#065f46] text-white font-bold rounded-lg text-sm shadow transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 bg-[#064e3b] hover:bg-[#065f46] text-white font-bold rounded-lg text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
               >
-                <span>{loading ? 'Accediendo...' : 'Iniciar Sesión'}</span>
-                <ArrowRight className="w-4 h-4" />
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Iniciando sesión...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Iniciar Sesión</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </form>
+          )}
+
+          {/* Modal accesible de restablecimiento de contraseña */}
+          {showResetModal && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="w-full max-w-sm bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden">
+                <div className="bg-[#064e3b] px-4 py-3 text-white flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <HelpCircle className="w-4 h-4 text-[#facc15]" />
+                    <span className="font-bold text-xs uppercase tracking-wide">Recuperar Contraseña</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowResetModal(false)}
+                    className="text-emerald-200 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-4">
+                  {resetSuccess ? (
+                    <div className="text-center py-2 space-y-3">
+                      <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
+                      <p className="text-xs text-slate-700 font-medium">
+                        Si la cuenta se encuentra registrada, Firebase ha despachado las instrucciones de restablecimiento al correo:
+                      </p>
+                      <p className="text-xs font-mono bg-slate-100 p-2 rounded text-slate-800 break-all font-semibold">
+                        {resetEmailInput}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Revise su bandeja de entrada o carpeta de spam y siga el enlace oficial para establecer su nueva contraseña.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowResetModal(false)}
+                        className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg text-xs"
+                      >
+                        Cerrar y volver al inicio
+                      </button>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleResetSubmit} className="space-y-3">
+                      <p className="text-xs text-slate-600">
+                        Ingrese su correo electrónico registrado. Le enviaremos un enlace oficial de Firebase para restablecer su contraseña de forma segura.
+                      </p>
+                      {resetError && (
+                        <div className="p-2.5 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700">
+                          {resetError}
+                        </div>
+                      )}
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label>
+                        <input
+                          type="email"
+                          value={resetEmailInput}
+                          onChange={(e) => setResetEmailInput(e.target.value)}
+                          placeholder="usuario@expresopunata.com"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
+                          required
+                        />
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowResetModal(false)}
+                          className="flex-1 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg text-xs"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={resetLoading}
+                          className="flex-1 py-2 bg-[#064e3b] hover:bg-[#065f46] text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
+                        >
+                          {resetLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                          <span>Enviar Enlace</span>
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Accesos rápidos de desarrollo — EXCLUSIVO DE EMULADORES LOCALES EN LOCALHOST */}
@@ -199,57 +347,39 @@ export const LoginView: React.FC = () => {
                   onClick={() => handleDevLogin('secretaria', 'punata')}
                   className="p-2 text-xs font-medium rounded border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 text-left transition-all"
                 >
-                  <span className="font-bold block text-emerald-800">Secretaria Punata</span>
-                  <span className="text-[10px] text-slate-500">Ventanilla & Caja</span>
+                  <span className="font-bold block text-slate-900">Secretaria Punata</span>
+                  <span className="text-[10px] text-slate-500">Agencia Punata</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleDevLogin('secretaria', 'cochabamba')}
                   className="p-2 text-xs font-medium rounded border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 text-left transition-all"
                 >
-                  <span className="font-bold block text-emerald-800">Secretaria Cochabamba</span>
-                  <span className="text-[10px] text-slate-500">Recepción & Entregas</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDevLogin('tesoreria', 'punata')}
-                  className="p-2 text-xs font-medium rounded border border-slate-200 bg-slate-50 hover:bg-amber-50 hover:border-amber-300 text-slate-700 text-left transition-all"
-                >
-                  <span className="font-bold block text-amber-800">Tesorería & Aportes</span>
-                  <span className="text-[10px] text-slate-500">Cuotas & Finanzas</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDevLogin('directiva_admin', 'punata')}
-                  className="p-2 text-xs font-medium rounded border border-slate-200 bg-slate-50 hover:bg-purple-50 hover:border-purple-300 text-slate-700 text-left transition-all"
-                >
-                  <span className="font-bold block text-purple-800">Directiva / Admin</span>
-                  <span className="text-[10px] text-slate-500">Acceso Global</span>
+                  <span className="font-bold block text-slate-900">Secretaria Cbba</span>
+                  <span className="text-[10px] text-slate-500">Agencia Cochabamba</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleDevLogin('conductor', 'punata')}
-                  className="p-2 text-xs font-medium rounded border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-slate-700 text-left col-span-2 transition-all flex items-center justify-between"
+                  className="p-2 text-xs font-medium rounded border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 text-left transition-all"
                 >
-                  <div>
-                    <span className="font-bold block text-blue-800">Conductor Móvil 14</span>
-                    <span className="text-[10px] text-slate-500">Ruta & Entregas Directas</span>
-                  </div>
-                  <Truck className="w-4 h-4 text-blue-600" />
+                  <span className="font-bold block text-slate-900 flex items-center gap-1">
+                    <Truck className="w-3 h-3 text-emerald-600" />
+                    Chofer Móvil 14
+                  </span>
+                  <span className="text-[10px] text-slate-500">Ruta Interprovincial</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDevLogin('directiva_admin', 'punata')}
+                  className="p-2 text-xs font-medium rounded border border-slate-200 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 text-left transition-all"
+                >
+                  <span className="font-bold block text-slate-900">Directiva / Admin</span>
+                  <span className="text-[10px] text-slate-500">Acceso Total</span>
                 </button>
               </div>
             </div>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="bg-slate-50 px-6 py-3 border-t border-slate-100 text-center">
-          <p className="text-[11px] text-slate-500 font-medium">
-            EXPRESO PUNATA — Sistema Web de Encomiendas & Administración
-          </p>
-          <p className="text-[10px] text-slate-400 mt-0.5">
-            Desarrollado por PACHAX
-          </p>
         </div>
       </div>
     </div>
