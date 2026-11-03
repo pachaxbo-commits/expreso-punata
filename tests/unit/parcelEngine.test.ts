@@ -119,5 +119,6 @@ test('5. Sucursales de Expreso Punata y transparencia fiscal', () => {
   assert.equal(INITIAL_BRANCHES.length, 2)
   assert.equal(INITIAL_BRANCHES[0].code, 'PUN')
   assert.equal(INITIAL_BRANCHES[1].code, 'CBB')
-  assert.equal(EXPRESO_PUNATA_COMPANY.taxId, 'DEMO — DATOS FICTICIOS / SIN VALIDEZ FISCAL')
+  assert.equal(EXPRESO_PUNATA_COMPANY.name, 'EXPRESO PUNATA')
+  assert.equal(EXPRESO_PUNATA_COMPANY.legalNotice, 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL')
 })

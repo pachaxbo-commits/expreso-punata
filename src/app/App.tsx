@@ -140,7 +140,7 @@ export const AppContent: React.FC = () => {
                 </span>
               </div>
               <p className="text-[11px] text-emerald-200 hidden sm:block">
-                {EXPRESO_PUNATA_COMPANY.slogan}
+                'Servicio Interprovincial Punata - Cochabamba'
               </p>
             </div>
           </div>

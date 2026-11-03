@@ -2,6 +2,7 @@ import { test, before, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getStorage } from 'firebase-admin/storage'
 import {
   createDispatchManifest,
   driverConfirmCustody,
@@ -606,10 +607,19 @@ test('9. CONSULTA DE CUSTODIA (getDriverCustodyBalance): Restricción estricta p
 test('10. SEGURIDAD DE FIRMAS: getShipmentSignatureUrl genera URL temporal y bloquea rutas ajenas', async () => {
   await createTestUser('sec-punata', 'secretaria', 'punata')
   await createTestUser('sec-cbba', 'secretaria', 'cochabamba')
-  await createTestShipment('ship-sig-test', 'PUN-2026-SIG1', 'punata', 'cochabamba', 'delivered')
+  await createTestShipment('ship-sig-test', 'PUN-2026-SIG1', 'punata', 'cochabamba', 'received_at_dest')
 
-  await db.collection('shipments').doc('ship-sig-test').update({
-    'deliveryRecord.signature.storagePath': 'shipments/ship-sig-test/signatures/signature_valid.png',
+  const testPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mNk+M9QzwAEjDAGYzUAAIpCA/54h55cAAAAAElFTkSuQmCC'
+  await deliverShipment.run({
+    auth: { uid: 'sec-cbba' },
+    data: {
+      shipmentId: 'ship-sig-test',
+      receivedByName: 'Ana Prueba',
+      receivedByDocType: 'CI',
+      receivedByDocNumber: '1234567',
+      recipientRelationship: 'titular',
+      signatureDataUrl: testPng,
+    },
   })
 
   // 1) Acceso autorizado por secretaria de destino
@@ -618,7 +628,7 @@ test('10. SEGURIDAD DE FIRMAS: getShipmentSignatureUrl genera URL temporal y blo
     data: { shipmentId: 'ship-sig-test' },
   })
   assert.equal(sigRes.success, true)
-  assert.ok(sigRes.url.includes(encodeURIComponent('shipments/ship-sig-test/signatures/signature_valid.png')) || sigRes.url.includes('shipments/ship-sig-test/signatures/signature_valid.png'))
+  assert.ok(sigRes.url.includes(encodeURIComponent('shipments/ship-sig-test/signatures/')) || sigRes.url.includes('shipments/ship-sig-test/signatures/'))
 
   // 2) Intento de inyectar ruta de otra encomienda -> DENEGADO
   await assert.rejects(async () => {
@@ -630,4 +640,16 @@ test('10. SEGURIDAD DE FIRMAS: getShipmentSignatureUrl genera URL temporal y blo
       },
     })
   }, (err) => err.code === 'permission-denied')
+
+  // 3) Archivo no existente en storage -> not-found (fail closed)
+  await db.collection('shipments').doc('ship-sig-test').update({
+    'deliveryRecord.signature.storagePath': 'shipments/ship-sig-test/signatures/non_existent.png',
+  })
+
+  await assert.rejects(async () => {
+    await getShipmentSignatureUrl.run({
+      auth: { uid: 'sec-cbba' },
+      data: { shipmentId: 'ship-sig-test' },
+    })
+  }, (err) => err.code === 'not-found')
 })

@@ -1,7 +1,13 @@
-import type { UnifiedDocumentPayload, PaperFormat, PrintResult } from '../../types/printing'
+import {
+  type UnifiedDocumentPayload,
+  type PaperFormat,
+  type PrintResult,
+  resolvePaymentConditionLabel,
+} from '../../types/printing.ts'
 
 /**
  * Constructor de comandos ESC/POS para impresoras térmicas (58mm y 80mm).
+ * Configurado con CodePage 1252 (WPC1252) para soporte nativo de español (tildes y eñes).
  */
 export class EscPosBuilder {
   private buffer: number[] = []
@@ -13,6 +19,8 @@ export class EscPosBuilder {
   init(): this {
     // ESC @: Inicializar impresora
     this.buffer.push(0x1b, 0x40)
+    // ESC t 16: Seleccionar Code Page 1252 (WPC1252 / Latin-1)
+    this.buffer.push(0x1b, 0x74, 16)
     return this
   }
 
@@ -35,21 +43,25 @@ export class EscPosBuilder {
     return this
   }
 
+  /**
+   * Codifica texto en Code Page 1252 para impresión de caracteres en español.
+   */
   text(str: string): this {
-    // Codificación básica compatible ISO-8859-1 / ASCII para caracteres bolivianos comunes
     for (let i = 0; i < str.length; i++) {
       const code = str.charCodeAt(i)
       if (code < 128) {
         this.buffer.push(code)
       } else {
-        // Reemplazos de acentos y caracteres especiales si la codepage no coincide
         const char = str[i]
+        // Tabla de mapeo a CP1252 (Western European)
         const map: Record<string, number> = {
-          á: 0xa0, é: 0x82, í: 0xa1, ó: 0xa2, ú: 0xa3,
-          Á: 0x41, É: 0x45, Í: 0x49, Ó: 0x4f, Ú: 0x55,
-          ñ: 0xa4, Ñ: 0xa5, '¿': 0xa8, '¡': 0xad
+          á: 0xe1, é: 0xe9, í: 0xed, ó: 0xf3, ú: 0xfa,
+          Á: 0xc1, É: 0xc9, Í: 0xcd, Ó: 0xd3, Ú: 0xda,
+          ñ: 0xf1, Ñ: 0xd1,
+          ü: 0xfc, Ü: 0xdc,
+          '¡': 0xa1, '¿': 0xbf, 'º': 0xba, 'ª': 0xaa,
         }
-        this.buffer.push(map[char] || 0x20)
+        this.buffer.push(map[char] ?? 0x20)
       }
     }
     return this
@@ -74,7 +86,7 @@ export class EscPosBuilder {
   }
 
   cut(): this {
-    // GS V 66 0: Corte parcial con avance
+    // GS V 66 0: Corte parcial con avance de papel
     this.buffer.push(0x1d, 0x56, 0x42, 0x00)
     return this
   }
@@ -82,6 +94,31 @@ export class EscPosBuilder {
   kickDrawer(): this {
     // ESC p 0 25 250: Pulso para abrir gaveta en pin 2
     this.buffer.push(0x1b, 0x70, 0x00, 0x19, 0xfa)
+    return this
+  }
+
+  /**
+   * Imprime un código QR nativo ESC/POS (Model 2).
+   */
+  qrCode(content: string): this {
+    const dataBytes: number[] = []
+    for (let i = 0; i < content.length; i++) {
+      dataBytes.push(content.charCodeAt(i) & 0xff)
+    }
+    const len = dataBytes.length + 3
+    const pL = len % 256
+    const pH = Math.floor(len / 256)
+
+    // 1. Establecer modelo QR (Modelo 2)
+    this.buffer.push(0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00)
+    // 2. Establecer tamaño del módulo (4 puntos)
+    this.buffer.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x04)
+    // 3. Establecer nivel de corrección de error (Nivel M = 49)
+    this.buffer.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31)
+    // 4. Almacenar datos en el buffer del símbolo
+    this.buffer.push(0x1d, 0x28, 0x6b, pL, pH, 0x31, 0x50, 0x30, ...dataBytes)
+    // 5. Imprimir el símbolo QR
+    this.buffer.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30)
     return this
   }
 
@@ -102,6 +139,7 @@ export class EscPosBuilder {
 
 /**
  * Construye el payload ESC/POS para un documento unificado de Expreso Punata.
+ * Respeta la identidad oficial EXPRESO PUNATA y datos reales de sucursal.
  */
 export function buildEscPosDocument(
   doc: UnifiedDocumentPayload,
@@ -112,18 +150,18 @@ export function buildEscPosDocument(
   } = {}
 ): EscPosBuilder {
   const is58mm = paperFormat === '58mm'
-  const colWidth = is58mm ? 32 : 48
+  const colWidth = is58mm ? 32 : 44
   const builder = new EscPosBuilder()
 
   if (options.kickDrawer) {
     builder.kickDrawer()
   }
 
-  // Encabezado
+  // Encabezado Oficial
   builder.align('center')
   builder.doubleSize(true).bold(true).line('EXPRESO PUNATA').doubleSize(false).bold(false)
-  builder.line('S.M.T. Transp. Interprovincial')
   builder.line(`Agencia: ${doc.branchName || doc.branchId}`)
+  if (doc.branchAddress) builder.line(doc.branchAddress)
   if (doc.branchPhone) builder.line(`Tel: ${doc.branchPhone}`)
   builder.separator('=', colWidth)
 
@@ -139,6 +177,10 @@ export function buildEscPosDocument(
   const dateStr = doc.timestampIso ? new Date(doc.timestampIso).toLocaleString('es-BO') : new Date().toLocaleString('es-BO')
   builder.line(`Fecha: ${dateStr}`)
   builder.line(`Operador: ${doc.operatorName}`)
+
+  // Condición real de cobro
+  const paymentCondition = resolvePaymentConditionLabel(doc.financials)
+  builder.bold(true).line(`Condicion: ${paymentCondition}`).bold(false)
 
   if (doc.dispatch) {
     builder.separator('-', colWidth)
@@ -175,9 +217,6 @@ export function buildEscPosDocument(
   // Finanzas
   if (doc.financials) {
     builder.separator('-', colWidth)
-    if (doc.financials.paymentTiming) {
-      builder.line(`Condicion: ${doc.financials.paymentTiming === 'destination_cod' ? 'CONTRAENTREGA (COD)' : 'PAGADO EN ORIGEN'}`)
-    }
     if (doc.financials.paymentMethod) {
       builder.line(`Metodo: ${doc.financials.paymentMethod.toUpperCase()}`)
     }
@@ -192,12 +231,20 @@ export function buildEscPosDocument(
     builder.bold(true).doubleSize(true).line(`TOTAL: Bs ${totalBob.toFixed(2)}`).doubleSize(false).bold(false)
   }
 
-  // Pie de página
+  // Código QR nativo
+  const qrContent = doc.qrContent || (doc.trackingCode ? `EXPRESO-PUNATA:${doc.trackingCode}` : null)
+  if (qrContent) {
+    builder.feed(1).align('center')
+    builder.qrCode(qrContent)
+    builder.feed(1)
+  }
+
+  // Pie de página oficial
   builder.align('center')
   builder.feed(1)
   builder.line('DOCUMENTO OPERATIVO INTERNO')
-  builder.line('NO VALIDO PARA CREDITO FISCAL')
-  builder.line('Expreso Punata - Seguridad y Confianza')
+  builder.line('NO CONSTITUYE FACTURA FISCAL')
+  builder.line('Expreso Punata — Cochabamba y Punata')
 
   if (options.cutPaper !== false) {
     builder.feed(3)
@@ -210,7 +257,7 @@ export function buildEscPosDocument(
 }
 
 /**
- * Envía el documento directamente a la aplicación Android RawBT vía Intent o Scheme URL.
+ * Envía el documento a la aplicación Android RawBT mediante el esquema oficial ru.a402d.rawbtprinter.
  */
 export async function printViaRawBt(
   doc: UnifiedDocumentPayload,
@@ -232,6 +279,9 @@ export async function printViaRawBt(
         success: true,
         jobId,
         connectionType: 'rawbt_intent',
+        status: 'dispatched_to_driver',
+        message: 'Contexto de prueba sin navegador detectado.',
+        bytesSent: builder.toBytes().length,
         dispatchedAtIso: nowIso,
       }
     }
@@ -239,21 +289,29 @@ export async function printViaRawBt(
     // Esquema de Intent estándar para ru.a402d.rawbtprinter en Android
     const intentUrl = `intent:base64,${base64Data}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`
 
-    const iframe = document.createElement('iframe')
-    iframe.style.display = 'none'
-    iframe.src = intentUrl
-    document.body.appendChild(iframe)
-
-    setTimeout(() => {
-      try {
-        if (iframe.parentNode) document.body.removeChild(iframe)
-      } catch {}
-    }, 2500)
+    // En navegadores Android modernos, asignar window.location.href o simular clic en enlace
+    // funciona de manera más confiable que un iframe oculto para lanzar la app RawBT
+    try {
+      const link = document.createElement('a')
+      link.href = intentUrl
+      link.style.display = 'none'
+      document.body.appendChild(link)
+      link.click()
+      setTimeout(() => {
+        try {
+          if (link.parentNode) document.body.removeChild(link)
+        } catch {}
+      }, 2000)
+    } catch {
+      window.location.href = intentUrl
+    }
 
     return {
       success: true,
       jobId,
       connectionType: 'rawbt_intent',
+      status: 'dispatched_to_driver',
+      message: 'Documento enviado a la aplicación RawBT. Verifique la emisión física en su impresora.',
       bytesSent: builder.toBytes().length,
       dispatchedAtIso: nowIso,
     }
@@ -262,6 +320,8 @@ export async function printViaRawBt(
       success: false,
       jobId,
       connectionType: 'rawbt_intent',
+      status: 'failed',
+      message: 'Fallo al comunicarse con la aplicación RawBT.',
       errorMessage: err?.message || 'Error al comunicarse con la aplicación RawBT.',
       errorClassification: 'safeToRetry',
       dispatchedAtIso: nowIso,

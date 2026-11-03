@@ -3,6 +3,7 @@ import { Printer, Download, X, CheckCircle, AlertTriangle, AlertCircle } from 'l
 import type { CashShift } from '../../types/index.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import { generateCashShiftTicketPdf } from '../../services/pdfService.ts'
+import { printEngine } from '../../services/printing/printEngineService.ts'
 import QRCode from 'qrcode'
 
 interface CashTicket80mmProps {
@@ -37,8 +38,13 @@ export const CashTicket80mm: React.FC<CashTicket80mmProps> = ({ shift, onClose }
       .catch((err) => console.error('Error al generar QR:', err))
   }, [shift, diffStatus])
 
-  const handlePrint = () => {
-    window.print()
+  const handlePrint = async () => {
+    try {
+      const doc = printEngine.buildFromCashShift(shift, shift.operatorName)
+      await printEngine.printDocument(doc)
+    } catch {
+      window.print()
+    }
   }
 
   const handleDownloadPdf = async () => {

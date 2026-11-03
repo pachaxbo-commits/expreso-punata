@@ -1,3 +1,4 @@
+import { printEngine } from '../../services/printing/printEngineService.ts'
 import React, { useState, useEffect } from 'react'
 import {
   Truck,
@@ -44,6 +45,15 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
   currentBranch,
   shipments,
 }) => {
+  const handlePrintManifestTicket = async (manifest: DispatchManifest) => {
+    try {
+      const doc = printEngine.buildFromDispatchManifest(manifest, currentUser.fullName)
+      await printEngine.printDocument(doc)
+    } catch (e) {
+      console.warn('Fallback a printDispatchManifestTicket80mm:', e)
+      printDispatchManifestTicket80mm(manifest)
+    }
+  }
   const isDriver = currentUser.role === 'conductor'
   const isManagerOrAdmin = currentUser.role === 'directiva_admin' || currentUser.role === 'encargado_agencia'
 
@@ -735,7 +745,7 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => printDispatchManifestTicket80mm(trip)}
+                          onClick={() => handlePrintManifestTicket(trip)}
                           className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg flex items-center gap-1.5 transition"
                         >
                           <Printer className="w-3.5 h-3.5" />
@@ -903,7 +913,7 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => printDispatchManifestTicket80mm(m)}
+                        onClick={() => handlePrintManifestTicket(m)}
                         className="px-3 py-1.5 bg-slate-100 hover:bg-[#064e3b] hover:text-[#facc15] text-slate-700 text-xs font-bold rounded-lg flex items-center gap-1.5 transition"
                       >
                         <Printer className="w-3.5 h-3.5" />
