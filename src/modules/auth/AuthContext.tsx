@@ -10,15 +10,17 @@ import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db, isEmulatedEnvironment } from '../../firebase/config'
 import type { UserProfile, UserRole } from '../../types'
 
-interface AuthContextType {
+export interface AuthContextType {
   currentUser: FirebaseUser | null
   userProfile: UserProfile | null
   authError: string | null
   currentBranchId: string
   setCurrentBranchId: (branchId: string) => void
   switchBranch: (branchId: string) => boolean
-  isLoading: boolean
-  signIn: (email: string, pass: string) => Promise<void>
+  isInitializing: boolean
+  isLoggingIn: boolean
+  isLoading: boolean // Aliased to isInitializing for backwards compatibility
+  signIn: (email: string, pass: string) => Promise<UserProfile>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<void>
   devSwitchRole: (role: UserRole, branchId?: string) => Promise<void>
@@ -43,7 +45,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   })
 
   const [currentBranchId, _setCurrentBranchId] = useState<string>('punata')
-  const [isLoading, setIsLoading] = useState(true)
+  const [isInitializing, setIsInitializing] = useState(true)
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
 
   const saveProfile = (p: UserProfile | null) => {
     setUserProfile(p)
@@ -60,36 +63,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
+  // Listener pasivo para bootstrap inicial y cambios de sesión externos (F5, token revoke, etc.)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user)
-      setAuthError(null)
 
       if (user) {
+        // Si el perfil ya coincide con el usuario autenticado (por ejemplo, cargado por signIn), no recargar
+        if (userProfile && userProfile.uid === user.uid) {
+          setIsInitializing(false)
+          return
+        }
+
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid))
           if (userDoc.exists()) {
             const data = userDoc.data() as UserProfile
 
-            // 1. Verificación de cuenta inactiva
             if (data.isActive === false) {
               setAuthError('Su cuenta de usuario se encuentra inactiva. Comuníquese con la administración de Expreso Punata.')
+              await fbSignOut(auth).catch(() => {})
               setUserProfile(null)
               _setCurrentBranchId('punata')
               saveProfile(null)
             } else {
-              // 2. Usuario activo con perfil legítimo en Firestore
               setUserProfile(data)
-              // Asignación automática autoritativa de la sucursal asignada en Firestore
               const assignedBranch = data.primaryBranchId || 'punata'
               _setCurrentBranchId(assignedBranch)
+              setAuthError(null)
 
               if (isEmulatedEnvironment) {
                 saveProfile(data)
               }
             }
           } else {
-            // 3. Usuario autenticado sin perfil registrado en Firestore
             if (isEmulatedEnvironment) {
               const defaultProfile: UserProfile = {
                 uid: user.uid,
@@ -111,6 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } else {
               console.warn('[Auth Seguridad] Usuario autenticado sin perfil en Firestore:', user.uid)
               setAuthError('Su cuenta no tiene un perfil operativo asignado en Expreso Punata. Contacte a la administración para habilitar su sucursal y rol.')
+              await fbSignOut(auth).catch(() => {})
               setUserProfile(null)
               _setCurrentBranchId('punata')
               saveProfile(null)
@@ -118,30 +126,74 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } catch (e) {
           console.error('[Auth Error] Error al verificar perfil en Firestore:', e)
-          setAuthError('Error de verificación de perfil. Verifique su conexión al sistema.')
+          setAuthError('Error de verificación de perfil en Firestore. Verifique su conexión al sistema.')
           setUserProfile(null)
           _setCurrentBranchId('punata')
           saveProfile(null)
         }
       } else {
-        // Usuario no autenticado: limpiar todo estado sensible y reiniciar sucursal
+        // Usuario no autenticado
         setUserProfile(null)
         _setCurrentBranchId('punata')
         saveProfile(null)
       }
-      setIsLoading(false)
+
+      // El bootstrap inicial de Firebase concluye aquí
+      setIsInitializing(false)
     })
 
     return () => unsubscribe()
-  }, [])
+  }, [userProfile])
 
-  const signIn = async (email: string, pass: string) => {
-    setIsLoading(true)
+  /**
+   * Inicio de sesión determinístico y seguro:
+   * 1. Autentica contra Firebase Auth.
+   * 2. Recupera inmediatamente el perfil en Firestore.
+   * 3. Valida isActive y asignación de agencia ANTES de resolver.
+   * 4. En caso de error, limpia la sesión en Auth y propaga la excepción exacta
+   *    sin provocar el desmontaje del formulario de login.
+   */
+  const signIn = async (email: string, pass: string): Promise<UserProfile> => {
+    setIsLoggingIn(true)
     setAuthError(null)
+
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), pass)
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), pass)
+      const user = userCredential.user
+
+      const userDoc = await getDoc(doc(db, 'users', user.uid))
+      if (!userDoc.exists()) {
+        await fbSignOut(auth).catch(() => {})
+        const missingErr = 'Su cuenta no tiene un perfil operativo asignado en Expreso Punata. Contacte a la administración para habilitar su acceso.'
+        setAuthError(missingErr)
+        throw new Error(missingErr)
+      }
+
+      const profileData = userDoc.data() as UserProfile
+
+      if (profileData.isActive === false) {
+        await fbSignOut(auth).catch(() => {})
+        const inactiveErr = 'Su cuenta de usuario se encuentra inactiva. Comuníquese con la administración de Expreso Punata.'
+        setAuthError(inactiveErr)
+        throw new Error(inactiveErr)
+      }
+
+      setCurrentUser(user)
+      setUserProfile(profileData)
+      const assignedBranch = profileData.primaryBranchId || 'punata'
+      _setCurrentBranchId(assignedBranch)
+
+      if (isEmulatedEnvironment) {
+        saveProfile(profileData)
+      }
+
+      return profileData
+    } catch (err: unknown) {
+      setUserProfile(null)
+      saveProfile(null)
+      throw err
     } finally {
-      setIsLoading(false)
+      setIsLoggingIn(false)
     }
   }
 
@@ -224,7 +276,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role === 'directiva_admin' || role === 'tesoreria'
           ? ['punata', 'cochabamba']
           : role === 'secretaria'
-            ? [branchId] // Secretaria strictly 1 branch
+            ? [branchId]
             : [branchId],
       assignedVehiclePlate: role === 'conductor' ? '2345-TGB' : undefined,
       assignedMobileNumber: role === 'conductor' ? 'M-14' : undefined,
@@ -258,7 +310,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentBranchId,
         setCurrentBranchId,
         switchBranch,
-        isLoading,
+        isInitializing,
+        isLoggingIn,
+        isLoading: isInitializing, // Compatibilidad garantizada
         signIn,
         signOut,
         resetPassword,

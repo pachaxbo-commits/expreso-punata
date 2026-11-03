@@ -531,9 +531,9 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 }
 
 export const AppContent: React.FC = () => {
-  const { userProfile, isLoading } = useAuth()
+  const { userProfile, isInitializing } = useAuth()
 
-  if (isLoading) {
+  if (isInitializing) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
         <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
