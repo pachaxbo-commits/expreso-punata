@@ -77,6 +77,12 @@ export const AppContent: React.FC = () => {
 
   const currentBranch = INITIAL_BRANCHES.find(b => b.id === currentBranchId) || INITIAL_BRANCHES[0]
 
+  const selectableBranches = INITIAL_BRANCHES.filter(b => {
+    if (userProfile?.role === 'directiva_admin') return true
+    if (Array.isArray(userProfile?.allowedBranchIds) && userProfile.allowedBranchIds.includes(b.id)) return true
+    return b.id === userProfile?.primaryBranchId
+  })
+
   // Pestañas filtradas por rol del usuario (RBAC en interfaz)
   const tabs = [
     { id: 'shipments', label: 'Encomiendas', icon: Package, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
@@ -89,6 +95,12 @@ export const AppContent: React.FC = () => {
     { id: 'reports', label: 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
     { id: 'config', label: 'Configuración', icon: Settings, visible: hasRole(['directiva_admin']) },
   ].filter(t => t.visible)
+
+  useEffect(() => {
+    if (tabs.length > 0 && !tabs.some(t => t.id === activeTab)) {
+      setActiveTab(tabs[0].id)
+    }
+  }, [tabs, activeTab])
 
   // Encomiendas a listar (prioriza registros de Firestore Emulator)
   // En entorno Cloud o cuando el backend está conectado, mostramos exclusivamente datos reales de Firestore (0 si está vacío).
@@ -128,22 +140,38 @@ export const AppContent: React.FC = () => {
 
           {/* Sucursal, Rol y Usuario */}
           <div className="flex items-center gap-2 sm:gap-3 text-xs">
-            {/* Selector de Sucursal */}
-            <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800">
-              <MapPin className="w-3.5 h-3.5 text-[#facc15]" />
-              <select
-                value={currentBranchId}
-                onChange={e => setCurrentBranchId(e.target.value)}
-                className="bg-transparent text-white font-medium focus:outline-none cursor-pointer"
-                disabled={!hasRole(['directiva_admin', 'tesoreria'])}
-              >
-                {INITIAL_BRANCHES.map(b => (
-                  <option key={b.id} value={b.id} className="bg-slate-900 text-white">
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Indicador / Selector de Sucursal según rol (RBAC visual estricto) */}
+            {userProfile?.role === 'conductor' ? (
+              <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
+                <Truck className="w-3.5 h-3.5 text-[#facc15]" />
+                <span>Móvil {userProfile.assignedMobileNumber || '14'} (Ruta Interprovincial)</span>
+              </div>
+            ) : userProfile?.role === 'secretaria' ? (
+              <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
+                <MapPin className="w-3.5 h-3.5 text-[#facc15]" />
+                <span>Agencia {currentBranch.name}</span>
+              </div>
+            ) : selectableBranches.length > 1 ? (
+              <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800">
+                <MapPin className="w-3.5 h-3.5 text-[#facc15]" />
+                <select
+                  value={currentBranchId}
+                  onChange={e => setCurrentBranchId(e.target.value)}
+                  className="bg-transparent text-white font-medium focus:outline-none cursor-pointer"
+                >
+                  {selectableBranches.map(b => (
+                    <option key={b.id} value={b.id} className="bg-slate-900 text-white">
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
+                <MapPin className="w-3.5 h-3.5 text-[#facc15]" />
+                <span>Agencia {currentBranch.name}</span>
+              </div>
+            )}
 
             {/* Botón Mi Perfil */}
             <button

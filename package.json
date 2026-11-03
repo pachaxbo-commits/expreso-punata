@@ -19,6 +19,7 @@
     "test:e2e": "node tests/e2e/runBrowserVerification.mjs",
     "emulators": "firebase emulators:start --only auth,firestore,storage,functions",
     "admin:bootstrap": "node scripts/bootstrapAdmin.mjs",
+    "admin:credential": "node scripts/manageAdminAccount.mjs",
     "test:journey": "firebase emulators:exec --only firestore,auth,storage \"node tests/e2e/runFullAuthenticatedBusinessJourney.mjs\""
   },
   "dependencies": {

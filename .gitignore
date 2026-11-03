@@ -38,3 +38,5 @@ firebase-debug.log*
 .env.*.local
 
 .vercel
+.admin-password-reset.txt
+evidence/
