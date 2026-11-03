@@ -501,6 +501,150 @@ export class PrintEngineService {
   /**
    * Genera e imprime un ticket de prueba y diagnóstico de estación de trabajo.
    */
+  /**
+   * Construye el documento unificado para comprobante de pago de salario o anticipo a trabajador.
+   */
+  public buildFromWorkerPayment(
+    payment: any,
+    branchId: string,
+    operatorName: string
+  ): UnifiedDocumentPayload {
+    const branch = INITIAL_BRANCHES.find((b) => b.id === branchId) || INITIAL_BRANCHES[0]
+    const amountBob = payment.amountBob || (payment.amountCents ? payment.amountCents / 100 : 0)
+
+    return {
+      documentType: 'worker_payroll_receipt',
+      title: 'RECIBO DE PAGO DE PERSONAL',
+      subtitle: `Concepto: ${payment.concept || 'Nómina / Salario'}`,
+      branchId,
+      branchName: branch.name,
+      branchAddress: branch.address,
+      branchPhone: branch.phone,
+      documentNumber: payment.paymentNumber || payment.receiptNumber || 'REC-TRA-00000',
+      timestampIso: payment.paidAtIso || new Date().toISOString(),
+      operatorName: payment.registeredByName || operatorName,
+      qrContent: `EXPRESO-PUNATA:PAGO-TRA:${payment.paymentNumber || payment.receiptNumber}:${payment.workerCode || ''}:${amountBob.toFixed(2)}`,
+      recipient: {
+        name: `${payment.workerName || 'Trabajador'} (${payment.workerCode || ''})`,
+        docType: 'CI',
+        docNumber: payment.workerCi || '',
+      },
+      items: [
+        {
+          description: `${payment.concept || 'Sueldo / Adelanto'} (${payment.period || 'Período corriente'})`,
+          quantity: 1,
+          totalBob: amountBob,
+        },
+      ],
+      financials: {
+        subtotalBob: amountBob,
+        totalBob: amountBob,
+        amountCents: payment.amountCents || Math.round(amountBob * 100),
+        paymentMethod: payment.paymentMethod || 'cash',
+        paymentConditionLabel: 'PAGO DE PERSONAL EFECTUADO',
+      },
+      signatures: {
+        operatorSignatureName: payment.registeredByName || operatorName,
+        clientSignatureName: payment.workerName || 'Firma Trabajador',
+      },
+      footerNotes: [
+        `Cargo: ${payment.workerRole || 'Personal'} | Período: ${payment.period || '-'}`,
+        `Método: ${(payment.paymentMethod || 'cash').toUpperCase()}`,
+        'Constancia de pago y conformidad de recepción de fondos.',
+      ],
+    }
+  }
+
+  /**
+   * Construye el documento unificado para comprobante oficial de egreso operativo.
+   */
+  public buildFromGeneralExpense(
+    expense: any,
+    branchId: string,
+    operatorName: string
+  ): UnifiedDocumentPayload {
+    const branch = INITIAL_BRANCHES.find((b) => b.id === branchId) || INITIAL_BRANCHES[0]
+    const amountBob = expense.amountBob || (expense.amountCents ? expense.amountCents / 100 : 0)
+
+    return {
+      documentType: 'general_expense_voucher',
+      title: 'COMPROBANTE DE EGRESO OPERATIVO',
+      subtitle: `Categoría: ${(expense.category || 'Gasto').toUpperCase()}`,
+      branchId,
+      branchName: branch.name,
+      branchAddress: branch.address,
+      branchPhone: branch.phone,
+      documentNumber: expense.voucherNumber || 'EGR-00000',
+      timestampIso: expense.createdAtIso || expense.paidAtIso || new Date().toISOString(),
+      operatorName: expense.createdByName || expense.registeredByName || operatorName,
+      qrContent: `EXPRESO-PUNATA:EGRESO:${expense.voucherNumber}:${expense.category}:${amountBob.toFixed(2)}`,
+      recipient: {
+        name: expense.supplier ? `Proveedor / Beneficiario: ${expense.supplier}` : 'Beneficiario General',
+        docType: expense.invoiceOrReceiptNumber ? 'DOC' : undefined,
+        docNumber: expense.invoiceOrReceiptNumber,
+      },
+      items: [
+        {
+          description: expense.concept || 'Gasto operativo',
+          quantity: 1,
+          totalBob: amountBob,
+        },
+      ],
+      financials: {
+        subtotalBob: amountBob,
+        totalBob: amountBob,
+        amountCents: expense.amountCents || Math.round(amountBob * 100),
+        paymentMethod: expense.paymentMethod || 'cash',
+        paymentConditionLabel: 'EGRESO OPERATIVO CONTABILIZADO',
+      },
+      signatures: {
+        operatorSignatureName: expense.createdByName || operatorName,
+        clientSignatureName: expense.supplier || 'Recibí Conforme',
+      },
+      footerNotes: [
+        `Categoría: ${(expense.category || '').toUpperCase()} | Sucursal: ${(expense.branchId || branchId).toUpperCase()}`,
+        expense.invoiceOrReceiptNumber ? `Nro Factura / Recibo: ${expense.invoiceOrReceiptNumber}` : '',
+        'Comprobante interno justificado y auditado para rendición de caja.',
+      ].filter(Boolean),
+    }
+  }
+
+  /**
+   * Construye el documento para etiqueta térmica de inventario de activo fijo.
+   */
+  public buildFromFixedAssetLabel(
+    asset: any,
+    branchId: string
+  ): UnifiedDocumentPayload {
+    const branch = INITIAL_BRANCHES.find((b) => b.id === (asset.branchId || branchId)) || INITIAL_BRANCHES[0]
+
+    return {
+      documentType: 'fixed_asset_label',
+      title: 'ACTIVO FIJO — EXPRESO PUNATA',
+      subtitle: `Código: ${asset.assetCode}`,
+      branchId: asset.branchId || branchId,
+      branchName: branch.name,
+      branchAddress: branch.address,
+      branchPhone: branch.phone,
+      documentNumber: asset.assetCode,
+      timestampIso: new Date().toISOString(),
+      operatorName: asset.responsiblePersonName || 'Encargado',
+      qrContent: `EXPRESO-PUNATA:ACTIVO:${asset.assetCode}:${asset.branchId}`,
+      items: [
+        {
+          description: asset.name,
+          quantity: 1,
+        },
+      ],
+      footerNotes: [
+        `Categoría: ${(asset.category || '').toUpperCase()}`,
+        `Ubicación: ${asset.physicalLocation}`,
+        `Responsable: ${asset.responsiblePersonName}`,
+        `Estado: ${(asset.status || '').toUpperCase()}`,
+      ],
+    }
+  }
+
   public async printTestTicket(
     branchId: string = 'punata',
     operatorName: string = 'Administrador',

@@ -16,11 +16,14 @@ import {
   CheckCircle2,
   ShieldCheck,
   FileText,
+  Briefcase,
 } from 'lucide-react'
 import { AuthProvider, useAuth } from '../modules/auth/AuthContext'
 import { LoginView } from '../modules/auth/LoginView'
 import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../domain/expresoPunataConfig'
-import { DEV_SHIPMENTS, DEV_ASSETS } from '../fixtures/devFixtures'
+import { DEV_SHIPMENTS } from '../fixtures/devFixtures'
+import { FixedAssetsView } from '../modules/assets/FixedAssetsView'
+import { WorkersAndExpensesView } from '../modules/workers/WorkersAndExpensesView'
 import { UnionMembersView } from '../modules/union/UnionMembersView.tsx'
 import { formatCurrencyBob } from '../domain/parcelEngine'
 import { subscribeShipmentsByBranch, fetchShipmentByTrackingCode } from '../services/shipmentService'
@@ -96,6 +99,7 @@ export const AppContent: React.FC = () => {
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
     { id: 'dues', label: 'Socios & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
+    { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
     { id: 'config', label: 'Configuración', icon: Settings, visible: hasRole(['directiva_admin']) },
   ].filter(t => t.visible)
@@ -541,48 +545,20 @@ export const AppContent: React.FC = () => {
           />
         )}
 
-        {/* PESTAÑA 6: BIENES FIJOS */}
-        {activeTab === 'assets' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">
-                  Inventario de Bienes Fijos de Expreso Punata
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Control de muebles, computadoras, impresoras y herramientas.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="px-3.5 py-2 bg-[#064e3b] text-white text-xs font-bold rounded-lg shadow flex items-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Registrar Bien</span>
-              </button>
-            </div>
+        {/* PESTAÑA: PERSONAL & GASTOS OPERATIVOS */}
+        {activeTab === 'workers' && (
+          <WorkersAndExpensesView
+            currentBranchId={currentBranchId}
+            userProfile={userProfile}
+          />
+        )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {DEV_ASSETS.map(a => (
-                <div key={a.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-[#064e3b]">
-                      {a.assetCode}
-                    </span>
-                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      {a.status.replace('_', ' ')}
-                    </span>
-                  </div>
-                  <h4 className="text-xs font-bold text-slate-800">{a.name}</h4>
-                  <p className="text-[11px] text-slate-500">{a.description}</p>
-                  <div className="text-[11px] text-slate-600 border-t border-slate-100 pt-2 flex items-center justify-between">
-                    <span>Ubicación: <strong className="text-slate-700">{a.physicalLocation}</strong></span>
-                    <span>Resp: <strong className="text-slate-700">{a.responsiblePersonName}</strong></span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* PESTAÑA: BIENES FIJOS (INVENTARIO REAL) */}
+        {activeTab === 'assets' && (
+          <FixedAssetsView
+            currentBranchId={currentBranchId}
+            userProfile={userProfile}
+          />
         )}
 
         {/* PESTAÑA 7: CONFIGURACIÓN Y ADMINISTRACIÓN */}

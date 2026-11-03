@@ -302,3 +302,74 @@ test('7. MOTOR DE IMPRESIÓN: Autodiagnóstico de estación', () => {
   assert.ok(diag.defaultPrinterName)
   assert.equal(diag.defaultFormat, '80mm')
 })
+
+test('8. MOTOR DE IMPRESIÓN: Generación de Recibo de Nómina para Trabajador (buildFromWorkerPayment)', () => {
+  const samplePayment = {
+    paymentNumber: 'REC-TRA-2026-00001',
+    workerId: 'worker-1',
+    workerCode: 'TRA-005',
+    workerName: 'Juan Carlos Mamani',
+    workerRole: 'estibador',
+    workerCi: '4532189-CB',
+    amountBob: 2500,
+    amountCents: 250000,
+    concept: 'Salario mensual Octubre 2026',
+    period: '2026-10',
+    paymentMethod: 'cash',
+    paidAtIso: '2026-11-02T18:00:00.000Z',
+    registeredByName: 'Nelson Admin',
+  }
+
+  const doc = printEngine.buildFromWorkerPayment(samplePayment, 'punata', 'Nelson Admin')
+  assert.equal(doc.documentType, 'worker_payroll_receipt')
+  assert.equal(doc.documentNumber, 'REC-TRA-2026-00001')
+  assert.equal(doc.title, 'RECIBO DE PAGO DE PERSONAL')
+  assert.equal(doc.financials?.amountCents, 250000)
+  assert.equal(doc.financials?.totalBob, 2500)
+  assert.ok(doc.qrContent?.includes('EXPRESO-PUNATA:PAGO-TRA:REC-TRA-2026-00001'))
+  assert.equal(doc.signatures?.clientSignatureName, 'Juan Carlos Mamani')
+})
+
+test('9. MOTOR DE IMPRESIÓN: Generación de Comprobante de Egreso Operativo (buildFromGeneralExpense)', () => {
+  const sampleExpense = {
+    voucherNumber: 'EGR-2026-00001',
+    category: 'servicios_basicos',
+    branchId: 'cochabamba',
+    concept: 'Servicio de energía eléctrica ANDE Cochabamba',
+    amountBob: 340.5,
+    amountCents: 34050,
+    supplier: 'ENDE Cochabamba',
+    invoiceOrReceiptNumber: 'FAC-987654',
+    paymentMethod: 'cash',
+    createdAtIso: '2026-11-02T18:30:00.000Z',
+    createdByName: 'Nelson Admin',
+  }
+
+  const doc = printEngine.buildFromGeneralExpense(sampleExpense, 'cochabamba', 'Nelson Admin')
+  assert.equal(doc.documentType, 'general_expense_voucher')
+  assert.equal(doc.documentNumber, 'EGR-2026-00001')
+  assert.equal(doc.title, 'COMPROBANTE DE EGRESO OPERATIVO')
+  assert.equal(doc.financials?.amountCents, 34050)
+  assert.equal(doc.financials?.totalBob, 340.5)
+  assert.ok(doc.qrContent?.includes('EXPRESO-PUNATA:EGRESO:EGR-2026-00001'))
+})
+
+test('10. MOTOR DE IMPRESIÓN: Generación de Etiqueta Térmica de Activo Fijo (buildFromFixedAssetLabel)', () => {
+  const sampleAsset = {
+    id: 'asset-1',
+    assetCode: 'ACT-PUN-0001',
+    name: 'Impresora Térmica Xprinter 80mm',
+    category: 'computacion',
+    branchId: 'punata',
+    physicalLocation: 'Ventanilla 1 - Recepción',
+    responsiblePersonName: 'María Rodríguez',
+    status: 'in_use',
+  }
+
+  const doc = printEngine.buildFromFixedAssetLabel(sampleAsset, 'punata')
+  assert.equal(doc.documentType, 'fixed_asset_label')
+  assert.equal(doc.documentNumber, 'ACT-PUN-0001')
+  assert.ok(doc.title?.includes('ACTIVO FIJO'))
+  assert.ok(doc.qrContent?.includes('EXPRESO-PUNATA:ACTIVO:ACT-PUN-0001'))
+  assert.equal(doc.items?.[0]?.description, 'Impresora Térmica Xprinter 80mm')
+})

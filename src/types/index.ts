@@ -327,20 +327,146 @@ export interface FinancialMovement {
 
 export type CashMovement = FinancialMovement
 
+export type FixedAssetCategory =
+  | 'computacion'
+  | 'muebles'
+  | 'herramientas'
+  | 'comunicacion'
+  | 'balanzas_pesaje'
+  | 'oficina'
+  | 'otro'
+
+export type FixedAssetStatus =
+  | 'available'
+  | 'in_use'
+  | 'in_maintenance'
+  | 'damaged'
+  | 'out_of_service'
+  | 'lost'
+  | 'disposed'
+
 export interface FixedAsset {
   id: string
   assetCode: string // ej. 'ACT-PUN-0012'
   barcodeQr: string
   name: string
-  category: 'computacion' | 'muebles' | 'herramientas' | 'comunicacion' | 'oficina' | 'otro'
+  category: FixedAssetCategory
   description: string
-  branchId: string
+  branchId: string // 'punata' | 'cochabamba'
   physicalLocation: string
   responsiblePersonUid?: string
   responsiblePersonName: string
   acquisitionDate: string
   acquisitionCostBob?: number
-  status: 'available' | 'in_use' | 'in_maintenance' | 'damaged' | 'out_of_service' | 'lost' | 'disposed'
+  acquisitionCostCents?: number
+  status: FixedAssetStatus
+  photoUrl?: string
+  notes?: string
+  createdAtIso?: string
+  updatedAtIso?: string
+  disposedReason?: string
+  disposedAtIso?: string
+  disposedByUid?: string
+  disposedByName?: string
+}
+
+export interface FixedAssetAuditLog {
+  id: string
+  assetId: string
+  assetCode: string
+  action: 'created' | 'update' | 'transfer' | 'maintenance' | 'status_change' | 'disposed'
+  previousLocation?: string
+  newLocation?: string
+  previousResponsible?: string
+  newResponsible?: string
+  previousStatus?: string
+  newStatus?: string
+  details: string
+  performedByUid: string
+  performedByName: string
+  timestampIso: string
+}
+
+export type WorkerRole =
+  | 'secretaria'
+  | 'estibador'
+  | 'chofer_relevo'
+  | 'limpieza'
+  | 'seguridad'
+  | 'administrativo'
+  | 'encargado'
+  | 'otro'
+
+export type WorkerStatus = 'active' | 'inactive' | 'suspended'
+
+export interface Worker {
+  id: string
+  workerCode: string // ej. 'TRA-001'
+  fullName: string
+  ci: string
+  phone: string
+  role: WorkerRole
+  roleLabel?: string
+  branchId: string // 'punata' | 'cochabamba' | 'ambas'
+  salaryType: 'monthly' | 'daily' | 'per_task'
+  baseSalaryBob: number
+  baseSalaryCents: number
+  status: WorkerStatus
+  joinedAt: string
+  notes?: string
+  createdAtIso?: string
+  updatedAtIso?: string
+}
+
+export interface WorkerPayment {
+  id: string
+  paymentNumber: string // ej. 'REC-TRA-2026-00001'
+  workerId: string
+  workerCode: string
+  workerName: string
+  workerRole: string
+  workerCi: string
+  amountBob: number
+  amountCents: number
+  concept: string
+  period?: string // ej. '2026-10'
+  paymentMethod: 'cash' | 'transfer' | 'check'
+  shiftId?: string | null
+  branchId: string
+  paidAtIso: string
+  registeredByUid: string
+  registeredByName: string
+  notes?: string
+  status: 'completed' | 'cancelled'
+}
+
+export type ExpenseCategory =
+  | 'alquiler'
+  | 'servicios_basicos'
+  | 'combustible'
+  | 'mantenimiento'
+  | 'material_escritorio'
+  | 'viaticos'
+  | 'impuestos_tasas'
+  | 'otro'
+
+export interface GeneralExpense {
+  id: string
+  voucherNumber: string // ej. 'EGR-2026-00001'
+  category: ExpenseCategory
+  branchId: string // 'punata' | 'cochabamba' | 'general'
+  concept: string
+  amountBob: number
+  amountCents: number
+  supplier?: string
+  invoiceOrReceiptNumber?: string
+  paymentMethod: 'cash' | 'transfer' | 'qr'
+  shiftId?: string | null
+  paidAtIso?: string
+  createdAtIso: string
+  createdByUid: string
+  createdByName: string
+  status: 'completed' | 'cancelled'
   notes?: string
 }
 
