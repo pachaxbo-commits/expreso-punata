@@ -17,12 +17,14 @@ import {
   ShieldCheck,
   FileText,
   Briefcase,
+  BarChart3,
 } from 'lucide-react'
 import { AuthProvider, useAuth } from '../modules/auth/AuthContext'
 import { LoginView } from '../modules/auth/LoginView'
 import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../domain/expresoPunataConfig'
 import { DEV_SHIPMENTS } from '../fixtures/devFixtures'
 import { FixedAssetsView } from '../modules/assets/FixedAssetsView'
+import { ReportsManagementView } from '../modules/reports/ReportsManagementView.tsx'
 import { WorkersAndExpensesView } from '../modules/workers/WorkersAndExpensesView'
 import { UnionMembersView } from '../modules/union/UnionMembersView.tsx'
 import { formatCurrencyBob } from '../domain/parcelEngine'
@@ -101,6 +103,7 @@ export const AppContent: React.FC = () => {
     { id: 'dues', label: 'Socios & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
+    { id: 'reports', label: 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
     { id: 'config', label: 'Configuración', icon: Settings, visible: hasRole(['directiva_admin']) },
   ].filter(t => t.visible)
 
@@ -558,6 +561,14 @@ export const AppContent: React.FC = () => {
           <FixedAssetsView
             currentBranchId={currentBranchId}
             userProfile={userProfile}
+          />
+        )}
+
+        {/* PESTAÑA: REPORTES Y ESTADÍSTICAS */}
+        {activeTab === 'reports' && (
+          <ReportsManagementView
+            currentUser={userProfile}
+            currentBranch={currentBranch}
           />
         )}
 
