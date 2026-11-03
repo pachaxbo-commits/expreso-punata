@@ -619,3 +619,80 @@ test('16. CUSTODIA DE CONDUCTORES: Lectura autorizada; escritura directa desde e
   // No autenticado es bloqueado
   await assertFails(getDoc(doc(unauthDb, 'driver_custody_accounts', 'chofer-custodia')))
 })
+
+test('17. FASE A: BLOQUEO ESTRICTO DE ESCRITURA DIRECTA A DOCUMENTOS FINANCIEROS Y ACTIVOS FIJOS', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'admin-user'), {
+      role: 'directiva_admin',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'],
+      isActive: true,
+      fullName: 'Nelson Directiva',
+    })
+    await setDoc(doc(context.firestore(), 'users', 'treasury-user'), {
+      role: 'tesoreria',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'],
+      isActive: true,
+      fullName: 'Tesorero Oficial',
+    })
+    // Seed existing documents
+    await setDoc(doc(context.firestore(), 'union_members', 'mem-1'), {
+      fullName: 'Socio Juan Pérez',
+      status: 'active',
+      monthlyFeeCents: 5000,
+    })
+    await setDoc(doc(context.firestore(), 'union_dues', 'due-1'), {
+      memberId: 'mem-1',
+      period: '2026-11',
+      amountCents: 5000,
+      balanceCents: 5000,
+      status: 'pending',
+    })
+    await setDoc(doc(context.firestore(), 'union_workers', 'work-1'), {
+      fullName: 'Pedro Choque',
+      role: 'estibador',
+      status: 'active',
+    })
+    await setDoc(doc(context.firestore(), 'fixed_assets', 'asset-1'), {
+      name: 'Balanza Digital 300kg',
+      category: 'herramientas',
+      status: 'available',
+    })
+  })
+
+  const adminDb = testEnv.authenticatedContext('admin-user', { role: 'directiva_admin', isActive: true }).firestore()
+  const treasuryDb = testEnv.authenticatedContext('treasury-user', { role: 'tesoreria', isActive: true }).firestore()
+
+  // 1. union_members: Lectura permitida, escritura directa BLOQUEADA
+  await assertSucceeds(getDoc(doc(adminDb, 'union_members', 'mem-1')))
+  await assertFails(setDoc(doc(adminDb, 'union_members', 'mem-2'), { fullName: 'Nuevo' }))
+  await assertFails(updateDoc(doc(adminDb, 'union_members', 'mem-1'), { fullName: 'Alterado' }))
+  await assertFails(deleteDoc(doc(adminDb, 'union_members', 'mem-1')))
+  await assertFails(setDoc(doc(treasuryDb, 'union_members', 'mem-2'), { fullName: 'Nuevo' }))
+
+  // 2. union_dues y pagos: Lectura permitida, escritura directa BLOQUEADA
+  await assertSucceeds(getDoc(doc(treasuryDb, 'union_dues', 'due-1')))
+  await assertFails(setDoc(doc(treasuryDb, 'union_dues', 'due-2'), { amountCents: 5000 }))
+  await assertFails(updateDoc(doc(treasuryDb, 'union_dues', 'due-1'), { balanceCents: 0 }))
+  await assertFails(deleteDoc(doc(adminDb, 'union_dues', 'due-1')))
+  await assertFails(setDoc(doc(treasuryDb, 'union_dues', 'due-1', 'payments', 'pay-1'), { amountCents: 5000 }))
+
+  // 3. union_workers y pagos de nómina: Lectura permitida, escritura directa BLOQUEADA
+  await assertSucceeds(getDoc(doc(adminDb, 'union_workers', 'work-1')))
+  await assertFails(setDoc(doc(adminDb, 'union_workers', 'work-2'), { fullName: 'Nuevo' }))
+  await assertFails(updateDoc(doc(adminDb, 'union_workers', 'work-1'), { fullName: 'Modificado' }))
+  await assertFails(deleteDoc(doc(adminDb, 'union_workers', 'work-1')))
+  await assertFails(setDoc(doc(adminDb, 'union_worker_payments', 'pay-1'), { amountCents: 200000 }))
+
+  // 4. union_expenses: Lectura permitida, escritura directa BLOQUEADA
+  await assertFails(setDoc(doc(adminDb, 'union_expenses', 'exp-1'), { amountCents: 15000 }))
+  await assertFails(deleteDoc(doc(adminDb, 'union_expenses', 'exp-1')))
+
+  // 5. fixed_assets y auditoría: Lectura permitida, escritura directa BLOQUEADA
+  await assertSucceeds(getDoc(doc(adminDb, 'fixed_assets', 'asset-1')))
+  await assertFails(setDoc(doc(adminDb, 'fixed_assets', 'asset-2'), { name: 'Impresora' }))
+  await assertFails(updateDoc(doc(adminDb, 'fixed_assets', 'asset-1'), { status: 'disposed' }))
+  await assertFails(deleteDoc(doc(adminDb, 'fixed_assets', 'asset-1')))
+  await assertFails(setDoc(doc(adminDb, 'fixed_assets', 'asset-1', 'audit_logs', 'log-1'), { action: 'hacked' }))
+})

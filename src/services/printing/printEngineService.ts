@@ -258,11 +258,40 @@ export class PrintEngineService {
   ): UnifiedDocumentPayload {
     const branch = INITIAL_BRANCHES.find((b) => b.id === movement.branchId) || INITIAL_BRANCHES[0]
     const amountBob = movement.amountCents / 100
+    const mType = movement.type as string
+
+    const paymentConditionLabel =
+      mType === 'driver_remittance'
+        ? (movement.settlementType === 'partial' ? 'RENDICIÓN PARCIAL EN CAJA' : 'RENDICIÓN COMPLETA EN CAJA')
+        : mType === 'cod_income'
+        ? 'CONTRAENTREGA COBRADA EN DESTINO'
+        : mType === 'origin_paid' || mType === 'shipment_income'
+        ? 'PAGADO EN ORIGEN (ENCOMIENDA)'
+        : mType === 'contribution_income' || mType === 'monthly_fee_income' || mType === 'contribution'
+        ? 'APORTE / CUOTA SOCIAL'
+        : mType === 'worker_payroll'
+        ? 'PAGO DE HABERES PERSONAL'
+        : mType === 'expense' || mType === 'general_expense'
+        ? 'EGRESO OPERATIVO AUTORIZADO'
+        : mType === 'refund'
+        ? 'DEVOLUCIÓN DE FONDOS'
+        : 'MOVIMIENTO REGISTRADO EN CAJA'
+
+    const title =
+      mType === 'expense' || mType === 'general_expense'
+        ? 'COMPROBANTE DE EGRESO OPERATIVO'
+        : mType === 'worker_payroll'
+        ? 'RECIBO DE PAGO DE PERSONAL'
+        : mType === 'contribution_income' || mType === 'monthly_fee_income' || mType === 'contribution'
+        ? 'RECIBO DE APORTE / CUOTA SOCIAL'
+        : mType === 'driver_remittance'
+        ? 'ACTA DE RENDICIÓN DE CONDUCTOR'
+        : 'RECIBO DE COBRO EN VENTANILLA'
 
     return {
       documentType: 'payment_receipt',
-      title: 'RECIBO DE COBRO EN VENTANILLA',
-      subtitle: movement.concept,
+      title,
+      subtitle: movement.concept || movement.description,
       branchId: movement.branchId,
       branchName: branch.name,
       branchAddress: branch.address,
@@ -277,13 +306,9 @@ export class PrintEngineService {
         amountCents: movement.amountCents,
         paymentMethod: movement.paymentMethod === 'none' ? 'cash' : (movement.paymentMethod as any),
         paymentStatus: 'paid',
-        paymentConditionLabel: movement.type === 'driver_remittance'
-          ? (movement.settlementType === 'partial' ? 'RENDICIÓN PARCIAL EN CAJA' : 'RENDICIÓN COMPLETA EN CAJA')
-          : movement.type === 'cod_income'
-          ? 'CONTRAENTREGA COBRADA EN DESTINO'
-          : 'PAGADO EN ORIGEN',
+        paymentConditionLabel,
       },
-      footerNotes: ['Comprobante de ingreso de caja.'],
+      footerNotes: ['Comprobante de movimiento oficial de caja.'],
     }
   }
 
@@ -296,6 +321,14 @@ export class PrintEngineService {
   ): UnifiedDocumentPayload {
     const branch = INITIAL_BRANCHES.find((b) => b.id === shift.branchId) || INITIAL_BRANCHES[0]
     const b = shift.breakdown
+
+    const driverRemittanceCents = (b.driverRemittanceCents !== undefined && b.driverRemittanceCents !== null)
+      ? b.driverRemittanceCents
+      : (b.otherIncomeCents || 0)
+
+    const contributionsIncomeCents = (b.contributionsIncomeCents !== undefined && b.contributionsIncomeCents !== null)
+      ? b.contributionsIncomeCents
+      : (b.monthlyFeesIncomeCents || 0)
 
     return {
       documentType: 'cash_shift_close',
@@ -322,7 +355,8 @@ export class PrintEngineService {
         { description: 'Fondo Inicial de Caja', quantity: 1, totalBob: (shift.initialCashCents || 0) / 100 },
         { description: 'Ingresos por Encomiendas (Origen)', quantity: 1, totalBob: (b.shipmentsIncomeCents || 0) / 100 },
         { description: 'Ingresos por Contraentrega (COD)', quantity: 1, totalBob: (b.codIncomeCents || 0) / 100 },
-        { description: 'Remesas Rendidas por Choferes', quantity: 1, totalBob: (b.otherIncomeCents || 0) / 100 },
+        { description: 'Remesas Rendidas por Choferes', quantity: 1, totalBob: driverRemittanceCents / 100 },
+        { description: 'Aportes y Cuotas de Socios', quantity: 1, totalBob: contributionsIncomeCents / 100 },
         { description: 'Egresos de Caja Autorizados', quantity: 1, totalBob: -((b.expensesCents || 0) / 100) },
       ],
       signatures: {
@@ -366,10 +400,10 @@ export class PrintEngineService {
         paymentMethod: 'cash',
         paymentConditionLabel: settlement.remainingDriverBalanceCents === 0 ? 'RENDICIÓN COMPLETA EN CAJA' : 'RENDICIÓN PARCIAL EN CAJA',
       },
+      // Guías vinculadas se listan como referencia sin duplicar el monto total de la rendición en cada fila
       items: (settlement.shipmentIds || []).map((sId: string) => ({
         description: `Guía conciliada: ${sId}`,
         quantity: 1,
-        totalBob: amountBob,
       })),
       signatures: {
         operatorSignatureName: operatorName,

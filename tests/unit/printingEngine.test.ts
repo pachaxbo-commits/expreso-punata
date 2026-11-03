@@ -373,3 +373,109 @@ test('10. MOTOR DE IMPRESIÓN: Generación de Etiqueta Térmica de Activo Fijo (
   assert.ok(doc.qrContent?.includes('EXPRESO-PUNATA:ACTIVO:ACT-PUN-0001'))
   assert.equal(doc.items?.[0]?.description, 'Impresora Térmica Xprinter 80mm')
 })
+
+test('11. MOTOR DE IMPRESIÓN: buildFromCashMovement genera títulos y condiciones de pago precisas', () => {
+  // Movimiento de aporte social
+  const mContribution = {
+    id: 'MOV-01',
+    branchId: 'punata',
+    type: 'contribution_income',
+    amountCents: 5000,
+    amountBob: 50,
+    paymentMethod: 'cash',
+    concept: 'Aporte mensual noviembre',
+  } as any
+
+  const docContrib = printEngine.buildFromCashMovement(mContribution, 'Doña Nelson')
+  assert.equal(docContrib.title, 'RECIBO DE APORTE / CUOTA SOCIAL')
+  assert.equal(docContrib.financials?.paymentConditionLabel, 'APORTE / CUOTA SOCIAL')
+  assert.equal(docContrib.financials?.totalBob, 50)
+
+  // Movimiento de egreso operativo
+  const mExpense = {
+    id: 'MOV-02',
+    branchId: 'cochabamba',
+    type: 'expense',
+    amountCents: 15000,
+    amountBob: 150,
+    paymentMethod: 'cash',
+    concept: 'Pago de alquiler',
+  } as any
+
+  const docExpense = printEngine.buildFromCashMovement(mExpense, 'Doña Nelson')
+  assert.equal(docExpense.title, 'COMPROBANTE DE EGRESO OPERATIVO')
+  assert.equal(docExpense.financials?.paymentConditionLabel, 'EGRESO OPERATIVO AUTORIZADO')
+
+  // Movimiento de nómina
+  const mPayroll = {
+    id: 'MOV-03',
+    branchId: 'punata',
+    type: 'worker_payroll',
+    amountCents: 200000,
+    amountBob: 2000,
+    paymentMethod: 'cash',
+    concept: 'Salario estibador',
+  } as any
+
+  const docPayroll = printEngine.buildFromCashMovement(mPayroll, 'Doña Nelson')
+  assert.equal(docPayroll.title, 'RECIBO DE PAGO DE PERSONAL')
+  assert.equal(docPayroll.financials?.paymentConditionLabel, 'PAGO DE HABERES PERSONAL')
+})
+
+test('12. MOTOR DE IMPRESIÓN: buildFromCashShift incluye aportes de socios y remesas de conductores', () => {
+  const sampleShift = {
+    id: 'shift-cbba-001',
+    branchId: 'cochabamba',
+    initialCashCents: 20000,
+    expectedCashCents: 45000,
+    actualCashCents: 45000,
+    differenceCents: 0,
+    operatorName: 'Nelson Secretaria',
+    closedByName: 'Nelson Secretaria',
+    status: 'closed',
+    breakdown: {
+      initialCashCents: 20000,
+      shipmentsIncomeCents: 10000,
+      codIncomeCents: 5000,
+      driverRemittanceCents: 8000,
+      contributionsIncomeCents: 7000,
+      expensesCents: 5000,
+    },
+  } as any
+
+  const doc = printEngine.buildFromCashShift(sampleShift, 'Nelson Secretaria')
+  assert.equal(doc.documentType, 'cash_shift_close')
+  assert.equal(doc.documentNumber, 'shift-cbba-001')
+
+  const items = doc.items || []
+  const remesasItem = items.find(i => i.description.includes('Remesas Rendidas por Choferes'))
+  assert.ok(remesasItem)
+  assert.equal(remesasItem?.totalBob, 80) // 8000 cents / 100
+
+  const aportesItem = items.find(i => i.description.includes('Aportes y Cuotas de Socios'))
+  assert.ok(aportesItem)
+  assert.equal(aportesItem?.totalBob, 70) // 7000 cents / 100
+})
+
+test('13. MOTOR DE IMPRESIÓN: buildFromDriverSettlement no duplica monto de rendición por cada guía', () => {
+  const settlement = {
+    id: 'SETTL-001',
+    settlementNumber: 'ACTA-REM-2026-0005',
+    branchId: 'punata',
+    amountCents: 15000, // Bs 150 total remitted
+    remainingDriverBalanceCents: 0,
+    driverName: 'Walter Céspedes',
+    shipmentIds: ['PUN-2026-00010', 'PUN-2026-00011', 'PUN-2026-00012'],
+  }
+
+  const doc = printEngine.buildFromDriverSettlement(settlement, 'Nelson Secretaria')
+  assert.equal(doc.documentType, 'driver_settlement')
+  assert.equal(doc.financials?.totalBob, 150)
+  assert.equal(doc.items?.length, 3)
+
+  // Ninguna fila individual de guía debe asignar totalBob = 150
+  for (const it of doc.items || []) {
+    assert.equal(it.totalBob, undefined)
+    assert.ok(it.description.startsWith('Guía conciliada: PUN-2026-'))
+  }
+})

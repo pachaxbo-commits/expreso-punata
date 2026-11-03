@@ -26,11 +26,6 @@ service cloud.firestore {
       return ('role' in getUserData()) ? getUserData().role : ('role' in request.auth.token ? request.auth.token.role : null);
     }
     
-    // Sucursal autoritativa desde Firestore
-    function getUserBranch() {
-      return ('primaryBranchId' in getUserData()) ? getUserData().primaryBranchId : ('branchId' in request.auth.token ? request.auth.token.branchId : null);
-    }
-
     function isAdmin() {
       return getUserRole() == 'directiva_admin';
     }
@@ -54,15 +49,6 @@ service cloud.firestore {
     function isBranchAllowed(branchId) {
       return ('primaryBranchId' in getUserData() && getUserData().primaryBranchId == branchId) ||
              ('allowedBranchIds' in getUserData() && branchId in getUserData().allowedBranchIds);
-    }
-
-    function isValidStatusTransition(oldStatus, newStatus) {
-      return (oldStatus == newStatus) ||
-        (oldStatus == 'received' && newStatus in ['in_warehouse', 'in_transit', 'cancelled']) ||
-        (oldStatus == 'in_warehouse' && newStatus in ['in_transit', 'cancelled']) ||
-        (oldStatus == 'in_transit' && newStatus in ['arrived_at_destination', 'in_delivery']) ||
-        (oldStatus == 'arrived_at_destination' && newStatus in ['in_delivery', 'delivered', 'returned']) ||
-        (oldStatus == 'in_delivery' && newStatus in ['delivered', 'arrived_at_destination', 'returned']);
     }
 
     // =========================================================================
@@ -294,14 +280,11 @@ service cloud.firestore {
     // =========================================================================
     match /fixed_assets/{assetId} {
       allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury() || isCashier());
-      allow create: if isActive() && (isAgencyManager() || isTreasury() || isAdmin());
-      allow update: if isActive() && (isAgencyManager() || isTreasury() || isAdmin());
-      allow delete: if false;
+      allow write: if false; // Exclusivo de Cloud Functions (manageFixedAsset)
 
       match /audit_logs/{auditId} {
         allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury());
-        allow create: if isActive() && (isAgencyManager() || isTreasury() || isAdmin());
-        allow update, delete: if false;
+        allow write: if false; // Inmutable, solo Cloud Functions
       }
     }
 
@@ -310,35 +293,32 @@ service cloud.firestore {
     // =========================================================================
     match /union_members/{memberId} {
       allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
-      allow write: if isActive() && (isTreasury() || isAdmin());
+      allow write: if false; // Exclusivo de Cloud Functions (manageUnionMember)
     }
 
     match /union_dues/{dueId} {
       allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
-      allow write: if isActive() && (isTreasury() || isAdmin());
+      allow write: if false; // Exclusivo de Cloud Functions (generateMonthlyDues, collectMemberDue)
 
       match /payments/{paymentId} {
         allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
-        allow create: if isActive() && (isTreasury() || isAdmin());
-        allow update, delete: if false;
+        allow write: if false; // Inmutable, solo Cloud Functions (collectMemberDue)
       }
     }
 
     match /union_workers/{workerId} {
-      allow read: if isActive() && (isTreasury() || isAdmin());
-      allow write: if isActive() && (isTreasury() || isAdmin());
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
+      allow write: if false; // Exclusivo de Cloud Functions (manageWorker)
     }
 
     match /union_worker_payments/{paymentId} {
-      allow read: if isActive() && (isTreasury() || isAdmin());
-      allow create: if isActive() && (isTreasury() || isAdmin());
-      allow update, delete: if false;
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
+      allow write: if false; // Inmutable, solo Cloud Functions (registerWorkerPayment)
     }
 
     match /union_expenses/{expenseId} {
-      allow read: if isActive() && (isTreasury() || isAdmin());
-      allow create: if isActive() && (isTreasury() || isAdmin());
-      allow update, delete: if false;
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
+      allow write: if false; // Inmutable, solo Cloud Functions (registerGeneralExpense)
     }
 
     // =========================================================================
