@@ -45,6 +45,15 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
 
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__openShipmentDetail = (s: any) => {
+        setSelectedShipment(s)
+        setIsDetailOpen(true)
+      }
+    }
+  }, [])
+
   // 1. Cálculos del Resumen Diario de Operación
   const dailySummary = useMemo(() => {
     const todayStr = new Date().toISOString().slice(0, 10)
