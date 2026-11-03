@@ -52,11 +52,17 @@ export const LoginView: React.FC = () => {
     ) {
       return 'Credenciales inválidas. Por favor verifique su correo electrónico y contraseña.'
     }
+    if (msg.includes('auth/invalid-email')) {
+      return 'El formato del correo electrónico ingresado es inválido.'
+    }
     if (msg.includes('auth/too-many-requests')) {
       return 'Acceso temporalmente restringido por demasiados intentos fallidos. Intente nuevamente en unos minutos o solicite un restablecimiento de contraseña.'
     }
-    if (msg.includes('auth/user-disabled')) {
-      return 'Esta cuenta de usuario ha sido suspendida. Comuníquese con la administración de Expreso Punata.'
+    if (msg.includes('auth/user-disabled') || msg.includes('inactiva')) {
+      return 'Esta cuenta de usuario ha sido suspendida o se encuentra inactiva. Comuníquese con la administración de Expreso Punata.'
+    }
+    if (msg.includes('perfil operativo')) {
+      return 'Su cuenta no tiene un perfil operativo asignado en Expreso Punata. Contacte a la administración para habilitar su acceso.'
     }
     if (msg.includes('auth/network-request-failed')) {
       return 'Error de red o conexión al servidor. Compruebe su conexión a internet.'
@@ -66,6 +72,14 @@ export const LoginView: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!email.trim()) {
+      setError('Por favor ingrese su correo electrónico.')
+      return
+    }
+    if (!password) {
+      setError('Por favor ingrese su contraseña.')
+      return
+    }
     setError(null)
     setLoading(true)
     try {
@@ -182,8 +196,9 @@ export const LoginView: React.FC = () => {
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     placeholder="operador@expresopunata.com"
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] disabled:bg-slate-100 disabled:text-slate-500"
                     required
+                    disabled={loading}
                     autoComplete="email"
                   />
                 </div>
@@ -200,8 +215,9 @@ export const LoginView: React.FC = () => {
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full pl-9 pr-10 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
+                    className="w-full pl-9 pr-10 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] disabled:bg-slate-100 disabled:text-slate-500"
                     required
+                    disabled={loading}
                     autoComplete="current-password"
                   />
                   <button
