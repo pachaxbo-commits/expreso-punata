@@ -5563,3 +5563,892 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     message: `Activo ${finalAssetCode} registrado exitosamente.`,
   }
 })
+
+// =========================================================================
+// ENTREGA 7: MOTOR CENTRAL DE REPORTES OPERATIVOS, ADMINISTRATIVOS Y FINANCIEROS
+// =========================================================================
+
+/**
+ * Convierte fechas o períodos a límites ISO estrictos en zona horaria America/La_Paz (UTC-4).
+ */
+function resolveLaPazBounds(startDateStr, endDateStr, periodStr) {
+  const now = new Date()
+
+  if (periodStr && /^\d{4}-(0[1-9]|1[0-2])$/.test(periodStr)) {
+    const [year, month] = periodStr.split('-').map(Number)
+    const start = new Date(`${periodStr}-01T00:00:00-04:00`)
+    const lastDay = new Date(year, month, 0).getDate()
+    const end = new Date(`${periodStr}-${String(lastDay).padStart(2, '0')}T23:59:59.999-04:00`)
+    return { startIso: start.toISOString(), endIso: end.toISOString() }
+  }
+
+  let startIso
+  let endIso
+
+  if (startDateStr) {
+    if (startDateStr.length === 10) {
+      startIso = new Date(`${startDateStr}T00:00:00-04:00`).toISOString()
+    } else {
+      startIso = new Date(startDateStr).toISOString()
+    }
+  } else {
+    // 30 días atrás por defecto
+    const d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    startIso = d.toISOString()
+  }
+
+  if (endDateStr) {
+    if (endDateStr.length === 10) {
+      endIso = new Date(`${endDateStr}T23:59:59.999-04:00`).toISOString()
+    } else {
+      endIso = new Date(endDateStr).toISOString()
+    }
+  } else {
+    endIso = now.toISOString()
+  }
+
+  return { startIso, endIso }
+}
+
+export const getSystemReport = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para consultar reportes del sistema.')
+  }
+  const callerUid = request.auth.uid
+  const callerDoc = await db.collection('users').doc(callerUid).get()
+  if (!callerDoc.exists || callerDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no activo.')
+  }
+  const caller = callerDoc.data()
+  const role = caller.role
+
+  const {
+    reportType = 'shipments',
+    startDate,
+    endDate,
+    period,
+    branchId = 'all',
+    status = 'all',
+    paymentCondition = 'all',
+    paymentMethod = 'all',
+    category = 'all',
+    operatorUid,
+    driverUid,
+    memberId,
+    page = 1,
+    pageSize = 100,
+  } = request.data || {}
+
+  // 1. RESTRICCIONES DE ACCESO POR ROL Y PRIVACIDAD
+  if (role === 'conductor' && reportType !== 'drivers') {
+    throw new HttpsError('permission-denied', 'Los conductores solo tienen acceso a su reporte personal de viajes y custodia.')
+  }
+
+  if (role === 'secretaria') {
+    if (!['shipments', 'cash_financial'].includes(reportType)) {
+      throw new HttpsError('permission-denied', 'El rol secretaria no tiene acceso a reportes confidenciales de nómina, gastos generales o padrón de socios.')
+    }
+  }
+
+  const effectiveBranchId = (role === 'secretaria' && caller.primaryBranchId)
+    ? caller.primaryBranchId
+    : branchId
+
+  const { startIso, endIso } = resolveLaPazBounds(startDate, endDate, period)
+  const safePage = Math.max(1, parseInt(page, 10) || 1)
+  const safePageSize = Math.min(500, Math.max(10, parseInt(pageSize, 10) || 100))
+
+  // =========================================================================
+  // REPORTE B1: ENCOMIENDAS Y LOGÍSTICA
+  // =========================================================================
+  if (reportType === 'shipments') {
+    let query = db.collection('shipments')
+      .where('createdAt', '>=', startIso)
+      .where('createdAt', '<=', endIso)
+      .orderBy('createdAt', 'desc')
+
+    const snap = await query.get()
+    let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    // Filtrado en memoria para criterios combinados
+    if (effectiveBranchId && effectiveBranchId !== 'all') {
+      docs = docs.filter(s => s.originBranchId === effectiveBranchId || s.destinationBranchId === effectiveBranchId)
+    }
+    if (status && status !== 'all') {
+      docs = docs.filter(s => s.status === status)
+    }
+    if (paymentCondition && paymentCondition !== 'all') {
+      docs = docs.filter(s => s.paymentTiming === paymentCondition)
+    }
+    if (paymentMethod && paymentMethod !== 'all') {
+      docs = docs.filter(s => s.paymentMethod === paymentMethod)
+    }
+    if (operatorUid) {
+      docs = docs.filter(s => s.createdByUid === operatorUid || s.deliveredByUid === operatorUid)
+    }
+
+    let totalPackages = 0
+    let totalWeightKg = 0
+    let totalBilledCents = 0
+    let totalCollectedCents = 0
+    let totalPendingCodCents = 0
+
+    const byStatus = {
+      received: 0,
+      in_warehouse: 0,
+      in_transit: 0,
+      arrived_at_destination: 0,
+      in_delivery: 0,
+      delivered: 0,
+      returned: 0,
+      cancelled: 0,
+      lost: 0,
+    }
+
+    const byRoute = {
+      punata_to_cochabamba: { count: 0, amountCents: 0 },
+      cochabamba_to_punata: { count: 0, amountCents: 0 },
+      other: { count: 0, amountCents: 0 },
+    }
+
+    const byPaymentCondition = {
+      origin_paid: { count: 0, amountCents: 0 },
+      origin_pending: { count: 0, amountCents: 0 },
+      destination_cod: { count: 0, amountCents: 0 },
+    }
+
+    const byPaymentMethod = {
+      cash: { count: 0, amountCents: 0 },
+      qr: { count: 0, amountCents: 0 },
+      transfer: { count: 0, amountCents: 0 },
+      pending: { count: 0, amountCents: 0 },
+    }
+
+    let totalTurnaroundMs = 0
+    let deliveredWithTimeCount = 0
+
+    for (const s of docs) {
+      const finalCents = s.finalAmountCents || Math.round((Number(s.amountBob) || 0) * 100) || 0
+      const pkgs = Array.isArray(s.items) && s.items.length > 0
+        ? s.items.reduce((acc, it) => acc + (Number(it.quantity) || 1), 0)
+        : (s.totalPackages || 1)
+      const weight = Number(s.totalWeightKg) || 0
+
+      totalPackages += pkgs
+      totalWeightKg += weight
+      totalBilledCents += finalCents
+
+      if (s.paymentStatus === 'paid') {
+        totalCollectedCents += finalCents
+      } else if (s.paymentTiming === 'destination_cod') {
+        totalPendingCodCents += finalCents
+      }
+
+      // Conteo por estado
+      if (byStatus[s.status] !== undefined) {
+        byStatus[s.status]++
+      }
+
+      // Rutas
+      if (s.originBranchId === 'punata' && s.destinationBranchId === 'cochabamba') {
+        byRoute.punata_to_cochabamba.count++
+        byRoute.punata_to_cochabamba.amountCents += finalCents
+      } else if (s.originBranchId === 'cochabamba' && s.destinationBranchId === 'punata') {
+        byRoute.cochabamba_to_punata.count++
+        byRoute.cochabamba_to_punata.amountCents += finalCents
+      } else {
+        byRoute.other.count++
+        byRoute.other.amountCents += finalCents
+      }
+
+      // Condición de pago
+      if (s.paymentTiming && byPaymentCondition[s.paymentTiming]) {
+        byPaymentCondition[s.paymentTiming].count++
+        byPaymentCondition[s.paymentTiming].amountCents += finalCents
+      }
+
+      // Método de pago
+      if (s.paymentStatus === 'paid' && s.paymentMethod && byPaymentMethod[s.paymentMethod]) {
+        byPaymentMethod[s.paymentMethod].count++
+        byPaymentMethod[s.paymentMethod].amountCents += finalCents
+      } else {
+        byPaymentMethod.pending.count++
+        byPaymentMethod.pending.amountCents += finalCents
+      }
+
+      // Tiempo de entrega
+      if (s.status === 'delivered' && s.deliveredAt && s.createdAt) {
+        const diff = new Date(s.deliveredAt).getTime() - new Date(s.createdAt).getTime()
+        if (diff > 0) {
+          totalTurnaroundMs += diff
+          deliveredWithTimeCount++
+        }
+      }
+    }
+
+    const averageTurnaroundHours = deliveredWithTimeCount > 0
+      ? Number((totalTurnaroundMs / (deliveredWithTimeCount * 3600000)).toFixed(1))
+      : 0
+
+    // Paginación
+    const totalRecords = docs.length
+    const startIndex = (safePage - 1) * safePageSize
+    const paginatedDocs = docs.slice(startIndex, startIndex + safePageSize).map(s => ({
+      id: s.id,
+      trackingCode: s.trackingCode,
+      guideNumber: s.guideNumber || s.trackingCode,
+      senderName: s.sender?.name || s.senderName || '',
+      senderPhone: s.sender?.phone || '',
+      recipientName: s.recipient?.name || s.recipientName || '',
+      recipientPhone: s.recipient?.phone || '',
+      originBranchId: s.originBranchId,
+      destinationBranchId: s.destinationBranchId,
+      status: s.status,
+      paymentTiming: s.paymentTiming,
+      paymentStatus: s.paymentStatus,
+      paymentMethod: s.paymentMethod || 'cash',
+      amountCents: s.finalAmountCents || Math.round((Number(s.amountBob) || 0) * 100),
+      amountBob: (s.finalAmountCents || Math.round((Number(s.amountBob) || 0) * 100)) / 100,
+      totalPackages: Array.isArray(s.items) ? s.items.length : (s.totalPackages || 1),
+      totalWeightKg: s.totalWeightKg || 0,
+      createdAt: s.createdAt,
+      deliveredAt: s.deliveredAt || null,
+    }))
+
+    return {
+      success: true,
+      reportType,
+      dateRange: { startIso, endIso },
+      branchId: effectiveBranchId,
+      summary: {
+        totalShipments: totalRecords,
+        totalPackages,
+        totalWeightKg: Number(totalWeightKg.toFixed(2)),
+        totalBilledCents,
+        totalBilledBob: totalBilledCents / 100,
+        totalCollectedCents,
+        totalCollectedBob: totalCollectedCents / 100,
+        totalPendingCodCents,
+        totalPendingCodBob: totalPendingCodCents / 100,
+        averageTurnaroundHours,
+        byStatus,
+        byRoute,
+        byPaymentCondition,
+        byPaymentMethod,
+      },
+      pagination: {
+        page: safePage,
+        pageSize: safePageSize,
+        totalRecords,
+        totalPages: Math.ceil(totalRecords / safePageSize) || 1,
+      },
+      records: paginatedDocs,
+    }
+  }
+
+  // =========================================================================
+  // REPORTE B2: CAJA Y FINANZAS
+  // =========================================================================
+  if (reportType === 'cash_financial') {
+    let movQuery = db.collection('financial_movements')
+      .where('timestamp', '>=', startIso)
+      .where('timestamp', '<=', endIso)
+      .orderBy('timestamp', 'desc')
+
+    const movSnap = await movQuery.get()
+    let movements = movSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    if (effectiveBranchId && effectiveBranchId !== 'all') {
+      movements = movements.filter(m => m.branchId === effectiveBranchId)
+    }
+    if (operatorUid) {
+      movements = movements.filter(m => m.operatorUid === operatorUid)
+    }
+
+    let commercialIncomeCents = 0
+    let contributionsIncomeCents = 0
+    let driverRemittancesCents = 0
+    let expensesCents = 0
+    let refundsCents = 0
+    let adjustmentsCents = 0
+
+    const byPaymentMethod = {
+      cash: { incomeCents: 0, expenseCents: 0 },
+      qr: { incomeCents: 0, expenseCents: 0 },
+      transfer: { incomeCents: 0, expenseCents: 0 },
+    }
+
+    const byBranch = {
+      punata: { incomeCents: 0, expenseCents: 0, netCents: 0 },
+      cochabamba: { incomeCents: 0, expenseCents: 0, netCents: 0 },
+    }
+
+    for (const m of movements) {
+      const amt = m.amountCents || Math.round((Number(m.amountBob) || 0) * 100) || 0
+      const isIncome = ['shipment_income', 'cod_income', 'origin_paid', 'contribution_income', 'monthly_fee_income', 'driver_remittance'].includes(m.type)
+      const isExpense = ['expense', 'general_expense', 'worker_payroll', 'refund'].includes(m.type)
+
+      if (['shipment_income', 'cod_income', 'origin_paid'].includes(m.type)) {
+        commercialIncomeCents += amt
+      } else if (['contribution_income', 'monthly_fee_income'].includes(m.type)) {
+        contributionsIncomeCents += amt
+      } else if (m.type === 'driver_remittance') {
+        driverRemittancesCents += amt
+      } else if (['expense', 'general_expense', 'worker_payroll'].includes(m.type)) {
+        expensesCents += amt
+      } else if (m.type === 'refund') {
+        refundsCents += amt
+      } else if (m.type === 'adjustment') {
+        adjustmentsCents += amt
+      }
+
+      // Método de pago
+      const pm = (m.paymentMethod && ['cash', 'qr', 'transfer'].includes(m.paymentMethod)) ? m.paymentMethod : 'cash'
+      if (isIncome) {
+        byPaymentMethod[pm].incomeCents += amt
+      } else if (isExpense) {
+        byPaymentMethod[pm].expenseCents += amt
+      }
+
+      // Sucursal
+      if (m.branchId && byBranch[m.branchId]) {
+        if (isIncome) byBranch[m.branchId].incomeCents += amt
+        if (isExpense) byBranch[m.branchId].expenseCents += amt
+        byBranch[m.branchId].netCents = byBranch[m.branchId].incomeCents - byBranch[m.branchId].expenseCents
+      }
+    }
+
+    // Consulta de turnos de caja en el período
+    let shiftsQuery = db.collection('cash_shifts')
+      .where('openedAt', '>=', startIso)
+      .where('openedAt', '<=', endIso)
+      .orderBy('openedAt', 'desc')
+
+    const shiftsSnap = await shiftsQuery.get()
+    let shifts = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    if (effectiveBranchId && effectiveBranchId !== 'all') {
+      shifts = shifts.filter(s => s.branchId === effectiveBranchId)
+    }
+
+    let initialCashTotalCents = 0
+    let conformityCount = 0
+    let shortageCount = 0
+    let surplusCount = 0
+    let totalDifferenceCents = 0
+
+    for (const sh of shifts) {
+      initialCashTotalCents += (sh.initialCashCents || 0)
+      if (sh.status === 'closed') {
+        const diff = sh.differenceCents || 0
+        totalDifferenceCents += diff
+        if (diff === 0) conformityCount++
+        else if (diff < 0) shortageCount++
+        else surplusCount++
+      }
+    }
+
+    const netOperatingCents = (commercialIncomeCents + contributionsIncomeCents + driverRemittancesCents) - (expensesCents + refundsCents)
+
+    const totalRecords = movements.length
+    const startIndex = (safePage - 1) * safePageSize
+    const paginatedMovements = movements.slice(startIndex, startIndex + safePageSize)
+
+    return {
+      success: true,
+      reportType,
+      dateRange: { startIso, endIso },
+      branchId: effectiveBranchId,
+      summary: {
+        commercialIncomeCents,
+        commercialIncomeBob: commercialIncomeCents / 100,
+        contributionsIncomeCents,
+        contributionsIncomeBob: contributionsIncomeCents / 100,
+        driverRemittancesCents,
+        driverRemittancesBob: driverRemittancesCents / 100,
+        expensesCents,
+        expensesBob: expensesCents / 100,
+        refundsCents,
+        refundsBob: refundsCents / 100,
+        adjustmentsCents,
+        adjustmentsBob: adjustmentsCents / 100,
+        netOperatingCents,
+        netOperatingBob: netOperatingCents / 100,
+        initialCashTotalCents,
+        initialCashTotalBob: initialCashTotalCents / 100,
+        byPaymentMethod,
+        byBranch,
+        shiftsSummary: {
+          totalShifts: shifts.length,
+          openShifts: shifts.filter(s => s.status === 'open').length,
+          closedShifts: shifts.filter(s => s.status === 'closed').length,
+          conformityCount,
+          shortageCount,
+          surplusCount,
+          totalDifferenceCents,
+          totalDifferenceBob: totalDifferenceCents / 100,
+        },
+      },
+      pagination: {
+        page: safePage,
+        pageSize: safePageSize,
+        totalRecords,
+        totalPages: Math.ceil(totalRecords / safePageSize) || 1,
+      },
+      records: paginatedMovements,
+    }
+  }
+
+  // =========================================================================
+  // REPORTE B3: CONDUCTORES Y CUSTODIA
+  // =========================================================================
+  if (reportType === 'drivers') {
+    let manifestsQuery = db.collection('manifests')
+      .where('createdAtIso', '>=', startIso)
+      .where('createdAtIso', '<=', endIso)
+      .orderBy('createdAtIso', 'desc')
+
+    const manSnap = await manifestsQuery.get()
+    let manifests = manSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    if (driverUid) {
+      manifests = manifests.filter(m => m.driverUid === driverUid)
+    }
+    if (effectiveBranchId && effectiveBranchId !== 'all') {
+      manifests = manifests.filter(m => m.originBranchId === effectiveBranchId || m.destinationBranchId === effectiveBranchId)
+    }
+
+    // Consultar cuentas de custodia activas
+    const custodySnap = await db.collection('driver_custody_accounts').get()
+    const custodyMap = {}
+    custodySnap.docs.forEach(d => {
+      custodyMap[d.id] = d.data()
+    })
+
+    const driverMap = {}
+    let totalShipmentsTransported = 0
+    let totalTripsCompleted = 0
+    let totalIncidentsCount = 0
+
+    for (const m of manifests) {
+      const dUid = m.driverUid || 'unassigned'
+      if (!driverMap[dUid]) {
+        const custodyAcc = custodyMap[dUid] || {}
+        driverMap[dUid] = {
+          driverUid: dUid,
+          driverName: m.driverName || 'Conductor',
+          vehiclePlate: m.vehiclePlate || '',
+          mobileNumber: m.mobileNumber || '',
+          tripsCount: 0,
+          completedTripsCount: 0,
+          shipmentsCount: 0,
+          codCollectedCents: 0,
+          totalRemittedCents: custodyAcc.totalRemittedCents || 0,
+          pendingCustodyCents: custodyAcc.pendingRemittanceCents || 0,
+          incidentsCount: 0,
+        }
+      }
+
+      driverMap[dUid].tripsCount++
+      if (m.status === 'received') {
+        driverMap[dUid].completedTripsCount++
+        totalTripsCompleted++
+      }
+
+      const count = (m.shipmentSummaries && Array.isArray(m.shipmentSummaries)) ? m.shipmentSummaries.length : 0
+      driverMap[dUid].shipmentsCount += count
+      totalShipmentsTransported += count
+
+      if (m.discrepancies && Array.isArray(m.discrepancies) && m.discrepancies.length > 0) {
+        driverMap[dUid].incidentsCount += m.discrepancies.length
+        totalIncidentsCount += m.discrepancies.length
+      }
+    }
+
+    const driverSummaries = Object.values(driverMap)
+
+    return {
+      success: true,
+      reportType,
+      dateRange: { startIso, endIso },
+      summary: {
+        totalManifests: manifests.length,
+        totalTripsCompleted,
+        totalShipmentsTransported,
+        totalIncidentsCount,
+        activeDriversWithCustody: Object.values(custodyMap).filter(c => (c.pendingRemittanceCents || 0) > 0).length,
+      },
+      driverSummaries,
+      records: manifests.slice(0, safePageSize),
+    }
+  }
+
+  // =========================================================================
+  // REPORTE B4: SOCIOS Y MENSUALIDADES
+  // =========================================================================
+  if (reportType === 'dues') {
+    let duesQuery = db.collection('union_dues')
+    if (period) {
+      duesQuery = duesQuery.where('period', '==', period)
+    }
+    const duesSnap = await duesQuery.get()
+    let dues = duesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    if (memberId) {
+      dues = dues.filter(d => d.memberId === memberId)
+    }
+    if (status && status !== 'all') {
+      dues = dues.filter(d => d.status === status)
+    }
+
+    const membersSnap = await db.collection('union_members').get()
+    const members = membersSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    const membersCount = {
+      total: members.length,
+      active: members.filter(m => m.status === 'active').length,
+      inactive: members.filter(m => m.status === 'inactive').length,
+      suspended: members.filter(m => m.status === 'suspended').length,
+    }
+
+    let totalDuesIssuedCount = dues.length
+    let totalDuesIssuedCents = 0
+    let totalCollectedCents = 0
+    let totalOutstandingCents = 0
+    let overdueCount = 0
+    let overdueAmountCents = 0
+
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const debtorsMap = {}
+
+    for (const d of dues) {
+      const amt = d.amountCents || Math.round((Number(d.amountBob) || 0) * 100) || 0
+      const paid = d.paidAmountCents || Math.round((Number(d.paidAmountBob) || 0) * 100) || 0
+      const bal = d.balanceCents !== undefined ? d.balanceCents : (amt - paid)
+
+      totalDuesIssuedCents += amt
+      totalCollectedCents += paid
+      totalOutstandingCents += bal
+
+      const isOverdue = d.status !== 'paid' && d.dueDate && d.dueDate < todayStr
+      if (isOverdue) {
+        overdueCount++
+        overdueAmountCents += bal
+      }
+
+      if (bal > 0) {
+        const mKey = d.memberId || d.memberNumber
+        if (!debtorsMap[mKey]) {
+          debtorsMap[mKey] = {
+            memberId: d.memberId,
+            memberNumber: d.memberNumber,
+            memberName: d.memberName,
+            totalDebtCents: 0,
+            pendingDuesCount: 0,
+            oldestDuePeriod: d.period,
+          }
+        }
+        debtorsMap[mKey].totalDebtCents += bal
+        debtorsMap[mKey].pendingDuesCount++
+        if (d.period < debtorsMap[mKey].oldestDuePeriod) {
+          debtorsMap[mKey].oldestDuePeriod = d.period
+        }
+      }
+    }
+
+    return {
+      success: true,
+      reportType,
+      period: period || 'all',
+      summary: {
+        membersCount,
+        totalDuesIssuedCount,
+        totalDuesIssuedCents,
+        totalDuesIssuedBob: totalDuesIssuedCents / 100,
+        totalCollectedCents,
+        totalCollectedBob: totalCollectedCents / 100,
+        totalOutstandingCents,
+        totalOutstandingBob: totalOutstandingCents / 100,
+        overdueCount,
+        overdueAmountCents,
+        overdueAmountBob: overdueAmountCents / 100,
+      },
+      debtors: Object.values(debtorsMap).sort((a, b) => b.totalDebtCents - a.totalDebtCents),
+      records: dues.slice(0, safePageSize),
+    }
+  }
+
+  // =========================================================================
+  // REPORTE B5: PERSONAL Y GASTOS OPERATIVOS
+  // =========================================================================
+  if (reportType === 'payroll_expenses') {
+    // 1. Pagos de personal
+    let payQuery = db.collection('union_worker_payments')
+      .where('paidAtIso', '>=', startIso)
+      .where('paidAtIso', '<=', endIso)
+      .orderBy('paidAtIso', 'desc')
+
+    const paySnap = await payQuery.get()
+    let payments = paySnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    // 2. Gastos operativos
+    let expQuery = db.collection('union_expenses')
+      .where('createdAtIso', '>=', startIso)
+      .where('createdAtIso', '<=', endIso)
+      .orderBy('createdAtIso', 'desc')
+
+    const expSnap = await expQuery.get()
+    let expenses = expSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    if (effectiveBranchId && effectiveBranchId !== 'all') {
+      payments = payments.filter(p => p.branchId === effectiveBranchId)
+      expenses = expenses.filter(e => e.branchId === effectiveBranchId)
+    }
+    if (category && category !== 'all') {
+      expenses = expenses.filter(e => e.category === category)
+    }
+
+    let totalPayrollPaidCents = 0
+    for (const p of payments) {
+      totalPayrollPaidCents += (p.amountCents || Math.round((Number(p.amountBob) || 0) * 100) || 0)
+    }
+
+    let totalOperatingExpensesCents = 0
+    const byExpenseCategory = {
+      alquiler: 0,
+      servicios_basicos: 0,
+      combustible: 0,
+      mantenimiento: 0,
+      material_escritorio: 0,
+      viaticos: 0,
+      impuestos_tasas: 0,
+      otro: 0,
+    }
+
+    const supplierMap = {}
+
+    for (const e of expenses) {
+      const amt = e.amountCents || Math.round((Number(e.amountBob) || 0) * 100) || 0
+      totalOperatingExpensesCents += amt
+      if (byExpenseCategory[e.category] !== undefined) {
+        byExpenseCategory[e.category] += amt
+      } else {
+        byExpenseCategory.otro += amt
+      }
+
+      if (e.supplier) {
+        const sKey = e.supplier.trim()
+        if (!supplierMap[sKey]) supplierMap[sKey] = { supplier: sKey, count: 0, totalCents: 0 }
+        supplierMap[sKey].count++
+        supplierMap[sKey].totalCents += amt
+      }
+    }
+
+    const workersSnap = await db.collection('union_workers').get()
+    const workers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    const totalDisbursedCents = totalPayrollPaidCents + totalOperatingExpensesCents
+
+    return {
+      success: true,
+      reportType,
+      dateRange: { startIso, endIso },
+      branchId: effectiveBranchId,
+      summary: {
+        activeWorkersCount: workers.filter(w => w.status === 'active').length,
+        totalWorkersCount: workers.length,
+        totalPayrollPaidCents,
+        totalPayrollPaidBob: totalPayrollPaidCents / 100,
+        totalOperatingExpensesCents,
+        totalOperatingExpensesBob: totalOperatingExpensesCents / 100,
+        totalDisbursedCents,
+        totalDisbursedBob: totalDisbursedCents / 100,
+        byExpenseCategory,
+        topSuppliers: Object.values(supplierMap).sort((a, b) => b.totalCents - a.totalCents).slice(0, 10),
+      },
+      payrollPayments: payments.slice(0, safePageSize),
+      expenses: expenses.slice(0, safePageSize),
+    }
+  }
+
+  // =========================================================================
+  // REPORTE B6: BIENES FIJOS E INVENTARIO
+  // =========================================================================
+  if (reportType === 'fixed_assets') {
+    let assetsQuery = db.collection('fixed_assets')
+    if (effectiveBranchId && effectiveBranchId !== 'all') {
+      assetsQuery = assetsQuery.where('branchId', '==', effectiveBranchId)
+    }
+    const assetsSnap = await assetsQuery.get()
+    let assets = assetsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    if (category && category !== 'all') {
+      assets = assets.filter(a => a.category === category)
+    }
+    if (status && status !== 'all') {
+      assets = assets.filter(a => a.status === status)
+    }
+
+    let totalAcquisitionValueCents = 0
+    const byStatus = {
+      available: 0,
+      in_use: 0,
+      in_maintenance: 0,
+      damaged: 0,
+      lost: 0,
+      disposed: 0,
+    }
+    const byCategory = {
+      computacion: 0,
+      muebles: 0,
+      balanzas_pesaje: 0,
+      herramientas: 0,
+      vehiculos_apoyo: 0,
+      oficina: 0,
+      otro: 0,
+    }
+    const byBranch = {
+      punata: { count: 0, valueCents: 0 },
+      cochabamba: { count: 0, valueCents: 0 },
+    }
+
+    const disposedAssets = []
+
+    for (const a of assets) {
+      const cost = a.acquisitionCostCents || Math.round((Number(a.acquisitionCostBob) || 0) * 100) || 0
+      totalAcquisitionValueCents += cost
+
+      if (byStatus[a.status] !== undefined) byStatus[a.status]++
+      if (byCategory[a.category] !== undefined) byCategory[a.category]++
+      else byCategory.otro++
+
+      if (a.branchId && byBranch[a.branchId]) {
+        byBranch[a.branchId].count++
+        byBranch[a.branchId].valueCents += cost
+      }
+
+      if (a.status === 'disposed') {
+        disposedAssets.push({
+          id: a.id,
+          assetCode: a.assetCode,
+          name: a.name,
+          category: a.category,
+          branchId: a.branchId,
+          disposedReason: a.disposedReason || '',
+          disposedAtIso: a.disposedAtIso || null,
+          disposedByName: a.disposedByName || 'Admin',
+        })
+      }
+    }
+
+    return {
+      success: true,
+      reportType,
+      branchId: effectiveBranchId,
+      summary: {
+        totalAssetsCount: assets.length,
+        totalAcquisitionValueCents,
+        totalAcquisitionValueBob: totalAcquisitionValueCents / 100,
+        byStatus,
+        byCategory,
+        byBranch,
+        disposedCount: disposedAssets.length,
+      },
+      disposedAssets,
+      records: assets.slice(0, safePageSize),
+    }
+  }
+
+  // =========================================================================
+  // REPORTE CONSOLIDADO EJECUTIVO (DIRECTIVA / ADMINISTRACIÓN)
+  // =========================================================================
+  if (reportType === 'consolidated_dashboard') {
+    // 1. Encomiendas hoy y mes
+    const shipmentsTodaySnap = await db.collection('shipments')
+      .where('createdAt', '>=', startIso)
+      .where('createdAt', '<=', endIso)
+      .get()
+    const shipments = shipmentsTodaySnap.docs.map(d => d.data())
+
+    let totalBilledCents = 0
+    let totalCollectedCents = 0
+    for (const s of shipments) {
+      const c = s.finalAmountCents || Math.round((Number(s.amountBob) || 0) * 100) || 0
+      totalBilledCents += c
+      if (s.paymentStatus === 'paid') totalCollectedCents += c
+    }
+
+    // 2. Movimientos financieros del período
+    const movSnap = await db.collection('financial_movements')
+      .where('timestamp', '>=', startIso)
+      .where('timestamp', '<=', endIso)
+      .get()
+    const movements = movSnap.docs.map(d => d.data())
+
+    let commercialIncomeCents = 0
+    let contributionsIncomeCents = 0
+    let driverRemittancesCents = 0
+    let expensesCents = 0
+
+    for (const m of movements) {
+      const amt = m.amountCents || Math.round((Number(m.amountBob) || 0) * 100) || 0
+      if (['shipment_income', 'cod_income', 'origin_paid'].includes(m.type)) commercialIncomeCents += amt
+      else if (['contribution_income', 'monthly_fee_income'].includes(m.type)) contributionsIncomeCents += amt
+      else if (m.type === 'driver_remittance') driverRemittancesCents += amt
+      else if (['expense', 'general_expense', 'worker_payroll'].includes(m.type)) expensesCents += amt
+    }
+
+    // 3. Custodia pendiente de conductores
+    const custodySnap = await db.collection('driver_custody_accounts').get()
+    let totalPendingDriverCustodyCents = 0
+    custodySnap.docs.forEach(d => {
+      totalPendingDriverCustodyCents += (d.data().pendingRemittanceCents || 0)
+    })
+
+    // 4. Bienes fijos
+    const assetsSnap = await db.collection('fixed_assets').get()
+    let totalAssetsValueCents = 0
+    assetsSnap.docs.forEach(d => {
+      totalAssetsValueCents += (d.data().acquisitionCostCents || 0)
+    })
+
+    return {
+      success: true,
+      reportType,
+      dateRange: { startIso, endIso },
+      dashboard: {
+        shipments: {
+          totalCount: shipments.length,
+          deliveredCount: shipments.filter(s => s.status === 'delivered').length,
+          inTransitCount: shipments.filter(s => s.status === 'in_transit').length,
+          totalBilledCents,
+          totalBilledBob: totalBilledCents / 100,
+          totalCollectedCents,
+          totalCollectedBob: totalCollectedCents / 100,
+        },
+        finances: {
+          commercialIncomeCents,
+          commercialIncomeBob: commercialIncomeCents / 100,
+          contributionsIncomeCents,
+          contributionsIncomeBob: contributionsIncomeCents / 100,
+          driverRemittancesCents,
+          driverRemittancesBob: driverRemittancesCents / 100,
+          expensesCents,
+          expensesBob: expensesCents / 100,
+          netOperatingCents: (commercialIncomeCents + contributionsIncomeCents + driverRemittancesCents) - expensesCents,
+          netOperatingBob: ((commercialIncomeCents + contributionsIncomeCents + driverRemittancesCents) - expensesCents) / 100,
+        },
+        drivers: {
+          totalPendingCustodyCents: totalPendingDriverCustodyCents,
+          totalPendingCustodyBob: totalPendingDriverCustodyCents / 100,
+        },
+        fixedAssets: {
+          totalCount: assetsSnap.docs.length,
+          totalValueCents: totalAssetsValueCents,
+          totalValueBob: totalAssetsValueCents / 100,
+        },
+      },
+    }
+  }
+
+  throw new HttpsError('invalid-argument', `Tipo de reporte '${reportType}' no reconocido.`)
+})
