@@ -554,7 +554,8 @@ async function runJourney() {
       await secBtn.click()
     } else {
       await page.fill('input[type="email"]', 'secretaria.punata@expresopunata.com')
-      await page.fill('input[type="password"]', 'Punata2026!')
+      const testPass = process.env.E2E_TEST_PASSWORD || process.env.TEST_OPERATOR_PASSWORD || 'ExpresoDev2026#'
+      await page.fill('input[type="password"]', testPass)
       await page.click('button[type="submit"]')
     }
 

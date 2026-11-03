@@ -116,8 +116,8 @@ export const AppContent: React.FC = () => {
                 <span className="font-extrabold text-sm sm:text-base tracking-tight text-[#facc15] uppercase">
                   {EXPRESO_PUNATA_COMPANY.name}
                 </span>
-                <span className="text-[10px] bg-emerald-950/80 text-emerald-300 px-2 py-0.5 rounded border border-emerald-700/60 font-mono">
-                  {isEmulatedEnvironment ? 'EMULADOR LOCAL' : 'CLOUD DEV (expreso-punata-dev)'}
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded border border-amber-500/40 uppercase tracking-wider">
+                  Entorno de Demostración
                 </span>
               </div>
               <p className="text-[11px] text-emerald-200 hidden sm:block">
@@ -200,6 +200,14 @@ export const AppContent: React.FC = () => {
           </div>
         </div>
       </header>
+      {/* Indicador discreto de Demostración */}
+      <div className="bg-amber-50/90 border-b border-amber-200 text-amber-900 text-[11px] font-medium px-4 py-1 flex items-center justify-between">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+          <span><strong>Modo Demostración Oficial:</strong> Operaciones y registros ficticios para pruebas de visualización y presentación comercial.</span>
+        </span>
+        <span className="text-[10px] text-amber-700 font-mono hidden md:inline">expreso-punata-dev • Demostración</span>
+      </div>
 
       {/* Contenido Principal */}
       <main className="max-w-7xl mx-auto px-4 py-5 flex-1 w-full">

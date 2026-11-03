@@ -166,7 +166,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
   let extraKgRateCents = null
   let homeDeliveryRateCents = null
 
-  const hasOfficialConfig = sysConfig && (sysConfig.isOfficial === true || sysConfig.status === 'configured') && sysConfig.tariffs && typeof sysConfig.tariffs === 'object'
+  const hasOfficialConfig = sysConfig && sysConfig.status === 'configured' && sysConfig.isOfficial === true && sysConfig.tariffs && typeof sysConfig.tariffs === 'object'
 
   if (hasOfficialConfig) {
     const t = sysConfig.tariffs
@@ -7842,16 +7842,30 @@ export const getSystemConfig = onCall({ cors: true }, async (request) => {
       isOfficial: false,
       isDefault: true,
       config: null,
-      message: 'El sistema aún no cuenta con configuración oficial aprobada. Por favor, configure los parámetros en el panel de Administración.',
+      message: 'El sistema aún no cuenta con configuración oficial aprobada. Por favor, configure los parámetros operativos en el panel de Administración.',
     }
   }
 
-  const data = configDoc.data()
+  const data = configDoc.data() || {}
+  const isActuallyConfigured = data.status === 'configured' && data.isOfficial === true
+
+  if (!isActuallyConfigured) {
+    return {
+      success: true,
+      status: 'unconfigured',
+      isOfficial: false,
+      isDefault: true,
+      config: null,
+      message: 'Configuración pendiente de aprobación: El documento existe pero no ha sido confirmado ni aprobado oficialmente por la Administración.',
+    }
+  }
+
   return {
     success: true,
     status: 'configured',
     isOfficial: true,
     isDefault: false,
+    isDemo: Boolean(data.isDemo),
     config: {
       id: configDoc.id,
       ...data,
@@ -7870,7 +7884,7 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Solo la Directiva / Administrador general puede actualizar la configuración oficial del sistema.')
   }
 
-  const { company, branches, tariffs, commissions, dues, printing } = request.data || {}
+  const { company, branches, tariffs, commissions, dues, printing, isDemo } = request.data || {}
 
   const callerUid = caller.uid || caller.id
   const callerName = caller.fullName || 'Administrador'
@@ -7884,6 +7898,7 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
     ...existing,
     status: 'configured',
     isOfficial: true,
+    isDemo: isDemo !== undefined ? Boolean(isDemo) : (existing.isDemo !== undefined ? Boolean(existing.isDemo) : true),
     updatedAtIso: nowIso,
     updatedByUid: callerUid,
     updatedByName: callerName,
