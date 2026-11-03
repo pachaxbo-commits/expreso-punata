@@ -214,7 +214,7 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
             <Coins className="w-6 h-6 text-[#064e3b]" />
             <h2 className="text-xl font-black text-slate-800">Comisiones de Conductores</h2>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p data-tutorial-target="driver-cod-warning-box" className="text-xs text-slate-500 mt-0.5">
             Gestión independiente de comisiones devengadas por transporte (separadas de la custodia COD).
           </p>
         </div>
@@ -254,7 +254,7 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
       )}
 
       {/* Tarjetas KPI */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div data-tutorial-target="driver-commissions-card" className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <p className="text-[11px] font-bold uppercase text-slate-500">Total Devengado</p>
           <p className="text-xl font-black text-slate-800 mt-1">Bs. {(totalAccruedAll / 100).toFixed(2)}</p>
@@ -359,6 +359,7 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
                   </button>
                   <button
                     type="button"
+                    data-tutorial-target="btn-settle-commission"
                     onClick={handleOpenSettleModal}
                     disabled={(selectedAccount.pendingCents || 0) <= 0}
                     className="flex items-center gap-1.5 px-4 py-2 bg-[#064e3b] hover:bg-[#065f46] disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl text-xs font-bold shadow transition"

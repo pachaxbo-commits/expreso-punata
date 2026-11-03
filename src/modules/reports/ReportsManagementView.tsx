@@ -613,7 +613,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
       </div>
 
       {/* 2. Barra de Filtros y Presets de Fecha */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+      <div data-tutorial-target="reports-filters-card" className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
         {/* Presets de Fecha */}
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="text-slate-400 font-medium mr-1 flex items-center gap-1">
@@ -739,7 +739,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           </button>
 
           {activeTab !== 'consolidated_dashboard' && (
-            <>
+            <div data-tutorial-target="reports-export-actions" className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={handleExportPdf}
@@ -771,7 +771,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                 <Download className="w-3.5 h-3.5" />
                 <span>CSV</span>
               </button>
-            </>
+            </div>
           )}
         </div>
       </div>

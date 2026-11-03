@@ -325,7 +325,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
             /* Estado: CAJA ABIERTA */
             <div className="space-y-5">
               {/* Banner de Estado del Turno Activo */}
-              <div className="bg-[#064e3b] text-white p-5 rounded-2xl shadow-lg border border-emerald-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div data-tutorial-target="cash-status-card" className="bg-[#064e3b] text-white p-5 rounded-2xl shadow-lg border border-emerald-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-start sm:items-center gap-3.5">
                   <div className="w-12 h-12 rounded-xl bg-[#facc15] text-[#064e3b] flex items-center justify-center font-black shrink-0 shadow-md">
                     <Wallet className="w-6 h-6" />
@@ -374,6 +374,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                     <span>Egreso Menor</span>
                   </button>
                   <button
+                    data-tutorial-target="btn-close-cash-shift"
                     onClick={() => setIsCloseShiftModalOpen(true)}
                     className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-black text-red-950 bg-red-400 hover:bg-red-300 rounded-xl shadow-md transition-colors"
                   >
@@ -445,7 +446,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
               </div>
 
               {/* Sección de Movimientos Financieros del Turno */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div data-tutorial-target="cash-movements-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                 {/* Cabecera y Filtros de la Lista */}
                 <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -1150,7 +1151,7 @@ const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ shift, onClose, onSuc
 
               {useDenominations ? (
                 /* Grilla de Denominaciones Bolivianas */
-                <div className="space-y-3">
+                <div data-tutorial-target="cash-count-drawer" className="space-y-3">
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {BOLIVIAN_DENOMINATIONS.map((denom) => (
                       <div key={denom.value} className="bg-slate-50 p-2 rounded-xl border border-slate-200 flex flex-col justify-between">

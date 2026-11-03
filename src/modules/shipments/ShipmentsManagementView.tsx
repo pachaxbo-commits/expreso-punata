@@ -226,6 +226,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
             <button
               type="button"
               onClick={onOpenNewWizard}
+              data-tutorial-target="btn-new-shipment"
               className="w-full py-4 px-6 bg-[#064e3b] hover:bg-[#065f46] text-[#facc15] font-black text-base sm:text-lg rounded-2xl shadow-lg hover:shadow-xl border-2 border-emerald-950 flex items-center justify-center gap-3 transition-all transform active:scale-[0.99] cursor-pointer mb-3"
             >
               <div className="w-8 h-8 rounded-full bg-[#facc15] text-[#064e3b] flex items-center justify-center shrink-0">
@@ -238,6 +239,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
             <button
               type="button"
               onClick={() => onOpenDeliveryModal()}
+              data-tutorial-target="btn-deliver-shipment"
               className="w-full py-3.5 px-5 bg-emerald-900 hover:bg-emerald-950 text-white font-bold text-sm sm:text-base rounded-xl shadow border border-emerald-700 flex items-center justify-center gap-2.5 transition-all cursor-pointer"
             >
               <ShieldCheck className="w-5 h-5 text-[#facc15]" />
@@ -254,6 +256,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type="text"
+                data-tutorial-target="shipment-search-input"
                 value={searchTerm}
                 onChange={e => {
                   setSearchTerm(e.target.value)
@@ -391,7 +394,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
           </div>
 
           {/* Tabla Compacta y Profesional */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div data-tutorial-target="shipments-table-row" className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             {paginatedShipments.length === 0 ? (
               <div className="p-8 text-center space-y-2">
                 <Package className="w-10 h-10 text-slate-300 mx-auto" />

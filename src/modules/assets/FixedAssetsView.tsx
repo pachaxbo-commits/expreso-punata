@@ -310,7 +310,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
   }
 
   return (
-    <div className="space-y-4">
+    <div data-tutorial-target="assets-table-container" className="space-y-4">
       {/* Mensajes de Alerta */}
       {errorMsg && (
         <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl flex items-center justify-between text-xs animate-fadeIn">

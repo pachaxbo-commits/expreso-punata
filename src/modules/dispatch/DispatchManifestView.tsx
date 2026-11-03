@@ -330,6 +330,7 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
           {!isDriver && (
             <button
               type="button"
+              data-tutorial-target="btn-new-manifest"
               onClick={() => setSubTab('dispatch')}
               className={`px-3 py-1.5 rounded-md transition ${
                 subTab === 'dispatch' ? 'bg-[#064e3b] text-[#facc15] shadow font-bold' : 'text-slate-600 hover:bg-slate-200'
@@ -444,7 +445,7 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
                 <p className="text-[11px] text-slate-400">Las encomiendas recibidas en ventanilla aparecerán aquí automáticamente.</p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100 overflow-y-auto max-h-[500px]">
+              <div data-tutorial-target="manifest-shipments-checklist" className="divide-y divide-slate-100 overflow-y-auto max-h-[500px]">
                 {readyShipments.map((s) => {
                   const isSelected = selectedShipmentIds.includes(s.id)
                   const isCod = s.paymentTiming === 'destination_cod' && s.paymentStatus !== 'paid'
@@ -526,7 +527,7 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
 
             <form onSubmit={handleCreateManifest} className="space-y-3">
               {/* Selector de Móvil / Vehículo */}
-              <div>
+              <div data-tutorial-target="manifest-assign-vehicle">
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
                   Móvil / Vehículo Asignado *
                 </label>
@@ -586,6 +587,7 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
 
               <button
                 type="submit"
+                data-tutorial-target="btn-confirm-departure"
                 disabled={loading || selectedShipmentIds.length === 0 || !selectedVehicleId || !selectedDriverUid}
                 className="w-full py-2.5 bg-[#064e3b] hover:bg-[#065f46] text-[#facc15] font-extrabold text-xs rounded-lg shadow transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >

@@ -13,7 +13,15 @@ import {
   Printer,
   Briefcase,
   BarChart3,
+  BookOpen,
 } from 'lucide-react'
+import {
+  useTutorial,
+  TutorialCenterModal,
+  TutorialOverlayCard,
+  TutorialTransitionToast,
+  TutorialCompletionModal,
+} from '../modules/tutorial'
 import { AuthProvider, useAuth } from '../modules/auth/AuthContext'
 import { LoginView } from '../modules/auth/LoginView'
 import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../domain/expresoPunataConfig'
@@ -54,6 +62,21 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [realShipments, setRealShipments] = useState<Shipment[]>([])
   const [backendConnected, setBackendConnected] = useState(true)
+
+  // Orquestador de Capacitación y Tutoriales Interactivos
+  const tutorial = useTutorial({
+    scope: {
+      role: userProfile.role,
+      uid: userProfile.uid,
+      primaryBranchId: userProfile.primaryBranchId,
+    },
+    onNavigateToTab: (tabId) => setActiveTab(tabId),
+    onSetSubTab: (module, subTabId) => {
+      if (module === 'manifests') setManifestSubTab(subTabId as any)
+      if (module === 'assets') setAssetSubTab(subTabId as any)
+      if (module === 'config') setConfigSubTab(subTabId as any)
+    },
+  })
 
   // Suscripción reactiva a encomiendas en Firestore Emulator por sucursal
   useEffect(() => {
@@ -117,7 +140,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
       <header className="bg-[#064e3b] text-white shadow-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
           {/* Logo y Nombre */}
-          <div className="flex items-center gap-3">
+          <div data-tutorial-target="header-brand" className="flex items-center gap-3">
             <div className="w-11 h-11 bg-white rounded-full p-1 shadow flex items-center justify-center shrink-0">
               <img
                 src={EXPRESO_PUNATA_LOGO_PATH}
@@ -140,21 +163,21 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             </div>
           </div>
 
-          {/* Sucursal, Rol y Usuario */}
+          {/* Sucursal, Rol, Tutorial y Usuario */}
           <div className="flex items-center gap-2 sm:gap-3 text-xs">
             {/* Indicador / Selector de Sucursal según rol (RBAC visual estricto) */}
             {userProfile?.role === 'conductor' ? (
-              <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
+              <div data-tutorial-target="header-branch-badge" className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
                 <Truck className="w-3.5 h-3.5 text-[#facc15]" />
                 <span>Móvil {userProfile.assignedMobileNumber || '14'} (Ruta Interprovincial)</span>
               </div>
             ) : userProfile?.role === 'secretaria' ? (
-              <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
+              <div data-tutorial-target="header-branch-badge" className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
                 <MapPin className="w-3.5 h-3.5 text-[#facc15]" />
                 <span>{currentBranch.name}</span>
               </div>
             ) : selectableBranches.length > 1 ? (
-              <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800">
+              <div data-tutorial-target="header-branch-badge" className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800">
                 <MapPin className="w-3.5 h-3.5 text-[#facc15]" />
                 <select
                   value={currentBranchId}
@@ -169,17 +192,30 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
                 </select>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
+              <div data-tutorial-target="header-branch-badge" className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
                 <MapPin className="w-3.5 h-3.5 text-[#facc15]" />
                 <span>{currentBranch.name}</span>
               </div>
             )}
 
+            {/* Botón Centro de Tutoriales */}
+            <button
+              type="button"
+              onClick={tutorial.openTutorialCenter}
+              data-tutorial-target="header-tutorial-btn"
+              className="flex items-center gap-1.5 bg-[#facc15] hover:bg-yellow-400 text-[#064e3b] font-extrabold px-2.5 sm:px-3 py-1.5 rounded-lg shadow-sm transition text-xs cursor-pointer"
+              title="Abrir Centro de Tutoriales y Capacitación"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-[#064e3b]" />
+              <span className="hidden sm:inline">Tutorial</span>
+            </button>
+
             {/* Botón Mi Perfil */}
             <button
               type="button"
               onClick={() => setIsProfileModalOpen(true)}
-              className="flex items-center gap-1.5 bg-emerald-950/70 hover:bg-emerald-900 px-2.5 py-1.5 rounded-lg border border-emerald-700 transition"
+              data-tutorial-target="header-profile-btn"
+              className="flex items-center gap-1.5 bg-emerald-950/70 hover:bg-emerald-900 px-2.5 py-1.5 rounded-lg border border-emerald-700 transition cursor-pointer"
               title="Ver mi perfil y opciones de seguridad"
             >
               <div className="w-5 h-5 rounded-full bg-[#facc15] text-[#064e3b] font-extrabold flex items-center justify-center text-[10px]">
@@ -191,7 +227,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             </button>
 
             {/* Badge de Rol */}
-            <span className="px-2.5 py-1 rounded-full font-bold uppercase text-[10px] tracking-wider bg-[#facc15] text-[#064e3b]">
+            <span data-tutorial-target="header-user-badge" className="px-2.5 py-1 rounded-full font-bold uppercase text-[10px] tracking-wider bg-[#facc15] text-[#064e3b]">
               {userProfile.role.replace('_', ' ')}
             </span>
 
@@ -207,7 +243,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         </div>
 
         {/* Barra de navegación de pestañas con scroll táctil horizontal */}
-        <div className="bg-[#053d2e] border-t border-emerald-800/60">
+        <div data-tutorial-target="nav-tabs-bar" className="bg-[#053d2e] border-t border-emerald-800/60">
           <div className="max-w-7xl mx-auto px-4 flex overflow-x-auto scroll-smooth gap-1 py-1">
             {tabs.map(tab => {
               const Icon = tab.icon
@@ -519,6 +555,54 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
       {isProfileModalOpen && (
         <UserProfileModal onClose={() => setIsProfileModalOpen(false)} />
       )}
+
+      {/* Sistema de Tutoriales Guiados e Interactivos */}
+      <TutorialCenterModal
+        isOpen={tutorial.isCenterOpen}
+        onClose={tutorial.closeTutorialCenter}
+        sections={tutorial.roleSections}
+        state={tutorial.state}
+        userRole={userProfile.role}
+        onStartContinuous={() => tutorial.startContinuous()}
+        onStartSection={(secId, stepIdx) => tutorial.startSection(secId, stepIdx)}
+        onResume={() => tutorial.resumeTutorial()}
+        onReset={() => tutorial.resetTutorial()}
+      />
+
+      {tutorial.isTourActive && tutorial.activeSection && tutorial.currentStep && (
+        <TutorialOverlayCard
+          section={tutorial.activeSection}
+          step={tutorial.currentStep}
+          stepIndex={tutorial.currentStepIndex}
+          totalSteps={tutorial.activeSection.steps.length}
+          isContinuous={tutorial.state.isContinuousActive}
+          onNext={tutorial.nextStep}
+          onPrev={tutorial.prevStep}
+          onPause={tutorial.pauseTutorial}
+          onExit={tutorial.exitTutorial}
+        />
+      )}
+
+      {tutorial.transitionState && (
+        <TutorialTransitionToast
+          transition={tutorial.transitionState}
+          onContinueNow={tutorial.continueTransitionNow}
+          onPause={tutorial.pauseTutorial}
+        />
+      )}
+
+      <TutorialCompletionModal
+        isOpen={tutorial.isCompletionModalOpen}
+        onClose={() => tutorial.setIsCompletionModalOpen(false)}
+        onRestart={() => {
+          tutorial.setIsCompletionModalOpen(false)
+          tutorial.startContinuous()
+        }}
+        completedSections={tutorial.roleSections.filter((s) =>
+          tutorial.state.completedSectionIds.includes(s.id)
+        )}
+        userRole={userProfile.role}
+      />
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500">

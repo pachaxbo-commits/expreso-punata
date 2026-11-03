@@ -375,7 +375,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
           {/* ============================================================ */}
           {step === 1 && (
             <div className="space-y-4">
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div data-tutorial-target="shipment-form-route" className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                 <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">
                   Trayecto entre Agencias
                 </h3>
@@ -490,7 +490,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
           {step === 2 && (
             <div className="space-y-4">
               {/* Sección Remitente */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+              <div data-tutorial-target="shipment-form-sender" className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-extrabold text-[#064e3b] uppercase tracking-wider flex items-center gap-1.5">
                     <Users className="w-3.5 h-3.5" /> Datos del Remitente (Quien Envía)
@@ -584,7 +584,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
               </div>
 
               {/* Sección Destinatario */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+              <div data-tutorial-target="shipment-form-recipient" className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                 <span className="text-xs font-extrabold text-[#064e3b] uppercase tracking-wider flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5" /> Datos del Destinatario (Quien Recibe)
                 </span>
@@ -681,7 +681,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
           {/* PASO 3: DETALLE DE BULTOS Y TARIFA */}
           {/* ============================================================ */}
           {step === 3 && (
-            <div className="space-y-4">
+            <div data-tutorial-target="shipment-form-cargo" className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
                   Paquetes a Registrar ({items.length})
@@ -825,7 +825,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
               </div>
 
               {/* Tarjeta de Precio de Envío Editable en Ventanilla */}
-              <div className="bg-emerald-50 border-2 border-[#064e3b] p-4 rounded-xl shadow-sm space-y-3">
+              <div data-tutorial-target="shipment-pricing-box" className="bg-emerald-50 border-2 border-[#064e3b] p-4 rounded-xl shadow-sm space-y-3">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
@@ -888,7 +888,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
 
                 {/* Motivo de ajuste comercial */}
                 {((isPriceCustomized && priceDiffCents !== 0) || isZeroPrice) && (
-                  <div className="pt-2 border-t border-emerald-200">
+                  <div data-tutorial-target="shipment-price-reason" className="pt-2 border-t border-emerald-200">
                     <label className="block text-[11px] font-bold text-slate-700 mb-1">
                       Motivo del Acuerdo Comercial / Ajuste de Precio {isZeroPrice ? '(Obligatorio para Bs. 0.00)' : '(Opcional)'}:
                     </label>
@@ -911,7 +911,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
           {step === 4 && (
             <div className="space-y-4">
               {/* Opciones de Cobro */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div data-tutorial-target="shipment-payment-mode" className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <button
                   type="button"
                   onClick={() => setPaymentTiming('origin_paid')}
@@ -1170,6 +1170,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
             ) : (
               <button
                 type="button"
+                data-tutorial-target="shipment-btn-submit"
                 disabled={isSubmitting || !canProceedStep4}
                 onClick={handleSubmitShipment}
                 className="px-6 py-2.5 bg-[#064e3b] hover:bg-[#065f46] disabled:bg-emerald-800 text-[#facc15] text-xs font-extrabold rounded-lg shadow-md flex items-center gap-2 transition-all"
