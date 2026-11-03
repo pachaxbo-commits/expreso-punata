@@ -38,9 +38,13 @@ import { ConsumablesManagementView } from '../modules/assets/ConsumablesManageme
 import { SystemConfigView } from '../modules/admin/SystemConfigView'
 import type { Shipment } from '../types'
 
-export const AppContent: React.FC = () => {
-  const { userProfile, signOut, currentBranchId, setCurrentBranchId, hasRole } = useAuth()
-  const [activeTab, setActiveTab] = useState('shipments')
+interface MainDashboardProps {
+  userProfile: NonNullable<ReturnType<typeof useAuth>['userProfile']>
+}
+
+export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => {
+  const { signOut, currentBranchId, switchBranch, hasRole } = useAuth()
+  const [activeTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? 'manifests' : 'shipments'))
   const [configSubTab, setConfigSubTab] = useState<'users' | 'general' | 'tariffs' | 'printers'>('users')
   const [manifestSubTab, setManifestSubTab] = useState<'manifests' | 'commisiones'>('manifests')
   const [assetSubTab, setAssetSubTab] = useState<'fixed' | 'consumables'>('fixed')
@@ -71,9 +75,7 @@ export const AppContent: React.FC = () => {
 
 
 
-  if (!userProfile || userProfile.isActive === false) {
-    return <LoginView />
-  }
+
 
   const currentBranch = INITIAL_BRANCHES.find(b => b.id === currentBranchId) || INITIAL_BRANCHES[0]
 
@@ -156,7 +158,7 @@ export const AppContent: React.FC = () => {
                 <MapPin className="w-3.5 h-3.5 text-[#facc15]" />
                 <select
                   value={currentBranchId}
-                  onChange={e => setCurrentBranchId(e.target.value)}
+                  onChange={e => switchBranch(e.target.value)}
                   className="bg-transparent text-white font-medium focus:outline-none cursor-pointer"
                 >
                   {selectableBranches.map(b => (
@@ -526,6 +528,25 @@ export const AppContent: React.FC = () => {
       </footer>
     </div>
   )
+}
+
+export const AppContent: React.FC = () => {
+  const { userProfile, isLoading } = useAuth()
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
+        <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-white text-sm font-medium">Cargando sistema...</p>
+      </div>
+    )
+  }
+
+  if (!userProfile || userProfile.isActive === false) {
+    return <LoginView />
+  }
+
+  return <MainDashboard userProfile={userProfile} />
 }
 
 export const App: React.FC = () => {
