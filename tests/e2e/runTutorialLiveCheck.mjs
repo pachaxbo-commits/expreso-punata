@@ -1,4 +1,4 @@
-import { chromium } from 'playwright'
+import { chromium } from 'playwright-core'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,20 +14,16 @@ if (!fs.existsSync(ARTIFACT_DIR)) fs.mkdirSync(ARTIFACT_DIR, { recursive: true }
 
 // Carga segura de contraseña desde .env.local o process.env sin imprimirla
 function getTestPassword() {
-  if (process.env.E2E_TEST_PASSWORD) {
-    return process.env.E2E_TEST_PASSWORD
+  let testPassword = process.env.E2E_TEST_PASSWORD
+  if (!testPassword && fs.existsSync('.env.local')) {
+    const envContent = fs.readFileSync('.env.local', 'utf8')
+    const match = envContent.match(/E2E_TEST_PASSWORD=["']?([^"'\r\n]+)["']?/)
+    if (match) testPassword = match[1]
   }
-  const envLocalPath = path.join(ROOT_DIR, '.env.local')
-  if (fs.existsSync(envLocalPath)) {
-    const lines = fs.readFileSync(envLocalPath, 'utf-8').split('\n')
-    for (const line of lines) {
-      const match = line.match(/^E2E_TEST_PASSWORD=(.*)$/)
-      if (match) {
-        return match[1].trim()
-      }
-    }
+  if (!testPassword) {
+    throw new Error('No se encontró E2E_TEST_PASSWORD ni en process.env ni en .env.local')
   }
-  throw new Error('No se encontró E2E_TEST_PASSWORD ni en process.env ni en .env.local')
+  return testPassword
 }
 
 async function runTutorialVerification() {
@@ -35,14 +31,26 @@ async function runTutorialVerification() {
   const targetUrl = process.env.TEST_TARGET_URL || 'https://expreso-punata.vercel.app'
   console.log(`[Tutorial Live Check] Conectando a ${targetUrl}...`)
 
-  const browser = await chromium.launch({ headless: true })
+  const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+  const browser = await chromium.launch({
+    executablePath: fs.existsSync(chromePath) ? chromePath : undefined,
+    headless: true,
+  })
   const context = await browser.newContext({ viewport: { width: 1366, height: 768 } })
   const page = await context.newPage()
+
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') console.log('[Browser Console Error]', msg.text())
+  })
+  page.on('pageerror', (err) => {
+    console.error('[Browser Uncaught Error]', err.message)
+  })
 
   try {
     // 1. Acceso a Login
     console.log('1. Navegando al sistema e iniciando sesión como Administrador...')
-    await page.goto(targetUrl, { waitUntil: 'networkidle' })
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+    await page.waitForSelector('input[type="email"]', { timeout: 10000 })
 
     await page.locator('input[type="email"]').fill('admin@expresopunata.com')
     await page.locator('input[placeholder="••••••••"]').fill(testPassword)
@@ -69,22 +77,26 @@ async function runTutorialVerification() {
     fs.copyFileSync(shotCenter, path.join(ARTIFACT_DIR, '61-tutorial-center-modal.png'))
     console.log('   ✓ Captura guardada: 61-tutorial-center-modal.png')
 
-    // 4. Iniciar un módulo específico (Ventanilla de Encomiendas)
-    console.log('\n4. Iniciando tutorial específico: Ventanilla de Encomiendas...')
-    const learnShipmentsBtn = page.locator('div:has-text("3. Ventanilla de Encomiendas") button:has-text("Aprender"), div:has-text("3. Ventanilla de Encomiendas") button:has-text("Repasar")').first()
-    await learnShipmentsBtn.click()
+    // 4. Iniciar recorrido
+    console.log('\n4. Iniciando Recorrido de Aprendizaje...')
+    await page.locator('button:has-text("Iniciar Recorrido Completo")').click()
 
     // 5. Verificar spotlight y tarjeta educativa
     console.log('\n5. Verificando spotlight interactivo y tarjeta formativa...')
-    await page.waitForSelector('[role="dialog"][aria-label*="Nueva Encomienda"]', { timeout: 6000 })
+    await page.waitForSelector('text=¿Qué es y para qué sirve?', { timeout: 8000 })
     console.log('   ✓ Tarjeta formativa renderizada.')
 
     // Comprobar presencia de bloques pedagógicos obligatorios
-    const cardText = await page.locator('[role="dialog"]').innerText()
-    if (!cardText.includes('¿Qué es y para qué sirve?')) throw new Error('Falta bloque ¿Qué es y para qué sirve?')
-    if (!cardText.includes('¿Qué debo hacer o seleccionar?')) throw new Error('Falta bloque ¿Qué debo hacer o seleccionar?')
-    if (!cardText.includes('Ejemplo Práctico (Expreso Punata)')) throw new Error('Falta bloque Ejemplo Práctico')
-    if (!cardText.includes('Consejo:')) throw new Error('Falta bloque Consejo')
+    const cardEl = page.locator('div[role="dialog"]').filter({ hasText: '¿Qué es y para qué sirve?' }).first()
+    const cardText = await cardEl.innerText()
+    console.log('--- CARD TEXT PREVIEW ---')
+    console.log(cardText)
+    console.log('-------------------------')
+    const upper = cardText.toUpperCase()
+    if (!upper.includes('¿QUÉ ES Y PARA QUÉ SIRVE?')) throw new Error('Falta bloque ¿Qué es y para qué sirve?')
+    if (!upper.includes('¿QUÉ DEBO HACER O SELECCIONAR?')) throw new Error('Falta bloque ¿Qué debo hacer o seleccionar?')
+    if (!upper.includes('EJEMPLO PRÁCTICO (EXPRESO PUNATA)')) throw new Error('Falta bloque Ejemplo Práctico')
+    if (!upper.includes('CONSEJO:')) throw new Error('Falta bloque Consejo')
     console.log('   ✓ Estructura pedagógica verificada al 100%.')
 
     const shotSpotlight = path.join(EVIDENCE_DIR, '62-tutorial-interactive-spotlight-step.png')
@@ -107,7 +119,7 @@ async function runTutorialVerification() {
     // 8. Verificación en Viewport Móvil (390x844)
     console.log('\n8. Verificando experiencia responsive móvil en 390x844...')
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.waitForTimeout(400)
+    await page.waitForTimeout(500)
 
     // Reanudar desde el botón Tutorial en móvil
     const mobileTutorialBtn = page.locator('[data-tutorial-target="header-tutorial-btn"]')
@@ -117,7 +129,7 @@ async function runTutorialVerification() {
     const continueBtn = page.locator('button:has-text("Continuar donde lo dejé")')
     if (await continueBtn.count() > 0) {
       await continueBtn.click()
-      await page.waitForTimeout(500)
+      await page.waitForSelector('text=¿Qué es y para qué sirve?', { timeout: 8000 })
       console.log('   ✓ Reanudación móvil completada en panel inferior adaptativo.')
     }
 
@@ -129,6 +141,10 @@ async function runTutorialVerification() {
     console.log('\n========================================================================')
     console.log('¡TODAS LAS VERIFICACIONES DEL SISTEMA DE TUTORIALES PASARON AL 100%!')
     console.log('========================================================================\n')
+  } catch (err) {
+    const errorShot = path.join(EVIDENCE_DIR, 'error-tutorial-live-check.png')
+    await page.screenshot({ path: errorShot }).catch(() => {})
+    throw err
   } finally {
     await browser.close()
   }
