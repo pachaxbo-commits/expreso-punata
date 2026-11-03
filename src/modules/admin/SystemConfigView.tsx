@@ -218,7 +218,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
       </div>
 
       {/* Formulario de Configuración */}
-      <form onSubmit={handleSave} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+      <form data-tutorial-target="config-general-form" onSubmit={handleSave} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
         {/* 1. SECCIÓN: EMPRESA */}
         {activeSection === 'company' && (
           <div className="space-y-4">
@@ -370,7 +370,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
 
         {/* 3. SECCIÓN: TARIFAS SUGERIDAS */}
         {activeSection === 'tariffs' && (
-          <div className="space-y-4">
+          <div data-tutorial-target="config-tariffs-table" className="space-y-4">
             <h3 className="text-sm font-black text-slate-800 border-b pb-2">
               Tarifario Sugerido de Ventanilla (Referencial Oficial)
             </h3>

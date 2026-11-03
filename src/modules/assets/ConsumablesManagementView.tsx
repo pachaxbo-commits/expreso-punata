@@ -301,7 +301,7 @@ export const ConsumablesManagementView: React.FC<ConsumablesManagementViewProps>
       )}
 
       {/* Tarjetas KPI */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div data-tutorial-target="consumables-grid" className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <p className="text-[11px] font-bold uppercase text-slate-500">Insumos Registrados</p>
           <p className="text-xl font-black text-slate-800 mt-1">{totalItemsCount}</p>

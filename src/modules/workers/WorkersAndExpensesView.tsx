@@ -498,7 +498,7 @@ export const WorkersAndExpensesView: React.FC<WorkersAndExpensesViewProps> = ({
       {/* SUBPESTAÑA 1: PERSONAL & NÓMINA                                     */}
       {/* =================================================================== */}
       {activeSubTab === 'workers' && (
-        <div className="space-y-4">
+        <div data-tutorial-target="workers-roster-section" className="space-y-4">
           {/* Métricas Personal */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
@@ -828,6 +828,7 @@ export const WorkersAndExpensesView: React.FC<WorkersAndExpensesViewProps> = ({
               {canRegisterExpenses && (
                 <button
                   type="button"
+                  data-tutorial-target="btn-new-expense"
                   onClick={() => setShowCreateExpenseModal(true)}
                   className="px-3.5 py-1.5 bg-[#064e3b] text-white text-xs font-bold rounded-lg shadow hover:bg-[#053e2f] flex items-center gap-1.5"
                 >
