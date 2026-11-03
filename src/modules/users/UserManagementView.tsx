@@ -225,6 +225,7 @@ export const UserManagementView: React.FC = () => {
 
         <button
           type="button"
+          data-tutorial-target="btn-new-user-modal"
           onClick={() => setIsNewUserModalOpen(true)}
           className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#064e3b] hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow transition"
         >
@@ -355,7 +356,7 @@ export const UserManagementView: React.FC = () => {
       )}
 
       {/* Listado de Usuarios */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div data-tutorial-target="users-management-table" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-12 text-center text-slate-500 text-xs">
             <RefreshCw className="w-6 h-6 mx-auto animate-spin text-[#064e3b] mb-2" />

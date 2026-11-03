@@ -250,6 +250,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
               <>
                 <button
                   type="button"
+                  data-tutorial-target="btn-collect-member-fee"
                   onClick={() => setIsGenerateDuesModalOpen(true)}
                   className="px-3.5 py-2 bg-emerald-800/80 hover:bg-emerald-800 border border-emerald-600/70 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition shadow-sm"
                 >
@@ -353,7 +354,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
 
       {/* PESTAÑA 1: PADRÓN DE SOCIOS */}
       {activeTab === 'members' && (
-        <div className="space-y-4">
+        <div data-tutorial-target="members-table-container" className="space-y-4">
           {/* Barra de Filtros y Búsqueda */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div className="relative flex-1">
@@ -539,6 +540,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
               {isManagement && (
                 <button
                   type="button"
+                  data-tutorial-target="btn-collect-member-fee"
                   onClick={() => setIsGenerateDuesModalOpen(true)}
                   className="px-4 py-2 bg-[#064e3b] text-[#facc15] font-bold text-xs rounded-xl inline-flex items-center gap-2 shadow"
                 >

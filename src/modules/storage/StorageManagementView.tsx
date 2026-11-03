@@ -209,7 +209,7 @@ export const StorageManagementView: React.FC<StorageManagementViewProps> = ({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          <div data-tutorial-target="storage-reception-list" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {pendingStorage.map((s) => (
               <div
                 key={s.id}
@@ -242,7 +242,7 @@ export const StorageManagementView: React.FC<StorageManagementViewProps> = ({
       )}
 
       {/* Selector de Estantes y Mapa de Módulos (1 a 5) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div data-tutorial-target="storage-racks-grid" className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {DEFAULT_SHELVES.map((shelf) => {
           const isSelected = selectedShelfId === shelf.id
           return (

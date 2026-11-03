@@ -309,7 +309,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div data-tutorial-target="printers-config-panel" className="space-y-6">
       {/* Encabezado y Selector de Sucursal */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
