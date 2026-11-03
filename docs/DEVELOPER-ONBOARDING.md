@@ -24,7 +24,7 @@ Antes de comenzar, asegúrate de tener instaladas las siguientes herramientas en
 
 ### 2. CLONACIÓN DEL REPOSITORIO Y PREPARACIÓN DE RAMAS
 
-El repositorio se encuentra alojado en la organización `pachaxbo-commits`.
+El repositorio se encuentra alojado en la organización `pachaxbo-commits` bajo visibilidad **PÚBLICA** por decisión institucional expresa de PACHAX. Por este motivo, **está estrictamente prohibido subir claves de acceso, cuentas de servicio (*.json), tokens de autenticación o datos reales de clientes**. Todos los secretos se resguardan fuera de Git.
 
 ```powershell
 # 1. Clona el repositorio oficial en tu carpeta de trabajo

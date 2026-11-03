@@ -16,6 +16,12 @@ import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } fr
 import type { UserRole } from '../../types'
 
 export const LoginView: React.FC = () => {
+  const isLocalhost = Boolean(
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname.endsWith('.local'))
+  )
   const { currentUser, userProfile, authError, signIn, signOut, devSwitchRole, setCurrentBranchId, currentBranchId } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -175,8 +181,8 @@ export const LoginView: React.FC = () => {
             </form>
           )}
 
-          {/* Accesos rápidos de desarrollo — EXCLUSIVO DE EMULADORES LOCALES */}
-          {isEmulatedEnvironment && (
+          {/* Accesos rápidos de desarrollo — EXCLUSIVO DE EMULADORES LOCALES EN LOCALHOST */}
+          {isEmulatedEnvironment && isLocalhost && (
             <div className="mt-6 pt-5 border-t border-slate-200">
               <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />

@@ -3,6 +3,7 @@
 
 **Organización:** PACHAX (`pachaxbo-commits`)  
 **Repositorio:** `https://github.com/pachaxbo-commits/expreso-punata`  
+**Visibilidad:** **Público** (Decisión institucional expresa de PACHAX; protección absoluta de credenciales, secretos y datos de clientes resguardados fuera de Git)  
 **Rama Base de Integración:** `develop`  
 **Rama de Producción (Protegida):** `main`  
 **Entorno de Desarrollo Cloud:** Firebase `expreso-punata-dev` & Vercel Preview  
