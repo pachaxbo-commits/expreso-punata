@@ -67,11 +67,7 @@ export const AppContent: React.FC = () => {
     return () => unsubscribe()
   }, [currentBranchId])
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as any).__setShipments = setRealShipments
-    }
-  }, [])
+
 
 
 

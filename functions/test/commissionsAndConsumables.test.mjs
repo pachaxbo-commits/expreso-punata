@@ -309,7 +309,8 @@ test('5. FASE 7: updateSystemConfig y getSystemConfig gestionan configuración o
   // 1. Obtener inicial (defaults)
   const initial = await getSystemConfig.run({})
   assert.strictEqual(initial.success, true)
-  assert.strictEqual(initial.config.company.name, 'EXPRESO PUNATA')
+  assert.strictEqual(initial.status, 'unconfigured')
+  assert.strictEqual(initial.config, null)
 
   // 2. Secretaria no puede modificar la configuración
   await assert.rejects(

@@ -153,11 +153,18 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Los descuentos desde ventanilla están deshabilitados. Solo la Directiva / Administración puede aplicar descuentos.')
   }
 
-  // 11. Cálculo canónico del costo en centavos enteros
-  const chargeableExcessWeightKg = Math.max(0, Math.round((totalWeightKg - TARIFFS_DEV_REFERENCE.freeWeightKg) * 100) / 100)
-  const baseFeeCents = TARIFFS_DEV_REFERENCE.baseFeeCents
-  const weightSurchargeCents = Math.round(chargeableExcessWeightKg * TARIFFS_DEV_REFERENCE.extraKgRateCents)
-  const homeDeliveryFeeCents = deliveryType === 'home' ? TARIFFS_DEV_REFERENCE.homeDeliveryFeeCents : 0
+  // 11. Cálculo canónico del costo en centavos enteros desde la configuración oficial o tarifas base
+  const sysConfigSnap = await db.collection('system_config').doc('expreso_punata').get()
+  const sysConfig = sysConfigSnap.exists ? sysConfigSnap.data() : null
+
+  const baseFeeCents = Number(sysConfig?.tariffs?.baseFeeCents) || TARIFFS_DEV_REFERENCE.baseFeeCents
+  const freeWeightKg = Number(sysConfig?.tariffs?.freeWeightKg) || TARIFFS_DEV_REFERENCE.freeWeightKg
+  const extraKgRateCents = Number(sysConfig?.tariffs?.extraKgRateCents) || TARIFFS_DEV_REFERENCE.extraKgRateCents
+  const homeDeliveryRateCents = Number(sysConfig?.tariffs?.homeDeliveryFeeCents) || TARIFFS_DEV_REFERENCE.homeDeliveryFeeCents
+
+  const chargeableExcessWeightKg = Math.max(0, Math.round((totalWeightKg - freeWeightKg) * 100) / 100)
+  const weightSurchargeCents = Math.round(chargeableExcessWeightKg * extraKgRateCents)
+  const homeDeliveryFeeCents = deliveryType === 'home' ? homeDeliveryRateCents : 0
   const subtotalCents = baseFeeCents + weightSurchargeCents + homeDeliveryFeeCents
   const safeDiscountCents = Math.min(subtotalCents, Math.round(rawDiscount))
   const suggestedAmountCents = subtotalCents - safeDiscountCents
@@ -4839,7 +4846,7 @@ export const getMemberAccountStatement = onCall({ cors: true }, async (request) 
   let totalBalanceCents = 0
   let overdueCount = 0
 
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
 
   for (const d of dues) {
     totalBilledCents += (d.amountCents || 0)
@@ -5914,6 +5921,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     const endTimestamp = Timestamp.fromDate(new Date(endIso))
 
     let docs = []
+    let queryError = null
     try {
       // 1. Intentar consulta por Timestamp (campo nativo de Firestore)
       const snap = await db.collection('shipments')
@@ -5925,6 +5933,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       }
     } catch (err) {
+      queryError = err
       console.warn('[getSystemReport] Consulta por createdAt Timestamp:', err?.message)
     }
 
@@ -5940,16 +5949,41 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
           docs = isoSnap.docs.map(d => ({ id: d.id, ...d.data() }))
         }
       } catch (err) {
+        queryError = err
         console.warn('[getSystemReport] Consulta por createdAtIso:', err?.message)
       }
     }
 
-    // 3. Fallback de resiliencia si aún no hay docs (ej. base inicial de desarrollo)
+    // 3. Si docs sigue vacío, consultar por createdAt como string ISO
     if (docs.length === 0) {
-      const allRecentSnap = await db.collection('shipments').limit(200).get()
-      docs = allRecentSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => {
-        const sDate = s.createdAtIso || (s.createdAt?.toDate ? s.createdAt.toDate().toISOString() : null)
-        if (!sDate) return true
+      try {
+        const strSnap = await db.collection('shipments')
+          .where('createdAt', '>=', startIso)
+          .where('createdAt', '<=', endIso)
+          .orderBy('createdAt', 'desc')
+          .get()
+        if (!strSnap.empty) {
+          docs = strSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        }
+      } catch (err) {
+        queryError = err
+      }
+    }
+
+    // Si las consultas indexadas fallaron por falta de índice compuesto, fallar rápido con el error explícito
+    if (docs.length === 0 && queryError) {
+      const errMsg = queryError.message || String(queryError)
+      if (errMsg.includes('FAILED_PRECONDITION') || errMsg.includes('index') || queryError.code === 9) {
+        throw new HttpsError('failed-precondition', `La consulta de reportes requiere un índice compuesto en Firestore: ${errMsg}`)
+      }
+    }
+
+    // 4. Si aún no hay documentos y no hubo error de índice, consultar colección completa sin truncamiento arbitrario
+    if (docs.length === 0 && !queryError) {
+      const allSnap = await db.collection('shipments').get()
+      docs = allSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => {
+        const sDate = s.createdAtIso || (s.createdAt?.toDate ? s.createdAt.toDate().toISOString() : s.createdAt)
+        if (!sDate) return false
         return sDate >= startIso && sDate <= endIso
       })
     }
@@ -6415,7 +6449,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     let overdueCount = 0
     let overdueAmountCents = 0
 
-    const todayStr = new Date().toISOString().slice(0, 10)
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
     const debtorsMap = {}
 
     for (const d of dues) {
@@ -7771,66 +7805,26 @@ export const getSystemConfig = onCall({ cors: true }, async (request) => {
   if (!configDoc.exists) {
     return {
       success: true,
+      status: 'unconfigured',
+      isOfficial: false,
       isDefault: true,
-      config: {
-        company: {
-          name: 'EXPRESO PUNATA',
-          tradeName: 'EXPRESO PUNATA',
-          legalName: 'Expreso Punata',
-          acronym: 'EP',
-          legalNotice: 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
-        },
-        branches: {
-          punata: {
-            name: 'Agencia Central Punata',
-            code: 'PUN',
-            city: 'Punata',
-            department: 'Cochabamba',
-            address: 'Av. Heroínas del Coronel esq. Sucre (Parada Punata)',
-            phone: '4-4571234 / 71798765',
-            isActive: true,
-          },
-          cochabamba: {
-            name: 'Agencia Cochabamba',
-            code: 'CBB',
-            city: 'Cochabamba',
-            department: 'Cochabamba',
-            address: 'Av. Ayacucho esq. Heroínas #340',
-            phone: '4-4256789 / 72234567',
-            isActive: true,
-          },
-        },
-        tariffs: {
-          baseFeeCents: 1500,
-          baseFeeBob: 15,
-          freeWeightKg: 3,
-          extraKgRateCents: 200,
-          extraKgRateBob: 2,
-          homeDeliveryFeeCents: 1200,
-          homeDeliveryFeeBob: 12,
-        },
-        commissions: {
-          defaultType: 'percentage',
-          defaultValue: 10,
-        },
-        dues: {
-          monthlyDueCents: 5000,
-          monthlyDueBob: 50,
-          lateFeePercentage: 10,
-          gracePeriodDays: 10,
-        },
-        printing: {
-          cutPaper: true,
-          openDrawer: true,
-        },
-      },
+      config: null,
+      message: 'El sistema aún no cuenta con configuración oficial aprobada. Por favor, configure los parámetros en el panel de Administración.',
     }
   }
 
+  const data = configDoc.data()
   return {
     success: true,
+    status: 'configured',
+    isOfficial: true,
     isDefault: false,
-    config: configDoc.data(),
+    config: {
+      id: configDoc.id,
+      ...data,
+      isOfficial: true,
+      status: 'configured',
+    },
   }
 })
 

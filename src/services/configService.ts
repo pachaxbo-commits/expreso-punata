@@ -1,16 +1,16 @@
 import { httpsCallable } from 'firebase/functions'
 import { doc, getDoc } from 'firebase/firestore'
 import { functions, db } from '../firebase/config.ts'
-import type { SystemConfig } from '../types/index.ts'
+import type { SystemConfig, SystemConfigResponse } from '../types/index.ts'
 
-export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
+export const BLANK_UNCONFIGURED_TEMPLATE: SystemConfig = {
   id: 'expreso_punata',
   company: {
     name: 'EXPRESO PUNATA',
     tradeName: 'EXPRESO PUNATA',
-    legalName: 'Expreso Punata',
+    legalName: '',
     acronym: 'EP',
-    legalNotice: 'DOCUMENTO OPERATIVO INTERNO - NO CONSTITUYE FACTURA FISCAL',
+    legalNotice: 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
   },
   branches: {
     punata: {
@@ -18,8 +18,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       code: 'PUN',
       city: 'Punata',
       department: 'Cochabamba',
-      address: 'Av. Heroínas del Coronel esq. Sucre (Parada Punata)',
-      phone: '4-4571234 / 71798765',
+      address: '',
+      phone: '',
       isActive: true,
     },
     cochabamba: {
@@ -27,8 +27,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       code: 'CBB',
       city: 'Cochabamba',
       department: 'Cochabamba',
-      address: 'Av. 9 de Abril y Av. Barrientos (Zona San Carlos)',
-      phone: '4-4256789 / 71712345',
+      address: '',
+      phone: '',
       isActive: true,
     },
   },
@@ -52,31 +52,60 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     gracePeriodDays: 5,
   },
   printing: {
-    headerNotice: 'EXPRESO PUNATA - Transporte Interprovincial y Encomiendas',
+    headerNotice: 'EXPRESO PUNATA',
     footerNotice: 'Conserve este comprobante para recoger su encomienda.',
     cutPaper: true,
     openDrawer: false,
   },
+  status: 'unconfigured',
+  isOfficial: false,
   updatedAtIso: new Date().toISOString(),
 }
 
-export async function fetchSystemConfig(): Promise<{ success: boolean; config: SystemConfig; isDefault: boolean }> {
+/**
+ * Consulta la configuración oficial del sistema diferenciando:
+ * - 'configured': Configuración oficial aprobada en Firestore.
+ * - 'unconfigured': Aún no configurada (sin datos inventados).
+ * - 'error': Error de red o permisos.
+ */
+export async function fetchSystemConfig(): Promise<SystemConfigResponse> {
   try {
-    const fn = httpsCallable(functions, 'getSystemConfig')
+    const fn = httpsCallable<void, SystemConfigResponse>(functions, 'getSystemConfig')
     const res = await fn()
-    return res.data as { success: boolean; config: SystemConfig; isDefault: boolean }
-  } catch (err) {
+    return res.data
+  } catch (fnErr: any) {
     try {
-      // Fallback a Firestore directo
       const snap = await getDoc(doc(db, 'system_config', 'expreso_punata'))
       if (snap.exists()) {
-        return { success: true, config: snap.data() as SystemConfig, isDefault: false }
+        const data = snap.data() as SystemConfig
+        return {
+          success: true,
+          status: 'configured',
+          isOfficial: true,
+          isDefault: false,
+          config: { ...data, id: snap.id, isOfficial: true, status: 'configured' },
+        }
+      } else {
+        return {
+          success: true,
+          status: 'unconfigured',
+          isOfficial: false,
+          isDefault: true,
+          config: null,
+          message: 'Configuración oficial pendiente de registro por la Administración.',
+        }
       }
-    } catch {
-      // Silencioso para fallback local
+    } catch (dbErr: any) {
+      console.warn('[configService] Error al conectar con Firestore:', dbErr)
+      return {
+        success: false,
+        status: 'error',
+        isOfficial: false,
+        isDefault: false,
+        config: null,
+        error: dbErr?.message || fnErr?.message || 'Error de conexión o permisos al cargar configuración oficial.',
+      }
     }
-    // Fallback resiliente a la configuración predeterminada
-    return { success: true, config: DEFAULT_SYSTEM_CONFIG, isDefault: true }
   }
 }
 

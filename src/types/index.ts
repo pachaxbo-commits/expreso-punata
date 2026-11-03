@@ -854,6 +854,8 @@ export interface ShipmentIncident {
 // FASE 7: CONFIGURACIÓN OFICIAL PERSISTENTE
 // =========================================================================
 
+export type SystemConfigStatus = 'configured' | 'unconfigured' | 'error' | 'emulated'
+
 export interface SystemConfig {
   id: string
   company: {
@@ -870,8 +872,8 @@ export interface SystemConfig {
     code: string
     city: string
     department: string
-    address: string
-    phone: string
+    address?: string
+    phone?: string
     managerName?: string
     isActive: boolean
   }>
@@ -900,7 +902,19 @@ export interface SystemConfig {
     cutPaper: boolean
     openDrawer: boolean
   }
+  status?: SystemConfigStatus
+  isOfficial?: boolean
   updatedAtIso: string
   updatedByUid?: string
   updatedByName?: string
+}
+
+export interface SystemConfigResponse {
+  success: boolean
+  status: SystemConfigStatus
+  isOfficial: boolean
+  isDefault: boolean
+  config: SystemConfig | null
+  message?: string
+  error?: string
 }

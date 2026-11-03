@@ -7,6 +7,7 @@ import {
   or,
   onSnapshot,
   limit,
+  getDocs,
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions, auth } from '../firebase/config.ts'
@@ -269,4 +270,67 @@ export function extractCustomerSuggestions(shipments: Shipment[]): ParcelCustome
   }
 
   return Array.from(map.values()).slice(0, 50)
+}
+
+export interface QueryShipmentsFilter {
+  branchId?: string
+  status?: string
+  startDate?: string
+  endDate?: string
+  limitCount?: number
+}
+
+/**
+ * Consulta directa del servidor para obtener histórico de encomiendas sin limitación de memoria local.
+ */
+export async function fetchShipmentsQuery(
+  filters: QueryShipmentsFilter = {}
+): Promise<Shipment[]> {
+  const { branchId = 'all', status = 'all', startDate, endDate, limitCount = 500 } = filters
+  const shipmentsRef = collection(db, 'shipments')
+
+  let q = query(shipmentsRef)
+
+  if (branchId !== 'all') {
+    q = query(
+      shipmentsRef,
+      or(
+        where('originBranchId', '==', branchId),
+        where('destinationBranchId', '==', branchId)
+      )
+    )
+  }
+
+  if (status !== 'all') {
+    q = query(q, where('status', '==', status))
+  }
+
+  if (startDate) {
+    q = query(q, where('createdAtIso', '>=', startDate))
+  }
+
+  if (endDate) {
+    q = query(q, where('createdAtIso', '<=', endDate))
+  }
+
+  q = query(q, limit(limitCount))
+
+  const snap = await getDocs(q)
+  const list: Shipment[] = []
+  snap.forEach((d) => {
+    const data = d.data() as Shipment
+    list.push({
+      ...data,
+      id: d.id,
+      trackingCode: data.trackingCode || d.id,
+    })
+  })
+
+  list.sort((a, b) => {
+    const timeA = a.createdAtIso ? new Date(a.createdAtIso).getTime() : 0
+    const timeB = b.createdAtIso ? new Date(b.createdAtIso).getTime() : 0
+    return timeB - timeA
+  })
+
+  return list
 }

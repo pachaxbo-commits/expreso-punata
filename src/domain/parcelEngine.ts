@@ -52,18 +52,33 @@ export interface ParcelPricingResult {
 /**
  * Cálculo del costo de envío garantizando precisión en centavos enteros para evitar errores flotantes
  */
+export interface ParcelTariffConfig {
+  baseFeeCents: number
+  freeWeightKg: number
+  extraKgRateCents: number
+  homeDeliveryFeeCents: number
+}
+
+/**
+ * Cálculo del costo de envío garantizando precisión en centavos enteros para evitar errores flotantes.
+ * Permite inyectar la configuración oficial aprobada o utiliza las tarifas referenciales de desarrollo.
+ */
 export function calculateParcelPricing(
   weightKg = 0,
   deliveryType: 'agency' | 'home' | 'direct_driver' = 'agency',
-  discountBob = 0
+  discountBob = 0,
+  tariffsConfig?: Partial<ParcelTariffConfig>
 ): ParcelPricingResult {
   const safeWeight = Math.max(0, weightKg)
-  const freeWeight = EXPRESO_PUNATA_TARIFFS.freeWeightKg
+  const freeWeight = tariffsConfig?.freeWeightKg !== undefined ? tariffsConfig.freeWeightKg : EXPRESO_PUNATA_TARIFFS.freeWeightKg
   const chargeableExcessWeightKg = Math.max(0, Math.round((safeWeight - freeWeight) * 100) / 100)
 
-  const baseFeeCents = EXPRESO_PUNATA_TARIFFS.baseFeeCents
-  const weightSurchargeCents = Math.round(chargeableExcessWeightKg * EXPRESO_PUNATA_TARIFFS.extraKgRateCents)
-  const homeDeliveryFeeCents = deliveryType === 'home' ? EXPRESO_PUNATA_TARIFFS.homeDeliveryFeeCents : 0
+  const baseFeeCents = tariffsConfig?.baseFeeCents !== undefined ? tariffsConfig.baseFeeCents : EXPRESO_PUNATA_TARIFFS.baseFeeCents
+  const extraKgRateCents = tariffsConfig?.extraKgRateCents !== undefined ? tariffsConfig.extraKgRateCents : EXPRESO_PUNATA_TARIFFS.extraKgRateCents
+  const weightSurchargeCents = Math.round(chargeableExcessWeightKg * extraKgRateCents)
+  const homeDeliveryFeeCents = deliveryType === 'home'
+    ? (tariffsConfig?.homeDeliveryFeeCents !== undefined ? tariffsConfig.homeDeliveryFeeCents : EXPRESO_PUNATA_TARIFFS.homeDeliveryFeeCents)
+    : 0
 
   const subtotalCents = baseFeeCents + weightSurchargeCents + homeDeliveryFeeCents
   const safeDiscountCents = Math.min(subtotalCents, Math.max(0, Math.round(discountBob * 100)))

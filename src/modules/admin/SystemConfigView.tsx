@@ -12,14 +12,14 @@ import {
   Sparkles,
 } from 'lucide-react'
 import type { UserProfile, SystemConfig } from '../../types/index.ts'
-import { fetchSystemConfig, updateSystemConfig } from '../../services/configService.ts'
+import { fetchSystemConfig, updateSystemConfig, BLANK_UNCONFIGURED_TEMPLATE } from '../../services/configService.ts'
 
 interface SystemConfigViewProps {
   currentUser: UserProfile
 }
 
 export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser: _currentUser }) => {
-  const [config, setConfig] = useState<SystemConfig | null>(null)
+  const [config, setConfig] = useState<SystemConfig>(BLANK_UNCONFIGURED_TEMPLATE)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
@@ -27,13 +27,32 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
   // Sub-sección activa dentro de Configuración Oficial
   const [activeSection, setActiveSection] = useState<'company' | 'branches' | 'tariffs' | 'commissions' | 'dues' | 'printing'>('company')
 
+  const [configStatus, setConfigStatus] = useState<'configured' | 'unconfigured' | 'error'>('configured')
+
   const loadConfig = async () => {
     try {
       setLoading(true)
       const data = await fetchSystemConfig()
-      setConfig(data.config)
+      if (data.status === 'unconfigured' || !data.config) {
+        setConfig(BLANK_UNCONFIGURED_TEMPLATE)
+        setConfigStatus('unconfigured')
+        setFeedback({
+          type: 'error',
+          message: 'Configuración pendiente de aprobación: El sistema aún no cuenta con datos oficiales registrados. Por favor ingrese los datos corporativos, tarifas y comisiones confirmadas.',
+        })
+      } else if (data.status === 'error') {
+        setConfigStatus('error')
+        setFeedback({
+          type: 'error',
+          message: data.error || 'Error al conectar con el servidor para obtener la configuración oficial.',
+        })
+      } else {
+        setConfig(data.config)
+        setConfigStatus('configured')
+      }
     } catch (err: any) {
       console.error('Error cargando configuración:', err)
+      setConfigStatus('error')
       setFeedback({ type: 'error', message: err.message || 'Error al cargar la configuración oficial.' })
     } finally {
       setLoading(false)
@@ -61,10 +80,28 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
     }
   }
 
-  if (loading || !config) {
+  if (loading) {
     return (
       <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-xs text-slate-400">
         Cargando configuración oficial de Expreso Punata...
+      </div>
+    )
+  }
+
+  if (configStatus === 'error' && !config) {
+    return (
+      <div className="bg-white rounded-2xl border border-rose-200 p-12 text-center space-y-4">
+        <div className="text-rose-600 font-bold text-sm">Error al cargar la configuración oficial</div>
+        <p className="text-xs text-slate-500 max-w-md mx-auto">
+          No se pudo conectar con Cloud Firestore para consultar los parámetros del sistema.
+        </p>
+        <button
+          type="button"
+          onClick={loadConfig}
+          className="px-4 py-2 bg-[#064e3b] text-white rounded-xl text-xs font-bold shadow hover:bg-[#065f46]"
+        >
+          Reintentar conexión
+        </button>
       </div>
     )
   }
