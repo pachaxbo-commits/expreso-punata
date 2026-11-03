@@ -14,6 +14,7 @@ import {
   History,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Save,
 } from 'lucide-react'
 import type { Shipment, UserProfile } from '../../types'
@@ -21,6 +22,7 @@ import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { printShipmentGuidePdf, printDeliveryProofPdf } from '../../services/pdfService'
 import { printEngine } from '../../services/printing/printEngineService'
 import { updateShipmentThroughBackend } from '../../services/shipmentService'
+import { reportShipmentIncident } from '../../services/incidentService'
 
 interface ShipmentDetailModalProps {
   shipment: Shipment | null
@@ -41,7 +43,15 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   onShipmentUpdated,
   onDeliverShipment,
 }) => {
-  const [activeTab, setActiveTab] = useState<'info' | 'history' | 'edit'>('info')
+  const [activeTab, setActiveTab] = useState<'info' | 'history' | 'edit' | 'incidents'>('info')
+  const [incidentType, setIncidentType] = useState<'uncollected' | 'returned' | 'lost' | 'damaged' | 'exceptional_delivery'>('damaged')
+  const [incidentDesc, setIncidentDesc] = useState('')
+  const [incidentResponsible, setIncidentResponsible] = useState('')
+  const [incidentEvidenceUrl, setIncidentEvidenceUrl] = useState('')
+  const [isSubmittingIncident, setIsSubmittingIncident] = useState(false)
+  const [incidentSuccess, setIncidentSuccess] = useState<string | null>(null)
+
+
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [editSuccess, setEditSuccess] = useState<string | null>(null)
@@ -58,6 +68,44 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   const [editPriceBob, setEditPriceBob] = useState('')
   const [priceReason, setPriceReason] = useState('')
   const [rectificationReason, setRectificationReason] = useState('')
+
+
+  const handleReportIncident = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!shipment) return
+    if (!incidentDesc.trim() || incidentDesc.trim().length < 10) {
+      alert('La descripción debe tener al menos 10 caracteres.')
+      return
+    }
+
+    try {
+      setIsSubmittingIncident(true)
+      const res = await reportShipmentIncident({
+        shipmentId: shipment.id,
+        incidentType,
+        description: incidentDesc.trim(),
+        responsiblePerson: incidentResponsible.trim(),
+        evidenceUrl: incidentEvidenceUrl.trim(),
+        branchId: currentBranchId,
+      })
+      setIncidentSuccess(`Incidencia ${res.incident.incidentNumber} registrada exitosamente.`)
+      setIncidentDesc('')
+      setIncidentResponsible('')
+      setIncidentEvidenceUrl('')
+      if (onShipmentUpdated) {
+        onShipmentUpdated({
+          ...shipment,
+          status: incidentType === 'exceptional_delivery' ? 'delivered' : (incidentType as any),
+          hasIncident: true,
+          currentIncidentNumber: res.incident.incidentNumber,
+        })
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error registrando incidencia.')
+    } finally {
+      setIsSubmittingIncident(false)
+    }
+  }
 
   if (!isOpen || !shipment) return null
 
@@ -245,6 +293,18 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
             >
               <History className="w-3.5 h-3.5" />
               <span>Auditoría & Trazabilidad ({shipment.auditHistory?.length || 0})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('incidents')}
+              className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-1.5 ${
+                activeTab === 'incidents'
+                  ? 'border-[#064e3b] text-[#064e3b] bg-white'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+              <span>Incidencias & Rezagos</span>
             </button>
             {canEdit && (
               <button
@@ -678,6 +738,119 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
                 </button>
               </div>
             </form>
+          )}
+
+          {/* TAB 4: INCIDENCIAS, DEVOLUCIONES Y REZAGOS */}
+          {activeTab === 'incidents' && (
+            <div className="space-y-4">
+              {incidentSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>{incidentSuccess}</span>
+                </div>
+              )}
+
+              {/* Historial de incidencias registradas */}
+              {Array.isArray(shipment.incidentHistory) && shipment.incidentHistory.length > 0 && (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                  <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider">
+                    Historial de Incidencias Operativas
+                  </h4>
+                  <div className="space-y-2">
+                    {shipment.incidentHistory.map((inc: any, i: number) => (
+                      <div key={i} className="p-3 bg-white border border-slate-200 rounded-lg text-xs space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-bold text-rose-800">[{inc.incidentNumber}]</span>
+                          <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded bg-rose-100 text-rose-800">
+                            {inc.incidentType}
+                          </span>
+                        </div>
+                        <p className="text-slate-700 font-medium">{inc.description}</p>
+                        <p className="text-[10px] text-slate-400">
+                          Reportado por {inc.reportedBy} el {new Date(inc.dateIso).toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Formulario de Registro de Incidencia */}
+              <form onSubmit={handleReportIncident} className="p-4 bg-amber-50/50 border border-amber-200 rounded-xl space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-700" />
+                  <h4 className="text-xs font-black uppercase text-amber-900 tracking-wider">
+                    Registrar Novedad / Incidencia / Rezago
+                  </h4>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Tipo de Incidencia *</label>
+                    <select
+                      value={incidentType}
+                      onChange={e => setIncidentType(e.target.value as any)}
+                      className="w-full p-2 border border-slate-300 rounded-lg bg-white font-bold"
+                    >
+                      <option value="damaged">Dañada / Averiada (rotura o deterioro)</option>
+                      <option value="lost">Extraviada / Pérdida en ruta o almacén</option>
+                      <option value="uncollected">Rezagada / No recogida tras plazo legal</option>
+                      <option value="returned">Devuelta a origen</option>
+                      <option value="exceptional_delivery">Entrega Excepcional (autorizada sin cobro COD o especial)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Responsable Identificado</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Chofer móvil 12, estibador..."
+                      value={incidentResponsible}
+                      onChange={e => setIncidentResponsible(e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Descripción Detallada del Motivo y Circunstancias * (Mínimo 10 caracteres)
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Describa el estado de la encomienda, roturas visibles o motivo por el que se rezaga..."
+                    value={incidentDesc}
+                    onChange={e => setIncidentDesc(e.target.value)}
+                    required
+                    className="w-full p-2 border border-slate-300 rounded-lg bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Enlace de Evidencia / Acta / Foto (opcional)
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://..."
+                    value={incidentEvidenceUrl}
+                    onChange={e => setIncidentEvidenceUrl(e.target.value)}
+                    className="w-full p-2 border border-slate-300 rounded-lg bg-white font-mono"
+                  />
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={isSubmittingIncident}
+                    className="px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-lg font-bold text-xs shadow flex items-center gap-1.5"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>{isSubmittingIncident ? 'Registrando...' : 'Confirmar y Actualizar Estado'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
           )}
         </div>
 

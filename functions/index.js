@@ -6748,5 +6748,1199 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     }
   }
 
-  throw new HttpsError('invalid-argument', `Tipo de reporte '${reportType}' no reconocido.`)
+
+  // =========================================================================
+  // REPORTE: COMISIONES DE CONDUCTORES (FASE 5A)
+  // =========================================================================
+  if (reportType === 'commissions' || reportType === 'driver_commissions') {
+    let q = db.collection('driver_commission_records')
+      .where('createdAtIso', '>=', startIso)
+      .where('createdAtIso', '<=', endIso)
+      .orderBy('createdAtIso', 'desc')
+      .limit(safePageSize)
+
+    const snap = await q.get()
+    const records = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    const accountsSnap = await db.collection('driver_commission_accounts').get()
+    const accounts = accountsSnap.docs.map(d => d.data())
+
+    let totalAccruedCents = 0
+    let totalPaidCents = 0
+    let totalPendingCents = 0
+
+    for (const a of accounts) {
+      totalAccruedCents += (a.accruedCents || 0)
+      totalPaidCents += (a.paidCents || 0)
+      totalPendingCents += (a.pendingCents || 0)
+    }
+
+    return {
+      success: true,
+      reportType: 'commissions',
+      dateRange: { startIso, endIso },
+      summary: {
+        totalRecords: records.length,
+        totalAccruedCents,
+        totalAccruedBob: totalAccruedCents / 100,
+        totalPaidCents,
+        totalPaidBob: totalPaidCents / 100,
+        totalPendingCents,
+        totalPendingBob: totalPendingCents / 100,
+        driverCount: accounts.length,
+      },
+      accounts,
+      records,
+    }
+  }
+
+  // =========================================================================
+  // REPORTE: CONSUMIBLES E INSUMOS (FASE 5B)
+  // =========================================================================
+  if (reportType === 'consumables') {
+    let q = db.collection('branch_consumables')
+    if (branchId && branchId !== 'all') {
+      q = q.where('branchId', '==', branchId)
+    }
+    const snap = await q.get()
+    const items = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    let movQ = db.collection('consumable_movements')
+      .where('timestampIso', '>=', startIso)
+      .where('timestampIso', '<=', endIso)
+      .orderBy('timestampIso', 'desc')
+      .limit(safePageSize)
+
+    const movSnap = await movQ.get()
+    const movements = movSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    let totalStockCount = 0
+    let totalValuationCents = 0
+    let lowStockCount = 0
+
+    for (const it of items) {
+      totalStockCount += (it.currentStock || 0)
+      totalValuationCents += (it.currentStock || 0) * (it.costPerUnitCents || 0)
+      if (it.isLowStock) lowStockCount++
+    }
+
+    return {
+      success: true,
+      reportType: 'consumables',
+      dateRange: { startIso, endIso },
+      summary: {
+        totalItems: items.length,
+        totalStockCount,
+        lowStockCount,
+        totalValuationCents,
+        totalValuationBob: totalValuationCents / 100,
+        movementsCount: movements.length,
+      },
+      items,
+      records: items,
+      movements,
+    }
+  }
+
+  // =========================================================================
+  // REPORTE: INCIDENCIAS, DEVOLUCIONES Y PÉRDIDAS (FASE 5C)
+  // =========================================================================
+  if (reportType === 'incidents') {
+    let q = db.collection('shipment_incidents')
+      .where('createdAtIso', '>=', startIso)
+      .where('createdAtIso', '<=', endIso)
+      .orderBy('createdAtIso', 'desc')
+      .limit(safePageSize)
+
+    const snap = await q.get()
+    let incidents = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    if (branchId && branchId !== 'all') {
+      incidents = incidents.filter(i => i.branchId === branchId)
+    }
+
+    let openCount = 0
+    let resolvedCount = 0
+    let compensatedCount = 0
+    let totalCompensationCents = 0
+    const byType = {}
+
+    for (const inc of incidents) {
+      if (inc.status === 'open') openCount++
+      else if (inc.status === 'resolved') resolvedCount++
+      else if (inc.status === 'compensated') compensatedCount++
+
+      totalCompensationCents += (inc.compensationAmountCents || 0)
+      byType[inc.incidentType] = (byType[inc.incidentType] || 0) + 1
+    }
+
+    return {
+      success: true,
+      reportType: 'incidents',
+      dateRange: { startIso, endIso },
+      summary: {
+        totalIncidents: incidents.length,
+        openCount,
+        resolvedCount,
+        compensatedCount,
+        totalCompensationCents,
+        totalCompensationBob: totalCompensationCents / 100,
+        byType,
+      },
+      records: incidents,
+    }
+  }
+
+    throw new HttpsError('invalid-argument', `Tipo de reporte '${reportType}' no reconocido.`)
+})
+
+// =========================================================================
+async function getAuthenticatedCallerProfile(request) {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado.')
+  }
+  const callerUid = request.auth.uid
+  const userDoc = await db.collection('users').doc(callerUid).get()
+  if (!userDoc.exists || userDoc.data().isActive === false) {
+    throw new HttpsError('permission-denied', 'Perfil de usuario inactivo o inexistente.')
+  }
+  return { uid: callerUid, ...userDoc.data() }
+}
+
+// FASE 5A: COMISIONES DE CONDUCTORES (SEPARADAS DE CUSTODIA COD)
+// =========================================================================
+
+/**
+ * Devengar comisión a favor de un conductor por encomiendas transportadas
+ */
+export const accrueDriverCommission = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (!caller || !caller.isActive) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
+  }
+
+  const {
+    driverUid,
+    shipmentId,
+    trackingCode,
+    manifestId,
+    shippingAmountCents,
+    ruleType = 'percentage',
+    ruleValue = 10,
+  } = request.data || {}
+
+  if (!driverUid) {
+    throw new HttpsError('invalid-argument', 'El UID del conductor es obligatorio.')
+  }
+  if (!shipmentId || !trackingCode) {
+    throw new HttpsError('invalid-argument', 'Los datos de la encomienda (shipmentId, trackingCode) son obligatorios.')
+  }
+  if (!Number.isInteger(shippingAmountCents) || shippingAmountCents < 0) {
+    throw new HttpsError('invalid-argument', 'El importe base del envío debe ser un entero no negativo en centavos.')
+  }
+  if (!['percentage', 'fixed_per_shipment'].includes(ruleType)) {
+    throw new HttpsError('invalid-argument', 'Tipo de regla de comisión inválido.')
+  }
+
+  let commissionAmountCents = 0
+  if (ruleType === 'percentage') {
+    commissionAmountCents = Math.round(shippingAmountCents * (Number(ruleValue) / 100))
+  } else {
+    commissionAmountCents = Math.round(Number(ruleValue))
+  }
+  if (commissionAmountCents < 0) commissionAmountCents = 0
+
+  const nowIso = new Date().toISOString()
+
+  // Buscar nombre del conductor
+  let driverName = 'Conductor'
+  const driverDoc = await db.collection('users').doc(driverUid).get()
+  if (driverDoc.exists) {
+    driverName = driverDoc.data().fullName || driverName
+  }
+
+  const recordRef = db.collection('driver_commission_records').doc()
+  const accountRef = db.collection('driver_commission_accounts').doc(driverUid)
+
+  await db.runTransaction(async (t) => {
+    const accDoc = await t.get(accountRef)
+    const currentAccrued = accDoc.exists ? (accDoc.data().accruedCents || 0) : 0
+    const currentPending = accDoc.exists ? (accDoc.data().pendingCents || 0) : 0
+    const currentPaid = accDoc.exists ? (accDoc.data().paidCents || 0) : 0
+
+    t.set(accountRef, {
+      driverUid,
+      driverName,
+      accruedCents: currentAccrued + commissionAmountCents,
+      paidCents: currentPaid,
+      pendingCents: currentPending + commissionAmountCents,
+      lastAccruedAtIso: nowIso,
+      updatedAtIso: nowIso,
+    }, { merge: true })
+
+    t.set(recordRef, {
+      id: recordRef.id,
+      driverUid,
+      driverName,
+      manifestId: manifestId || null,
+      shipmentId,
+      trackingCode,
+      baseShippingAmountCents: shippingAmountCents,
+      ruleApplied: { type: ruleType, value: ruleValue },
+      commissionAmountCents,
+      commissionAmountBob: commissionAmountCents / 100,
+      status: 'accrued',
+      paidAmountCents: 0,
+      voucherIds: [],
+      createdAtIso: nowIso,
+    })
+  })
+
+  return {
+    success: true,
+    recordId: recordRef.id,
+    commissionAmountCents,
+    commissionAmountBob: commissionAmountCents / 100,
+  }
+})
+
+/**
+ * Liquidar y pagar comisiones a un conductor desde caja con emisión de vale
+ */
+export const settleDriverCommission = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (!caller || !caller.isActive) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
+  }
+  if (!['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para liquidar comisiones de conductores.')
+  }
+
+  const { driverUid, amountCents, branchId, notes = '' } = request.data || {}
+
+  if (!driverUid) {
+    throw new HttpsError('invalid-argument', 'El UID del conductor es obligatorio.')
+  }
+  if (!Number.isInteger(amountCents) || amountCents <= 0) {
+    throw new HttpsError('invalid-argument', 'El importe a liquidar debe ser un entero positivo en centavos.')
+  }
+  if (!branchId) {
+    throw new HttpsError('invalid-argument', 'La sucursal de pago es obligatoria.')
+  }
+
+  const callerUid = caller.uid || caller.id
+  const callerName = caller.fullName || 'Operador'
+  const nowIso = new Date().toISOString()
+  const currentYear = new Date().getFullYear()
+
+  // Validar turno de caja activo de quien efectúa el pago
+  const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
+  const lockDoc = await lockRef.get()
+  if (!lockDoc.exists || lockDoc.data().status !== 'open' || !lockDoc.data().shiftId) {
+    throw new HttpsError('failed-precondition', 'Debe tener un turno de caja abierto en esta sucursal para pagar comisiones.')
+  }
+
+  const shiftId = lockDoc.data().shiftId
+  const shiftRef = db.collection('cash_shifts').doc(shiftId)
+  const shiftDoc = await shiftRef.get()
+  if (!shiftDoc.exists || shiftDoc.data().status !== 'open') {
+    throw new HttpsError('failed-precondition', 'El turno de caja activo no es válido o ya fue cerrado.')
+  }
+
+  const shiftData = shiftDoc.data()
+  const availableCashCents = Number(shiftData.expectedCashCents) || Number(shiftData.breakdown?.netCashCents) || 0
+  if (availableCashCents < amountCents) {
+    throw new HttpsError(
+      'failed-precondition',
+      `Efectivo insuficiente en caja. Saldo disponible: Bs. ${(availableCashCents / 100).toFixed(2)}, Requerido: Bs. ${(amountCents / 100).toFixed(2)}.`
+    )
+  }
+
+  // Cuenta de comisiones del chofer
+  const accountRef = db.collection('driver_commission_accounts').doc(driverUid)
+  const accountDoc = await accountRef.get()
+  if (!accountDoc.exists) {
+    throw new HttpsError('not-found', 'El conductor no tiene cuenta de comisiones registrada.')
+  }
+  const accountData = accountDoc.data()
+  const pendingCents = accountData.pendingCents || 0
+  if (pendingCents <= 0) {
+    throw new HttpsError('failed-precondition', 'El conductor no tiene saldo de comisiones pendiente de cobro.')
+  }
+  if (amountCents > pendingCents) {
+    throw new HttpsError(
+      'failed-precondition',
+      `El importe a liquidar (Bs. ${(amountCents / 100).toFixed(2)}) supera el saldo de comisiones pendiente del conductor (Bs. ${(pendingCents / 100).toFixed(2)}).`
+    )
+  }
+
+  const driverName = accountData.driverName || 'Conductor'
+
+  // Leer asientos pendientes en driver_commission_records (FIFO)
+  const recordsSnap = await db.collection('driver_commission_records')
+    .where('driverUid', '==', driverUid)
+    .where('status', 'in', ['accrued', 'partially_paid'])
+    .orderBy('createdAtIso', 'asc')
+    .limit(100)
+    .get()
+
+  // Generar número correlativo de comprobante
+  const counterRef = db.collection('counters').doc(`commission_voucher_${currentYear}`)
+  const voucherRef = db.collection('driver_commission_vouchers').doc()
+
+  const result = await db.runTransaction(async (t) => {
+    const counterDoc = await t.get(counterRef)
+    const currentSeq = counterDoc.exists ? (counterDoc.data().seq || 0) + 1 : 1
+    t.set(counterRef, { seq: currentSeq, year: currentYear }, { merge: true })
+
+    const voucherNumber = `COM-${currentYear}-${String(currentSeq).padStart(5, '0')}`
+
+    // Distribuir FIFO
+    let remainingToAllocate = amountCents
+    const touchedRecordIds = []
+    const touchedShipmentIds = []
+
+    for (const doc of recordsSnap.docs) {
+      if (remainingToAllocate <= 0) break
+      const rec = doc.data()
+      const recPending = rec.commissionAmountCents - (rec.paidAmountCents || 0)
+      if (recPending <= 0) continue
+
+      touchedRecordIds.push(doc.id)
+      if (rec.shipmentId) touchedShipmentIds.push(rec.shipmentId)
+
+      const allocation = Math.min(remainingToAllocate, recPending)
+      const newPaid = (rec.paidAmountCents || 0) + allocation
+      const isFullyPaid = newPaid >= rec.commissionAmountCents
+
+      t.update(doc.ref, {
+        paidAmountCents: newPaid,
+        status: isFullyPaid ? 'paid' : 'partially_paid',
+        voucherIds: [...(rec.voucherIds || []), voucherNumber],
+        settledAtIso: isFullyPaid ? nowIso : (rec.settledAtIso || null),
+      })
+
+      remainingToAllocate -= allocation
+    }
+
+    // Actualizar cuenta del chofer
+    t.update(accountRef, {
+      paidCents: (accountData.paidCents || 0) + amountCents,
+      pendingCents: pendingCents - amountCents,
+      lastSettledAtIso: nowIso,
+      updatedAtIso: nowIso,
+    })
+
+    // Registrar egreso en turno de caja
+    const updatedExpectedCash = availableCashCents - amountCents
+    const newExpensesCents = (shiftData.breakdown?.expensesCents || shiftData.totalExpensesCents || 0) + amountCents
+
+    const movementId = `mov_com_${voucherRef.id}`
+    const movement = {
+      movementId,
+      type: 'expense',
+      category: 'driver_commission',
+      amountCents,
+      amountBob: amountCents / 100,
+      description: `Pago de comisión a chofer ${driverName} (${voucherNumber})`,
+      voucherNumber,
+      driverUid,
+      driverName,
+      referenceId: voucherRef.id,
+      registeredByUid: callerUid,
+      registeredByName: callerName,
+      createdAtIso: nowIso,
+    }
+
+    const currentMovements = Array.isArray(shiftData.movements) ? shiftData.movements : []
+    t.update(shiftRef, {
+      expectedCashCents: updatedExpectedCash,
+      'breakdown.expensesCents': newExpensesCents,
+      'breakdown.netCashCents': updatedExpectedCash,
+      totalExpensesCents: newExpensesCents,
+      currentCashCents: updatedExpectedCash,
+      movements: [...currentMovements, movement],
+      updatedAtIso: nowIso,
+    })
+
+    // Crear comprobante
+    const voucherData = {
+      id: voucherRef.id,
+      voucherNumber,
+      driverUid,
+      driverName,
+      branchId,
+      cashShiftId: shiftId,
+      settledAmountCents: amountCents,
+      settledAmountBob: amountCents / 100,
+      previousPendingCents: pendingCents,
+      remainingPendingCents: pendingCents - amountCents,
+      commissionRecordIds: touchedRecordIds,
+      shipmentIds: touchedShipmentIds,
+      notes: notes.trim(),
+      paidByUid: callerUid,
+      paidByName: callerName,
+      createdAtIso: nowIso,
+    }
+    t.set(voucherRef, voucherData)
+
+    return voucherData
+  })
+
+  return {
+    success: true,
+    voucher: result,
+    message: `Comisión de Bs. ${(amountCents / 100).toFixed(2)} liquidada exitosamente al conductor ${driverName}.`,
+  }
+})
+
+// =========================================================================
+// FASE 5B: CONSUMIBLES E INSUMOS DE OPERACIÓN
+// =========================================================================
+
+export const manageConsumable = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (!caller || !caller.isActive) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
+  }
+
+  const {
+    action,
+    id,
+    code,
+    name,
+    category,
+    branchId,
+    unit = 'unidades',
+    currentStock = 0,
+    minStockAlert = 5,
+    costPerUnitCents = 0,
+    quantity,
+    newStock,
+    reason = '',
+    referenceDocument = '',
+    status = 'active',
+  } = request.data || {}
+
+  const callerUid = caller.uid || caller.id
+  const callerName = caller.fullName || 'Operador'
+  const nowIso = new Date().toISOString()
+
+  // 1. CREACIÓN DE ÍTEM DE CONSUMIBLE
+  if (action === 'create_item') {
+    if (!['encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'Solo encargados o administradores pueden crear insumos en catálogo.')
+    }
+    if (!code || !name || !category || !branchId) {
+      throw new HttpsError('invalid-argument', 'Código, nombre, categoría y sucursal son obligatorios.')
+    }
+
+    const docRef = db.collection('branch_consumables').doc()
+    const cleanCode = String(code).trim().toUpperCase()
+    const initialStock = Number.isInteger(currentStock) && currentStock >= 0 ? currentStock : 0
+    const alertThreshold = Number.isInteger(minStockAlert) && minStockAlert >= 0 ? minStockAlert : 5
+    const unitCost = Number.isInteger(costPerUnitCents) && costPerUnitCents >= 0 ? costPerUnitCents : 0
+
+    const itemData = {
+      id: docRef.id,
+      code: cleanCode,
+      name: String(name).trim(),
+      category,
+      branchId,
+      currentStock: initialStock,
+      unit: String(unit).trim().toLowerCase(),
+      minStockAlert: alertThreshold,
+      isLowStock: initialStock <= alertThreshold,
+      costPerUnitCents: unitCost,
+      costPerUnitBob: unitCost / 100,
+      status: 'active',
+      lastMovementAtIso: initialStock > 0 ? nowIso : null,
+      createdAtIso: nowIso,
+      updatedAtIso: nowIso,
+    }
+
+    await docRef.set(itemData)
+
+    if (initialStock > 0) {
+      const movRef = db.collection('consumable_movements').doc()
+      await movRef.set({
+        id: movRef.id,
+        consumableId: docRef.id,
+        consumableCode: cleanCode,
+        consumableName: itemData.name,
+        branchId,
+        type: 'entry',
+        quantity: initialStock,
+        previousStock: 0,
+        newStock: initialStock,
+        unitCostCents: unitCost,
+        unitCostBob: unitCost / 100,
+        reason: 'Inventario inicial de apertura',
+        referenceDocument: referenceDocument.trim(),
+        performedByUid: callerUid,
+        performedByName: callerName,
+        timestampIso: nowIso,
+      })
+    }
+
+    return { success: true, item: itemData }
+  }
+
+  // 2. ACTUALIZACIÓN DE DATOS DE ÍTEM
+  if (action === 'update_item' && id) {
+    if (!['encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'Solo encargados o administradores pueden modificar ítems de insumos.')
+    }
+    const docRef = db.collection('branch_consumables').doc(id)
+    const docSnap = await docRef.get()
+    if (!docSnap.exists) {
+      throw new HttpsError('not-found', 'El consumible no existe.')
+    }
+
+    const updates = { updatedAtIso: nowIso }
+    if (name) updates.name = String(name).trim()
+    if (minStockAlert !== undefined && Number.isInteger(minStockAlert)) {
+      updates.minStockAlert = minStockAlert
+      updates.isLowStock = (docSnap.data().currentStock || 0) <= minStockAlert
+    }
+    if (costPerUnitCents !== undefined && Number.isInteger(costPerUnitCents)) {
+      updates.costPerUnitCents = costPerUnitCents
+      updates.costPerUnitBob = costPerUnitCents / 100
+    }
+    if (status) updates.status = status
+
+    await docRef.update(updates)
+    return { success: true, id, message: 'Insumo actualizado exitosamente.' }
+  }
+
+  // 3. REGISTRO DE ENTRADA (COMPRA O REMESA)
+  if (action === 'record_entry' && id) {
+    if (!['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'No tiene permisos para registrar entradas de insumos.')
+    }
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new HttpsError('invalid-argument', 'La cantidad a ingresar debe ser un entero positivo.')
+    }
+
+    const docRef = db.collection('branch_consumables').doc(id)
+    const movRef = db.collection('consumable_movements').doc()
+
+    const result = await db.runTransaction(async (t) => {
+      const docSnap = await t.get(docRef)
+      if (!docSnap.exists) {
+        throw new HttpsError('not-found', 'El consumible no existe.')
+      }
+      const item = docSnap.data()
+      const prevStock = item.currentStock || 0
+      const nextStock = prevStock + quantity
+      const isLow = nextStock <= (item.minStockAlert || 5)
+
+      t.update(docRef, {
+        currentStock: nextStock,
+        isLowStock: isLow,
+        lastMovementAtIso: nowIso,
+        updatedAtIso: nowIso,
+      })
+
+      const movData = {
+        id: movRef.id,
+        consumableId: id,
+        consumableCode: item.code,
+        consumableName: item.name,
+        branchId: item.branchId,
+        type: 'entry',
+        quantity,
+        previousStock: prevStock,
+        newStock: nextStock,
+        unitCostCents: costPerUnitCents || item.costPerUnitCents || 0,
+        unitCostBob: (costPerUnitCents || item.costPerUnitCents || 0) / 100,
+        reason: reason.trim() || 'Ingreso de existencias',
+        referenceDocument: referenceDocument.trim(),
+        performedByUid: callerUid,
+        performedByName: callerName,
+        timestampIso: nowIso,
+      }
+      t.set(movRef, movData)
+      return { prevStock, nextStock, movData }
+    })
+
+    return { success: true, ...result }
+  }
+
+  // 4. REGISTRO DE CONSUMO / SALIDA (USO DIARIO EN VENTANILLA)
+  if (action === 'record_consumption' && id) {
+    if (!['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'No tiene permisos para registrar consumo de insumos.')
+    }
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new HttpsError('invalid-argument', 'La cantidad consumida debe ser un entero positivo.')
+    }
+
+    const docRef = db.collection('branch_consumables').doc(id)
+    const movRef = db.collection('consumable_movements').doc()
+
+    const result = await db.runTransaction(async (t) => {
+      const docSnap = await t.get(docRef)
+      if (!docSnap.exists) {
+        throw new HttpsError('not-found', 'El consumible no existe.')
+      }
+      const item = docSnap.data()
+      const prevStock = item.currentStock || 0
+      if (prevStock < quantity) {
+        throw new HttpsError('failed-precondition', `Stock insuficiente (${prevStock} ${item.unit}) para el consumo solicitado (${quantity} ${item.unit}).`)
+      }
+      const nextStock = prevStock - quantity
+      const isLow = nextStock <= (item.minStockAlert || 5)
+
+      t.update(docRef, {
+        currentStock: nextStock,
+        isLowStock: isLow,
+        lastMovementAtIso: nowIso,
+        updatedAtIso: nowIso,
+      })
+
+      const movData = {
+        id: movRef.id,
+        consumableId: id,
+        consumableCode: item.code,
+        consumableName: item.name,
+        branchId: item.branchId,
+        type: 'consumption',
+        quantity,
+        previousStock: prevStock,
+        newStock: nextStock,
+        reason: reason.trim() || 'Consumo operativo en ventanilla',
+        referenceDocument: referenceDocument.trim(),
+        performedByUid: callerUid,
+        performedByName: callerName,
+        timestampIso: nowIso,
+      }
+      t.set(movRef, movData)
+      return { prevStock, nextStock, movData }
+    })
+
+    return { success: true, ...result }
+  }
+
+  // 5. AJUSTE FÍSICO DE INVENTARIO
+  if (action === 'record_adjustment' && id) {
+    if (!['encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'Solo administradores o encargados pueden ajustar inventario.')
+    }
+    if (!Number.isInteger(newStock) || newStock < 0) {
+      throw new HttpsError('invalid-argument', 'El nuevo stock debe ser un entero no negativo.')
+    }
+    if (!reason || reason.trim().length < 5) {
+      throw new HttpsError('invalid-argument', 'Se requiere una justificación de mínimo 5 caracteres para el ajuste.')
+    }
+
+    const docRef = db.collection('branch_consumables').doc(id)
+    const movRef = db.collection('consumable_movements').doc()
+
+    const result = await db.runTransaction(async (t) => {
+      const docSnap = await t.get(docRef)
+      if (!docSnap.exists) {
+        throw new HttpsError('not-found', 'El consumible no existe.')
+      }
+      const item = docSnap.data()
+      const prevStock = item.currentStock || 0
+      const diff = newStock - prevStock
+      const isLow = newStock <= (item.minStockAlert || 5)
+
+      t.update(docRef, {
+        currentStock: newStock,
+        isLowStock: isLow,
+        lastMovementAtIso: nowIso,
+        updatedAtIso: nowIso,
+      })
+
+      const movData = {
+        id: movRef.id,
+        consumableId: id,
+        consumableCode: item.code,
+        consumableName: item.name,
+        branchId: item.branchId,
+        type: 'adjustment',
+        quantity: diff,
+        previousStock: prevStock,
+        newStock,
+        reason: reason.trim(),
+        referenceDocument: referenceDocument.trim(),
+        performedByUid: callerUid,
+        performedByName: callerName,
+        timestampIso: nowIso,
+      }
+      t.set(movRef, movData)
+      return { prevStock, newStock, movData }
+    })
+
+    return { success: true, ...result }
+  }
+
+  throw new HttpsError('invalid-argument', `Acción '${action}' no reconocida en manageConsumable.`)
+})
+
+// =========================================================================
+// FASE 5C: INCIDENCIAS, DEVOLUCIONES Y PÉRDIDAS DE ENCOMIENDAS
+// =========================================================================
+
+export const registerShipmentIncident = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (!caller || !caller.isActive) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
+  }
+
+  const {
+    action = 'report_incident',
+    shipmentId,
+    incidentId,
+    incidentType,
+    description,
+    responsiblePerson = '',
+    evidenceUrl = '',
+    resolutionNotes = '',
+    compensationAmountCents = 0,
+    paymentSource = 'cash_register',
+    branchId,
+  } = request.data || {}
+
+  const callerUid = caller.uid || caller.id
+  const callerName = caller.fullName || 'Operador'
+  const nowIso = new Date().toISOString()
+  const currentYear = new Date().getFullYear()
+
+  // 1. REPORTAR INCIDENCIA
+  if (action === 'report_incident') {
+    if (!['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'No tiene permisos para registrar incidencias de encomiendas.')
+    }
+    if (!shipmentId) {
+      throw new HttpsError('invalid-argument', 'El shipmentId es obligatorio.')
+    }
+    const validTypes = ['uncollected', 'returned', 'lost', 'damaged', 'partial_delivery', 'exceptional_delivery']
+    if (!validTypes.includes(incidentType)) {
+      throw new HttpsError('invalid-argument', `Tipo de incidencia inválido. Valores permitidos: ${validTypes.join(', ')}.`)
+    }
+    if (!description || description.trim().length < 10) {
+      throw new HttpsError('invalid-argument', 'La descripción del motivo de la incidencia debe tener al menos 10 caracteres.')
+    }
+
+    const shipmentRef = db.collection('shipments').doc(shipmentId)
+    const incidentRef = db.collection('shipment_incidents').doc()
+    const counterRef = db.collection('counters').doc(`incident_${currentYear}`)
+
+    const result = await db.runTransaction(async (t) => {
+      const sSnap = await t.get(shipmentRef)
+      if (!sSnap.exists) {
+        throw new HttpsError('not-found', 'La encomienda no existe.')
+      }
+      const shipment = sSnap.data()
+      if (['cancelled'].includes(shipment.status)) {
+        throw new HttpsError('failed-precondition', 'No se pueden registrar incidencias sobre encomiendas canceladas.')
+      }
+
+      // Numeración correlativa INC-YYYY-XXXXX
+      const cSnap = await t.get(counterRef)
+      const currentSeq = cSnap.exists ? (cSnap.data().seq || 0) + 1 : 1
+      t.set(counterRef, { seq: currentSeq, year: currentYear }, { merge: true })
+      const incidentNumber = `INC-${currentYear}-${String(currentSeq).padStart(5, '0')}`
+
+      // Mapear estado operativo correspondiente
+      let newShipmentStatus = shipment.status
+      if (incidentType === 'uncollected') newShipmentStatus = 'uncollected'
+      else if (incidentType === 'returned') newShipmentStatus = 'returned'
+      else if (incidentType === 'lost') newShipmentStatus = 'lost'
+      else if (incidentType === 'damaged') newShipmentStatus = 'damaged'
+      else if (incidentType === 'exceptional_delivery') newShipmentStatus = 'delivered'
+
+      const incidentData = {
+        id: incidentRef.id,
+        incidentNumber,
+        shipmentId,
+        trackingCode: shipment.trackingCode || shipmentId,
+        branchId: branchId || shipment.destinationBranchId || 'punata',
+        incidentType,
+        description: description.trim(),
+        responsiblePerson: responsiblePerson.trim(),
+        evidenceUrl: evidenceUrl.trim(),
+        status: 'open',
+        compensationAmountCents: 0,
+        compensationAmountBob: 0,
+        financialConsequence: 'none',
+        reportedByUid: callerUid,
+        reportedByName: callerName,
+        createdAtIso: nowIso,
+        updatedAtIso: nowIso,
+      }
+      t.set(incidentRef, incidentData)
+
+      // Actualizar encomienda y registrar trazabilidad
+      const existingHistory = Array.isArray(shipment.incidentHistory) ? shipment.incidentHistory : []
+      t.update(shipmentRef, {
+        status: newShipmentStatus,
+        hasIncident: true,
+        currentIncidentNumber: incidentNumber,
+        currentIncidentType: incidentType,
+        incidentHistory: [...existingHistory, {
+          incidentNumber,
+          incidentType,
+          description: description.trim(),
+          reportedBy: callerName,
+          dateIso: nowIso,
+        }],
+        updatedAtIso: nowIso,
+      })
+
+      // Registro en audit_logs de la encomienda
+      const auditRef = shipmentRef.collection('audit_logs').doc()
+      t.set(auditRef, {
+        action: 'incident_registered',
+        incidentNumber,
+        incidentType,
+        description: description.trim(),
+        performedByUid: callerUid,
+        performedByName: callerName,
+        previousStatus: shipment.status,
+        newStatus: newShipmentStatus,
+        timestampIso: nowIso,
+      })
+
+      // Registro en status_logs
+      const statusLogRef = shipmentRef.collection('status_logs').doc()
+      t.set(statusLogRef, {
+        status: newShipmentStatus,
+        notes: `Incidencia registrada [${incidentNumber}]: ${description.trim()}`,
+        changedByUid: callerUid,
+        changedByName: callerName,
+        timestampIso: nowIso,
+      })
+
+      return incidentData
+    })
+
+    return { success: true, incident: result }
+  }
+
+  // 2. RESOLVER INCIDENCIA
+  if (action === 'resolve_incident' && incidentId) {
+    if (!['encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'Solo encargados o directiva pueden resolver incidencias.')
+    }
+    if (!resolutionNotes || resolutionNotes.trim().length < 5) {
+      throw new HttpsError('invalid-argument', 'Se requieren notas de resolución de mínimo 5 caracteres.')
+    }
+
+    const incidentRef = db.collection('shipment_incidents').doc(incidentId)
+    const incidentSnap = await incidentRef.get()
+    if (!incidentSnap.exists) {
+      throw new HttpsError('not-found', 'La incidencia no existe.')
+    }
+
+    await incidentRef.update({
+      status: 'resolved',
+      resolutionNotes: resolutionNotes.trim(),
+      resolvedAtIso: nowIso,
+      authorizedByUid: callerUid,
+      authorizedByName: callerName,
+      updatedAtIso: nowIso,
+    })
+
+    return { success: true, incidentId, message: 'Incidencia resuelta exitosamente.' }
+  }
+
+  // 3. INDEMNIZAR / COMPENSAR ECONÓMICAMENTE POR DAÑO O EXTRAVÍO
+  if (action === 'indemnify_incident' && incidentId) {
+    if (!['directiva_admin', 'encargado_agencia'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'Solo directiva o encargados pueden autorizar indemnizaciones financieras.')
+    }
+    if (!Number.isInteger(compensationAmountCents) || compensationAmountCents <= 0) {
+      throw new HttpsError('invalid-argument', 'El monto de indemnización debe ser un entero positivo en centavos.')
+    }
+
+    const incidentRef = db.collection('shipment_incidents').doc(incidentId)
+    const incidentSnap = await incidentRef.get()
+    if (!incidentSnap.exists) {
+      throw new HttpsError('not-found', 'La incidencia no existe.')
+    }
+    const incident = incidentSnap.data()
+
+    if (paymentSource === 'cash_register') {
+      const effBranch = branchId || incident.branchId || 'punata'
+      const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${effBranch}`)
+      const lockDoc = await lockRef.get()
+      if (!lockDoc.exists || lockDoc.data().status !== 'open' || !lockDoc.data().shiftId) {
+        throw new HttpsError('failed-precondition', 'Debe tener un turno de caja abierto para desembolsar indemnizaciones de ventanilla.')
+      }
+
+      const shiftId = lockDoc.data().shiftId
+      const shiftRef = db.collection('cash_shifts').doc(shiftId)
+      const shiftDoc = await shiftRef.get()
+      if (!shiftDoc.exists || shiftDoc.data().status !== 'open') {
+        throw new HttpsError('failed-precondition', 'El turno de caja activo no es válido.')
+      }
+      const shiftData = shiftDoc.data()
+      const availableCashCents = Number(shiftData.expectedCashCents) || Number(shiftData.breakdown?.netCashCents) || 0
+      if (availableCashCents < compensationAmountCents) {
+        throw new HttpsError('failed-precondition', 'Efectivo insuficiente en caja para pagar la indemnización.')
+      }
+
+      await db.runTransaction(async (t) => {
+        const updatedExpectedCash = availableCashCents - compensationAmountCents
+        const newExpensesCents = (shiftData.breakdown?.expensesCents || shiftData.totalExpensesCents || 0) + compensationAmountCents
+
+        const currentMovements = Array.isArray(shiftData.movements) ? shiftData.movements : []
+        const movement = {
+          movementId: `mov_ind_${incidentId}`,
+          type: 'expense',
+          category: 'indemnity',
+          amountCents: compensationAmountCents,
+          amountBob: compensationAmountCents / 100,
+          description: `Indemnización por siniestro [${incident.incidentNumber}] guía ${incident.trackingCode}`,
+          referenceId: incidentId,
+          registeredByUid: callerUid,
+          registeredByName: callerName,
+          createdAtIso: nowIso,
+        }
+
+        t.update(shiftRef, {
+          expectedCashCents: updatedExpectedCash,
+          'breakdown.expensesCents': newExpensesCents,
+          'breakdown.netCashCents': updatedExpectedCash,
+          totalExpensesCents: newExpensesCents,
+          currentCashCents: updatedExpectedCash,
+          movements: [...currentMovements, movement],
+          updatedAtIso: nowIso,
+        })
+
+        t.update(incidentRef, {
+          status: 'compensated',
+          compensationAmountCents,
+          compensationAmountBob: compensationAmountCents / 100,
+          financialConsequence: 'cash_indemnity',
+          indemnityPaidAtIso: nowIso,
+          indemnityCashShiftId: shiftId,
+          authorizedByUid: callerUid,
+          authorizedByName: callerName,
+          updatedAtIso: nowIso,
+        })
+      })
+    } else {
+      // Fondo de reserva sindical (union_expenses)
+      const expRef = db.collection('union_expenses').doc()
+      await expRef.set({
+        id: expRef.id,
+        category: 'indemnity',
+        amountCents: compensationAmountCents,
+        amountBob: compensationAmountCents / 100,
+        description: `Indemnización sindical por siniestro [${incident.incidentNumber}] guía ${incident.trackingCode}`,
+        authorizedByUid: callerUid,
+        authorizedByName: callerName,
+        incidentId,
+        createdAtIso: nowIso,
+      })
+
+      await incidentRef.update({
+        status: 'compensated',
+        compensationAmountCents,
+        compensationAmountBob: compensationAmountCents / 100,
+        financialConsequence: 'union_reserve_indemnity',
+        indemnityPaidAtIso: nowIso,
+        authorizedByUid: callerUid,
+        authorizedByName: callerName,
+        updatedAtIso: nowIso,
+      })
+    }
+
+    return {
+      success: true,
+      incidentId,
+      compensationAmountCents,
+      compensationAmountBob: compensationAmountCents / 100,
+      message: `Indemnización de Bs. ${(compensationAmountCents / 100).toFixed(2)} liquidada exitosamente.`,
+    }
+  }
+
+  throw new HttpsError('invalid-argument', `Acción '${action}' no reconocida en registerShipmentIncident.`)
+})
+
+// =========================================================================
+// FASE 7: CONFIGURACIÓN OFICIAL PERSISTENTE
+// =========================================================================
+
+export const getSystemConfig = onCall({ cors: true }, async (request) => {
+  const configDoc = await db.collection('system_config').doc('expreso_punata').get()
+  if (!configDoc.exists) {
+    return {
+      success: true,
+      isDefault: true,
+      config: {
+        company: {
+          name: 'EXPRESO PUNATA',
+          tradeName: 'EXPRESO PUNATA',
+          legalName: 'Expreso Punata',
+          acronym: 'EP',
+          legalNotice: 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
+        },
+        branches: {
+          punata: {
+            name: 'Agencia Central Punata',
+            code: 'PUN',
+            city: 'Punata',
+            department: 'Cochabamba',
+            address: 'Av. Heroínas del Coronel esq. Sucre (Parada Punata)',
+            phone: '4-4571234 / 71798765',
+            isActive: true,
+          },
+          cochabamba: {
+            name: 'Agencia Cochabamba',
+            code: 'CBB',
+            city: 'Cochabamba',
+            department: 'Cochabamba',
+            address: 'Av. Ayacucho esq. Heroínas #340',
+            phone: '4-4256789 / 72234567',
+            isActive: true,
+          },
+        },
+        tariffs: {
+          baseFeeCents: 1500,
+          baseFeeBob: 15,
+          freeWeightKg: 3,
+          extraKgRateCents: 200,
+          extraKgRateBob: 2,
+          homeDeliveryFeeCents: 1200,
+          homeDeliveryFeeBob: 12,
+        },
+        commissions: {
+          defaultType: 'percentage',
+          defaultValue: 10,
+        },
+        dues: {
+          monthlyDueCents: 5000,
+          monthlyDueBob: 50,
+          lateFeePercentage: 10,
+          gracePeriodDays: 10,
+        },
+        printing: {
+          cutPaper: true,
+          openDrawer: true,
+        },
+      },
+    }
+  }
+
+  return {
+    success: true,
+    isDefault: false,
+    config: configDoc.data(),
+  }
+})
+
+export const updateSystemConfig = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (!caller || !caller.isActive) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
+  }
+  if (caller.role !== 'directiva_admin') {
+    throw new HttpsError('permission-denied', 'Solo la Directiva / Administrador general puede actualizar la configuración oficial del sistema.')
+  }
+
+  const { company, branches, tariffs, commissions, dues, printing } = request.data || {}
+
+  const callerUid = caller.uid || caller.id
+  const callerName = caller.fullName || 'Administrador'
+  const nowIso = new Date().toISOString()
+
+  const configRef = db.collection('system_config').doc('expreso_punata')
+  const currentSnap = await configRef.get()
+  const existing = currentSnap.exists ? currentSnap.data() : {}
+
+  const updatedConfig = {
+    ...existing,
+    updatedAtIso: nowIso,
+    updatedByUid: callerUid,
+    updatedByName: callerName,
+  }
+
+  if (company && typeof company === 'object') {
+    updatedConfig.company = {
+      ...(existing.company || {}),
+      name: company.name ? String(company.name).trim() : 'EXPRESO PUNATA',
+      tradeName: company.tradeName ? String(company.tradeName).trim() : 'EXPRESO PUNATA',
+      legalName: company.legalName ? String(company.legalName).trim() : 'Expreso Punata',
+      acronym: company.acronym ? String(company.acronym).trim() : 'EP',
+      legalNotice: company.legalNotice ? String(company.legalNotice).trim() : 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
+      logoUrl: company.logoUrl || existing.company?.logoUrl || '',
+      taxNotice: company.taxNotice || existing.company?.taxNotice || '',
+    }
+  }
+
+  if (branches && typeof branches === 'object') {
+    updatedConfig.branches = branches
+  }
+
+  if (tariffs && typeof tariffs === 'object') {
+    const baseCents = Number.isInteger(tariffs.baseFeeCents) && tariffs.baseFeeCents >= 0
+      ? tariffs.baseFeeCents
+      : (tariffs.baseFeeBob ? Math.round(tariffs.baseFeeBob * 100) : 1500)
+    const extraCents = Number.isInteger(tariffs.extraKgRateCents) && tariffs.extraKgRateCents >= 0
+      ? tariffs.extraKgRateCents
+      : (tariffs.extraKgRateBob ? Math.round(tariffs.extraKgRateBob * 100) : 200)
+    const homeCents = Number.isInteger(tariffs.homeDeliveryFeeCents) && tariffs.homeDeliveryFeeCents >= 0
+      ? tariffs.homeDeliveryFeeCents
+      : (tariffs.homeDeliveryFeeBob ? Math.round(tariffs.homeDeliveryFeeBob * 100) : 1200)
+
+    updatedConfig.tariffs = {
+      baseFeeCents: baseCents,
+      baseFeeBob: baseCents / 100,
+      freeWeightKg: Number(tariffs.freeWeightKg) || 3,
+      extraKgRateCents: extraCents,
+      extraKgRateBob: extraCents / 100,
+      homeDeliveryFeeCents: homeCents,
+      homeDeliveryFeeBob: homeCents / 100,
+    }
+  }
+
+  if (commissions && typeof commissions === 'object') {
+    updatedConfig.commissions = {
+      defaultType: ['percentage', 'fixed_per_shipment'].includes(commissions.defaultType) ? commissions.defaultType : 'percentage',
+      defaultValue: Number(commissions.defaultValue) >= 0 ? Number(commissions.defaultValue) : 10,
+    }
+  }
+
+  if (dues && typeof dues === 'object') {
+    const dueCents = Number.isInteger(dues.monthlyDueCents) && dues.monthlyDueCents >= 0
+      ? dues.monthlyDueCents
+      : (dues.monthlyDueBob ? Math.round(dues.monthlyDueBob * 100) : 5000)
+    updatedConfig.dues = {
+      monthlyDueCents: dueCents,
+      monthlyDueBob: dueCents / 100,
+      lateFeePercentage: Number(dues.lateFeePercentage) >= 0 ? Number(dues.lateFeePercentage) : 10,
+      gracePeriodDays: Number(dues.gracePeriodDays) >= 0 ? Number(dues.gracePeriodDays) : 10,
+    }
+  }
+
+  if (printing && typeof printing === 'object') {
+    updatedConfig.printing = {
+      cutPaper: printing.cutPaper !== undefined ? Boolean(printing.cutPaper) : true,
+      openDrawer: printing.openDrawer !== undefined ? Boolean(printing.openDrawer) : true,
+      headerNotice: printing.headerNotice || '',
+      footerNotice: printing.footerNotice || '',
+    }
+  }
+
+  await configRef.set(updatedConfig)
+
+  // Auditoría administrativa
+  await db.collection('audit_logs').add({
+    action: 'system_config_updated',
+    performedByUid: callerUid,
+    performedByName: callerName,
+    details: 'Actualización autoritativa de configuración oficial de Expreso Punata',
+    timestampIso: nowIso,
+  })
+
+  return {
+    success: true,
+    config: updatedConfig,
+    message: 'Configuración oficial actualizada exitosamente.',
+  }
 })

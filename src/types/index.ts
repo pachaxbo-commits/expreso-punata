@@ -250,6 +250,10 @@ export interface Shipment {
     reason: string
     resolutionType: 'destroyed' | 'donated' | 'auctioned' | 'indemnified'
   }
+  hasIncident?: boolean
+  currentIncidentNumber?: string
+  currentIncidentType?: string
+  incidentHistory?: any[]
   auditHistory?: Array<{
     changedAt: string
     operatorUid: string
@@ -684,4 +688,219 @@ export interface DriverSettlement {
   reconciledShipmentIds?: string[]
   shipmentIds: string[]
   createdAtIso: string
+}
+
+// =========================================================================
+// FASE 5A: COMISIONES DE CONDUCTORES (SEPARADAS DE CUSTODIA COD)
+// =========================================================================
+
+export type DriverCommissionRuleType = 'percentage' | 'fixed_per_shipment'
+
+export interface DriverCommissionRule {
+  type: DriverCommissionRuleType
+  value: number // ej. 10 (%) o 200 (centavos por guía)
+}
+
+export interface DriverCommissionAccount {
+  driverUid: string
+  driverName: string
+  accruedCents: number // total acumulado por encomiendas transportadas
+  paidCents: number // total pagado al chofer
+  pendingCents: number // saldo pendiente por cobrar (accrued - paid)
+  lastAccruedAtIso?: string
+  lastSettledAtIso?: string
+  updatedAtIso?: string
+}
+
+export interface DriverCommissionRecord {
+  id: string
+  driverUid: string
+  driverName: string
+  manifestId?: string
+  shipmentId: string
+  trackingCode: string
+  baseShippingAmountCents: number
+  ruleApplied: DriverCommissionRule
+  commissionAmountCents: number
+  commissionAmountBob: number
+  status: 'accrued' | 'partially_paid' | 'paid'
+  paidAmountCents: number
+  voucherIds: string[]
+  createdAtIso: string
+  settledAtIso?: string
+}
+
+export interface DriverCommissionVoucher {
+  id: string
+  voucherNumber: string
+  driverUid: string
+  driverName: string
+  branchId: string
+  cashShiftId: string
+  settledAmountCents: number
+  settledAmountBob: number
+  previousPendingCents: number
+  remainingPendingCents: number
+  commissionRecordIds: string[]
+  shipmentIds: string[]
+  notes?: string
+  paidByUid: string
+  paidByName: string
+  createdAtIso: string
+}
+
+// =========================================================================
+// FASE 5B: CONSUMIBLES E INSUMOS DE OPERACIÓN
+// =========================================================================
+
+export type ConsumableCategory =
+  | 'thermal_rolls'
+  | 'security_seals'
+  | 'tape'
+  | 'packaging_boxes'
+  | 'envelopes'
+  | 'labels'
+  | 'other'
+
+export type ConsumableMovementType =
+  | 'entry' // ingreso por compra o remesa
+  | 'consumption' // salida por uso en ventanilla
+  | 'adjustment' // ajuste por inventario físico
+  | 'transfer' // traspaso entre sucursales
+
+export interface ConsumableItem {
+  id: string
+  code: string // ej. ROL-80MM, PRE-SEG
+  barcode?: string
+  name: string
+  category: ConsumableCategory
+  branchId: string
+  currentStock: number
+  unit: string // 'rollos', 'unidades', 'paquetes', 'cajas'
+  minStockAlert: number
+  isLowStock?: boolean
+  costPerUnitCents?: number
+  costPerUnitBob?: number
+  status: 'active' | 'archived'
+  lastMovementAtIso?: string
+  createdAtIso: string
+  updatedAtIso: string
+}
+
+export interface ConsumableMovement {
+  id: string
+  consumableId: string
+  consumableCode: string
+  consumableName: string
+  branchId: string
+  type: ConsumableMovementType
+  quantity: number
+  previousStock: number
+  newStock: number
+  unitCostCents?: number
+  unitCostBob?: number
+  reason: string
+  referenceDocument?: string
+  performedByUid: string
+  performedByName: string
+  timestampIso: string
+}
+
+// =========================================================================
+// FASE 5C: INCIDENCIAS, DEVOLUCIONES Y PÉRDIDAS DE ENCOMIENDAS
+// =========================================================================
+
+export type ShipmentIncidentType =
+  | 'uncollected' // Rezagada / no recogida en plazo
+  | 'returned' // Devuelta a origen
+  | 'lost' // Extraviada / pérdida
+  | 'damaged' // Averiada / rotura / daño
+  | 'partial_delivery' // Entrega incompleta
+  | 'exceptional_delivery' // Entrega autorizada excepcional
+
+export type ShipmentIncidentStatus =
+  | 'open'
+  | 'investigating'
+  | 'resolved'
+  | 'compensated'
+
+export interface ShipmentIncident {
+  id: string
+  incidentNumber: string // ej. INC-2026-0001
+  shipmentId: string
+  trackingCode: string
+  branchId: string
+  incidentType: ShipmentIncidentType
+  description: string
+  responsiblePerson?: string
+  evidenceUrl?: string
+  status: ShipmentIncidentStatus
+  compensationAmountCents: number
+  compensationAmountBob: number
+  financialConsequence: 'none' | 'cash_indemnity' | 'union_reserve_indemnity'
+  indemnityPaidAtIso?: string
+  indemnityCashShiftId?: string
+  resolutionNotes?: string
+  resolvedAtIso?: string
+  authorizedByUid?: string
+  authorizedByName?: string
+  reportedByUid: string
+  reportedByName: string
+  createdAtIso: string
+  updatedAtIso: string
+}
+
+// =========================================================================
+// FASE 7: CONFIGURACIÓN OFICIAL PERSISTENTE
+// =========================================================================
+
+export interface SystemConfig {
+  id: string
+  company: {
+    name: string
+    tradeName: string
+    legalName: string
+    acronym: string
+    legalNotice: string
+    logoUrl?: string
+    taxNotice?: string
+  }
+  branches: Record<string, {
+    name: string
+    code: string
+    city: string
+    department: string
+    address: string
+    phone: string
+    managerName?: string
+    isActive: boolean
+  }>
+  tariffs: {
+    baseFeeCents: number
+    baseFeeBob: number
+    freeWeightKg: number
+    extraKgRateCents: number
+    extraKgRateBob: number
+    homeDeliveryFeeCents: number
+    homeDeliveryFeeBob: number
+  }
+  commissions: {
+    defaultType: DriverCommissionRuleType
+    defaultValue: number
+  }
+  dues: {
+    monthlyDueCents: number
+    monthlyDueBob: number
+    lateFeePercentage: number
+    gracePeriodDays: number
+  }
+  printing: {
+    headerNotice?: string
+    footerNotice?: string
+    cutPaper: boolean
+    openDrawer: boolean
+  }
+  updatedAtIso: string
+  updatedByUid?: string
+  updatedByName?: string
 }
