@@ -124,7 +124,7 @@ async function runProductionLiveVerification() {
 
     // Debe mostrar error claro
     await page.waitForSelector('text=Credenciales inválidas', { timeout: 8000 })
-    const displayedError = await page.locator('div:has-text("Credenciales inválidas")').innerText()
+    const displayedError = await page.locator('text=Credenciales inválidas').first().innerText()
     console.log(`   Mensaje de error visible en pantalla: "${displayedError.trim()}"`)
 
     // Verificar que el formulario NO se desmontó ni se blanqueó el correo
