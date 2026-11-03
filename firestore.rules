@@ -309,16 +309,16 @@ service cloud.firestore {
     // COLECCIONES SINDICALES: members, dues, workers, worker_payments, expenses
     // =========================================================================
     match /union_members/{memberId} {
-      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
       allow write: if isActive() && (isTreasury() || isAdmin());
     }
 
     match /union_dues/{dueId} {
-      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
       allow write: if isActive() && (isTreasury() || isAdmin());
 
       match /payments/{paymentId} {
-        allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
+        allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
         allow create: if isActive() && (isTreasury() || isAdmin());
         allow update, delete: if false;
       }

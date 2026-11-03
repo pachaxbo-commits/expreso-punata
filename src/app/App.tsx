@@ -20,7 +20,8 @@ import {
 import { AuthProvider, useAuth } from '../modules/auth/AuthContext'
 import { LoginView } from '../modules/auth/LoginView'
 import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../domain/expresoPunataConfig'
-import { DEV_SHIPMENTS, DEV_ASSETS, DEV_MEMBERS } from '../fixtures/devFixtures'
+import { DEV_SHIPMENTS, DEV_ASSETS } from '../fixtures/devFixtures'
+import { UnionMembersView } from '../modules/union/UnionMembersView.tsx'
 import { formatCurrencyBob } from '../domain/parcelEngine'
 import { subscribeShipmentsByBranch, fetchShipmentByTrackingCode } from '../services/shipmentService'
 import { printShipmentGuidePdf } from '../services/pdfService'
@@ -532,53 +533,12 @@ export const AppContent: React.FC = () => {
           />
         )}
 
-        {/* PESTAÑA 5: MENSUALIDADES Y SOCIOS */}
+        {/* PESTAÑA 5: MENSUALIDADES Y SOCIOS (PADRÓN REAL Y COBROS) */}
         {activeTab === 'dues' && (
-          <div className="space-y-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-800">
-                Padrón de Socios y Mensualidades
-              </h3>
-              <p className="text-xs text-slate-500">
-                Administración de cuotas de socios propietarios y choferes afiliados.
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 shadow-sm">
-              {DEV_MEMBERS.map(m => (
-                <div key={m.id} className="p-4 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-[#064e3b] bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        {m.memberNumber}
-                      </span>
-                      <span className="text-xs font-bold text-slate-800">{m.fullName}</span>
-                      {m.assignedMobileNumber && (
-                        <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
-                          {m.assignedMobileNumber} ({m.vehiclePlate})
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      CI: {m.ci} — Tel: {m.phone}
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-[#064e3b] block">
-                      {formatCurrencyBob(m.monthlyFeeBob)} / mes
-                    </span>
-                    <button
-                      type="button"
-                      className="text-[11px] text-emerald-700 font-bold hover:underline"
-                    >
-                      Ver Estado de Cuenta
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <UnionMembersView
+            currentUser={userProfile}
+            currentBranch={currentBranch}
+          />
         )}
 
         {/* PESTAÑA 6: BIENES FIJOS */}
