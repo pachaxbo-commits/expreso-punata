@@ -151,7 +151,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             ) : userProfile?.role === 'secretaria' ? (
               <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
                 <MapPin className="w-3.5 h-3.5 text-[#facc15]" />
-                <span>Agencia {currentBranch.name}</span>
+                <span>{currentBranch.name}</span>
               </div>
             ) : selectableBranches.length > 1 ? (
               <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800">
@@ -171,7 +171,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             ) : (
               <div className="flex items-center gap-1.5 bg-emerald-950/60 px-2.5 py-1.5 rounded-lg border border-emerald-800 text-white font-medium">
                 <MapPin className="w-3.5 h-3.5 text-[#facc15]" />
-                <span>Agencia {currentBranch.name}</span>
+                <span>{currentBranch.name}</span>
               </div>
             )}
 
