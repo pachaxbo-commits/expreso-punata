@@ -337,3 +337,123 @@ test('7. EXTRACTO DE CUENTA: getMemberAccountStatement calcula saldo, pagos e hi
   assert.equal(stmt.summary.totalBalanceCents, 5000)
   assert.equal(stmt.summary.isUpToDate, false) // Porque noviembre sigue pendiente
 })
+
+test('8. generateMonthlyDues: Omite socios sin cuota configurada (sin fallback ficticio) y emite warnings', async () => {
+  await createTestUser('tesorero-1', 'tesoreria', 'punata')
+
+  // Socio 1: con cuota válida de Bs 40
+  await manageUnionMember.run({
+    auth: { uid: 'tesorero-1' },
+    data: { id: 'm-valido', memberNumber: 'SOC-101', fullName: 'Socio Con Cuota', monthlyFeeBob: 40, status: 'active' },
+  })
+  // Socio 2: sin cuota (monthlyFeeBob: 0, monthlyFeeCents: 0)
+  await manageUnionMember.run({
+    auth: { uid: 'tesorero-1' },
+    data: { id: 'm-sin-cuota', memberNumber: 'SOC-102', fullName: 'Socio Sin Cuota', monthlyFeeBob: 0, status: 'active' },
+  })
+
+  const genRes = await generateMonthlyDues.run({
+    auth: { uid: 'tesorero-1' },
+    data: { period: '2026-12' },
+  })
+
+  assert.equal(genRes.success, true)
+  assert.equal(genRes.generatedCount, 1)
+  assert.equal(genRes.skippedCount, 1)
+  assert.equal(genRes.totalAmountCents, 4000) // Solo socio 1
+  assert.equal(genRes.warnings.length, 1)
+  assert.equal(genRes.warnings[0].memberNumber, 'SOC-102')
+  assert.ok(genRes.warnings[0].reason.includes('sin cuota mensual configurada'))
+
+  // Verificar que NO existe cuota generada con fallback de 5000 para el socio 2
+  const dueSinCuota = await db.collection('union_dues').doc('m-sin-cuota_2026-12').get()
+  assert.equal(dueSinCuota.exists, false)
+})
+
+test('9. generateMonthlyDues: Bloqueo atómico previene emisiones concurrentes simultáneas del mismo período', async () => {
+  await createTestUser('tesorero-1', 'tesoreria', 'punata')
+
+  // Simular lock activo en progreso para 2027-01
+  await db.collection('system_locks').doc('generate_dues_2027-01').set({
+    period: '2027-01',
+    status: 'in_progress',
+    startedAt: Date.now(),
+    callerUid: 'otro-proceso',
+  })
+
+  await assert.rejects(async () => {
+    await generateMonthlyDues.run({
+      auth: { uid: 'tesorero-1' },
+      data: { period: '2027-01' },
+    })
+  }, (err) => err.code === 'already-exists')
+})
+
+test('10. collectMemberDue: Rechaza reintentos con payload fingerprint alterado y exige turno válido en ventanilla', async () => {
+  await createTestUser('sec-punata', 'secretaria', 'punata')
+  await createTestUser('admin-1', 'directiva_admin', 'punata')
+
+  await manageUnionMember.run({
+    auth: { uid: 'admin-1' },
+    data: { id: 'm-sec-test', memberNumber: 'SOC-200', fullName: 'Socio Seguridad', monthlyFeeBob: 50, status: 'active' },
+  })
+  await generateMonthlyDues.run({
+    auth: { uid: 'admin-1' },
+    data: { period: '2026-11' },
+  })
+
+  const shiftRes = await openCashShift.run({
+    auth: { uid: 'sec-punata' },
+    data: { branchId: 'punata', initialCashCents: 5000, idempotencyKey: 'idemp-shift-pun-sec-test' },
+  })
+  const shiftId = shiftRes.shift.id
+  const dueId = 'm-sec-test_2026-11'
+  const key = 'idem-fingerprint-test-01'
+
+  // Cobro exitoso inicial
+  await collectMemberDue.run({
+    auth: { uid: 'sec-punata' },
+    data: { dueId, amountCents: 2000, paymentMethod: 'cash', shiftId, idempotencyKey: key },
+  })
+
+  // Intento de reusar la misma clave pero cambiando el monto -> DEBE FALLAR
+  await assert.rejects(async () => {
+    await collectMemberDue.run({
+      auth: { uid: 'sec-punata' },
+      data: { dueId, amountCents: 3000, paymentMethod: 'cash', shiftId, idempotencyKey: key },
+    })
+  }, (err) => err.code === 'already-exists')
+
+  // Intento de cobro en efectivo SIN turno de caja -> DEBE FALLAR
+  await assert.rejects(async () => {
+    await collectMemberDue.run({
+      auth: { uid: 'sec-punata' },
+      data: { dueId, amountCents: 1000, paymentMethod: 'cash', idempotencyKey: 'sin-turno-key-001' },
+    })
+  }, (err) => err.code === 'failed-precondition')
+})
+
+test('11. getMemberAccountStatement: Secretaria y conductor NO tienen acceso al extracto contable', async () => {
+  await createTestUser('sec-1', 'secretaria', 'punata')
+  await createTestUser('driver-1', 'conductor', 'punata')
+  await createTestUser('admin-1', 'directiva_admin', 'punata')
+
+  await manageUnionMember.run({
+    auth: { uid: 'admin-1' },
+    data: { id: 'm-sec-view', memberNumber: 'SOC-300', fullName: 'Socio Vista', monthlyFeeBob: 50, status: 'active' },
+  })
+
+  await assert.rejects(async () => {
+    await getMemberAccountStatement.run({
+      auth: { uid: 'sec-1' },
+      data: { memberId: 'm-sec-view' },
+    })
+  }, (err) => err.code === 'permission-denied')
+
+  await assert.rejects(async () => {
+    await getMemberAccountStatement.run({
+      auth: { uid: 'driver-1' },
+      data: { memberId: 'm-sec-view' },
+    })
+  }, (err) => err.code === 'permission-denied')
+})

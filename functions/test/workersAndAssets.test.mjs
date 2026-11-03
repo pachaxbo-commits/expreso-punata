@@ -390,3 +390,172 @@ test('9. manageFixedAsset: Baja justificada de activo fija estado disposed y mot
     .get()
   assert.equal(logsSnap.empty, false)
 })
+
+test('10. registerWorkerPayment: Rechaza pago si saldo en caja es insuficiente o reintenta con fingerprint alterado', async () => {
+  await createTestUser('admin-1', 'directiva_admin', 'punata')
+
+  // Abrir turno con solo Bs 50 (5000 cents)
+  const shiftRes = await openCashShift.run({
+    auth: { uid: 'admin-1' },
+    data: { branchId: 'punata', initialCashCents: 5000, declaredCashBob: 50 },
+  })
+
+  const workerRes = await manageWorker.run({
+    auth: { uid: 'admin-1' },
+    data: { action: 'create', fullName: 'Estibador Prueba', ci: '112233', role: 'estibador', baseSalaryBob: 2000 },
+  })
+
+  // Intento de pagar Bs 100 teniendo solo Bs 50 en caja -> RECHAZADO
+  await assert.rejects(async () => {
+    await registerWorkerPayment.run({
+      auth: { uid: 'admin-1' },
+      data: {
+        workerId: workerRes.worker.id,
+        amountBob: 100,
+        amountCents: 10000,
+        concept: 'Pago imposible por fondos',
+        paymentMethod: 'cash',
+        shiftId: shiftRes.shift.id,
+        idempotencyKey: 'idemp-insufficient-01',
+      },
+    })
+  }, (err) => err.code === 'failed-precondition')
+
+  // Pago de Bs 20 (2000 cents) válido
+  const validPay = await registerWorkerPayment.run({
+    auth: { uid: 'admin-1' },
+    data: {
+      workerId: workerRes.worker.id,
+      amountBob: 20,
+      amountCents: 2000,
+      concept: 'Pago parcial válido',
+      paymentMethod: 'cash',
+      shiftId: shiftRes.shift.id,
+      idempotencyKey: 'idemp-valid-pay-01',
+    },
+  })
+  assert.equal(validPay.success, true)
+
+  // Reintento con la misma clave pero monto distinto -> RECHAZADO por fingerprint
+  await assert.rejects(async () => {
+    await registerWorkerPayment.run({
+      auth: { uid: 'admin-1' },
+      data: {
+        workerId: workerRes.worker.id,
+        amountBob: 10,
+        amountCents: 1000,
+        concept: 'Pago parcial válido',
+        paymentMethod: 'cash',
+        shiftId: shiftRes.shift.id,
+        idempotencyKey: 'idemp-valid-pay-01',
+      },
+    })
+  }, (err) => err.code === 'already-exists')
+})
+
+test('11. registerGeneralExpense: Control de saldo de caja y límite de Bs 150 para secretarias', async () => {
+  await createTestUser('sec-punata', 'secretaria', 'punata')
+  await createTestUser('admin-1', 'directiva_admin', 'punata')
+
+  // Abrir turno con Bs 300 (30000 cents)
+  const shiftRes = await openCashShift.run({
+    auth: { uid: 'sec-punata' },
+    data: { branchId: 'punata', initialCashCents: 30000, declaredCashBob: 300 },
+  })
+
+  // Secretaria intenta registrar gasto de Bs 200 (> Bs 150) -> RECHAZADO
+  await assert.rejects(async () => {
+    await registerGeneralExpense.run({
+      auth: { uid: 'sec-punata' },
+      data: {
+        category: 'material_escritorio',
+        concept: 'Compra grande de insumos',
+        amountBob: 200,
+        amountCents: 20000,
+        paymentMethod: 'cash',
+        shiftId: shiftRes.shift.id,
+        idempotencyKey: 'idemp-sec-limit-01',
+      },
+    })
+  }, (err) => err.code === 'permission-denied')
+
+  // Intento de gasto que supera saldo en caja -> RECHAZADO
+  await assert.rejects(async () => {
+    await registerGeneralExpense.run({
+      auth: { uid: 'admin-1' },
+      data: {
+        category: 'mantenimiento',
+        concept: 'Arreglo de motor',
+        amountBob: 500,
+        amountCents: 50000,
+        paymentMethod: 'cash',
+        shiftId: shiftRes.shift.id,
+        idempotencyKey: 'idemp-admin-exceed-01',
+      },
+    })
+  }, (err) => err.code === 'failed-precondition')
+})
+
+test('12. manageFixedAsset: Activo dado de baja NO puede modificarse ni reactivarse sin directiva_admin y justificación', async () => {
+  await createTestUser('manager-1', 'encargado_agencia', 'punata')
+  await createTestUser('admin-1', 'directiva_admin', 'punata')
+
+  const created = await manageFixedAsset.run({
+    auth: { uid: 'admin-1' },
+    data: {
+      action: 'create',
+      name: 'Balanza de Descarte',
+      category: 'herramientas',
+      branchId: 'punata',
+      physicalLocation: 'Almacén de descarte',
+      responsiblePersonName: 'Carlos Torrico',
+    },
+  })
+
+  // Dar de baja
+  await manageFixedAsset.run({
+    auth: { uid: 'admin-1' },
+    data: {
+      id: created.asset.id,
+      action: 'dispose',
+      disposedReason: 'Calibración perdida irreparable',
+    },
+  })
+
+  // Encargado de agencia intenta reactivar -> RECHAZADO
+  await assert.rejects(async () => {
+    await manageFixedAsset.run({
+      auth: { uid: 'manager-1' },
+      data: {
+        id: created.asset.id,
+        action: 'changeStatus',
+        status: 'available',
+      },
+    })
+  }, (err) => err.code === 'permission-denied')
+
+  // Admin intenta reactivar sin justificación detallada -> RECHAZADO
+  await assert.rejects(async () => {
+    await manageFixedAsset.run({
+      auth: { uid: 'admin-1' },
+      data: {
+        id: created.asset.id,
+        action: 'changeStatus',
+        status: 'available',
+        justification: 'ok',
+      },
+    })
+  }, (err) => err.code === 'invalid-argument')
+
+  // Admin reactiva con justificación detallada obligatoria -> ÉXITO
+  const reactivateRes = await manageFixedAsset.run({
+    auth: { uid: 'admin-1' },
+    data: {
+      id: created.asset.id,
+      action: 'changeStatus',
+      status: 'available',
+      justification: 'Reparación autorizada por servicio técnico especializado con certificado de calibración',
+    },
+  })
+  assert.equal(reactivateRes.success, true)
+})

@@ -4100,111 +4100,182 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
   const nowIso = new Date().toISOString()
   const effectiveDueDate = dueDate || `${period}-15`
 
+  // BLOQUEO ATÓMICO DE CONCURRENCIA PARA EMISIÓN DE CUOTAS
+  const lockRef = db.collection('system_locks').doc(`generate_dues_${period}`)
+  await db.runTransaction(async (transaction) => {
+    const lockDoc = await transaction.get(lockRef)
+    if (lockDoc.exists) {
+      const lockData = lockDoc.data() || {}
+      if (lockData.status === 'in_progress') {
+        const elapsedMs = Date.now() - (lockData.startedAt || 0)
+        if (elapsedMs < 120000) {
+          throw new HttpsError('already-exists', `La emisión de cuotas para el período ${period} ya está en curso por otro proceso.`)
+        }
+      }
+    }
+    transaction.set(lockRef, {
+      period,
+      status: 'in_progress',
+      startedAt: Date.now(),
+      startedAtIso: nowIso,
+      callerUid,
+      callerName: caller.fullName || caller.email || 'Operador',
+    })
+  })
+
   const [year, month] = period.split('-')
   const monthsNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
   const periodLabel = `${monthsNames[parseInt(month, 10) - 1]} ${year}`
 
-  const membersSnap = await db.collection('union_members')
-    .where('status', '==', 'active')
-    .get()
+  const warnings = []
 
-  if (membersSnap.empty) {
+  try {
+    const membersSnap = await db.collection('union_members')
+      .where('status', '==', 'active')
+      .get()
+
+    if (membersSnap.empty) {
+      await lockRef.set({
+        period,
+        status: 'completed',
+        completedAt: Date.now(),
+        completedAtIso: new Date().toISOString(),
+        callerUid,
+        generatedCount: 0,
+        skippedCount: 0,
+        warningsCount: 0,
+      })
+      return {
+        success: true,
+        period,
+        periodLabel,
+        generatedCount: 0,
+        skippedCount: 0,
+        warnings: [],
+        totalAmountCents: 0,
+        message: 'No se encontraron socios activos para emitir cuotas.',
+      }
+    }
+
+    let generatedCount = 0
+    let skippedCount = 0
+    let totalAmountCents = 0
+
+    const batchSize = 400
+    let batch = db.batch()
+    let opsInBatch = 0
+
+    for (const mDoc of membersSnap.docs) {
+      const member = mDoc.data()
+      const dueId = `${mDoc.id}_${period}`
+      const dueRef = db.collection('union_dues').doc(dueId)
+      const existingDue = await dueRef.get()
+
+      if (existingDue.exists) {
+        skippedCount++
+        continue
+      }
+
+      // Eliminar el fallback ficticio de 5000: si no tiene cuota válida, omitir y alertar
+      const feeCents = member.monthlyFeeCents || Math.round((member.monthlyFeeBob || 0) * 100) || 0
+      if (!feeCents || feeCents <= 0) {
+        skippedCount++
+        warnings.push({
+          memberId: mDoc.id,
+          memberNumber: member.memberNumber,
+          memberName: member.fullName,
+          reason: 'Socio sin cuota mensual configurada (monthlyFeeCents <= 0). Omitido.',
+        })
+        continue
+      }
+      const feeBob = feeCents / 100
+
+      const dueData = {
+        id: dueId,
+        dueNumber: `CUO-${period}-${member.memberNumber}`,
+        memberId: mDoc.id,
+        memberNumber: member.memberNumber,
+        memberName: member.fullName,
+        memberCategory: member.category,
+        period,
+        periodLabel,
+        amountBob: feeBob,
+        amountCents: feeCents,
+        dueDate: effectiveDueDate,
+        status: 'pending',
+        paidAmountBob: 0,
+        paidAmountCents: 0,
+        balanceBob: feeBob,
+        balanceCents: feeCents,
+        paymentsCount: 0,
+        notes: notes || `Cuota ordinaria de ${periodLabel}`,
+        createdAtIso: nowIso,
+        createdByUid: callerUid,
+        createdByName: caller.fullName || 'Operador',
+      }
+
+      batch.set(dueRef, dueData)
+      opsInBatch++
+      generatedCount++
+      totalAmountCents += feeCents
+
+      if (opsInBatch >= batchSize) {
+        await batch.commit()
+        batch = db.batch()
+        opsInBatch = 0
+      }
+    }
+
+    if (opsInBatch > 0) {
+      await batch.commit()
+    }
+
+    await db.collection('audit_logs').add({
+      action: 'union_dues_generated',
+      targetCollection: 'union_dues',
+      period,
+      periodLabel,
+      generatedCount,
+      skippedCount,
+      warningsCount: warnings.length,
+      warnings,
+      totalAmountCents,
+      performedByUid: callerUid,
+      performedByName: caller.fullName || 'Operador',
+      performedByRole: caller.role,
+      timestamp: FieldValue.serverTimestamp(),
+      timestampIso: nowIso,
+    })
+
+    await lockRef.set({
+      period,
+      status: 'completed',
+      completedAt: Date.now(),
+      completedAtIso: new Date().toISOString(),
+      callerUid,
+      generatedCount,
+      skippedCount,
+      warningsCount: warnings.length,
+    })
+
     return {
       success: true,
       period,
       periodLabel,
-      generatedCount: 0,
-      skippedCount: 0,
-      totalAmountCents: 0,
-      message: 'No se encontraron socios activos para emitir cuotas.',
+      generatedCount,
+      skippedCount,
+      warnings,
+      totalAmountCents,
+      totalAmountBob: totalAmountCents / 100,
     }
-  }
-
-  let generatedCount = 0
-  let skippedCount = 0
-  let totalAmountCents = 0
-
-  const batchSize = 400
-  let batch = db.batch()
-  let opsInBatch = 0
-
-  for (const mDoc of membersSnap.docs) {
-    const member = mDoc.data()
-    const dueId = `${mDoc.id}_${period}`
-    const dueRef = db.collection('union_dues').doc(dueId)
-    const existingDue = await dueRef.get()
-
-    if (existingDue.exists) {
-      skippedCount++
-      continue
-    }
-
-    const feeCents = member.monthlyFeeCents || Math.round((member.monthlyFeeBob || 0) * 100) || 5000
-    const feeBob = feeCents / 100
-
-    const dueData = {
-      id: dueId,
-      dueNumber: `CUO-${period}-${member.memberNumber}`,
-      memberId: mDoc.id,
-      memberNumber: member.memberNumber,
-      memberName: member.fullName,
-      memberCategory: member.category,
+  } catch (err) {
+    await lockRef.set({
       period,
-      periodLabel,
-      amountBob: feeBob,
-      amountCents: feeCents,
-      dueDate: effectiveDueDate,
-      status: 'pending',
-      paidAmountBob: 0,
-      paidAmountCents: 0,
-      balanceBob: feeBob,
-      balanceCents: feeCents,
-      paymentsCount: 0,
-      notes: notes || `Cuota ordinaria de ${periodLabel}`,
-      createdAtIso: nowIso,
-      createdByUid: callerUid,
-      createdByName: caller.fullName || 'Operador',
-    }
-
-    batch.set(dueRef, dueData)
-    opsInBatch++
-    generatedCount++
-    totalAmountCents += feeCents
-
-    if (opsInBatch >= batchSize) {
-      await batch.commit()
-      batch = db.batch()
-      opsInBatch = 0
-    }
-  }
-
-  if (opsInBatch > 0) {
-    await batch.commit()
-  }
-
-  await db.collection('audit_logs').add({
-    action: 'union_dues_generated',
-    targetCollection: 'union_dues',
-    period,
-    periodLabel,
-    generatedCount,
-    skippedCount,
-    totalAmountCents,
-    performedByUid: callerUid,
-    performedByName: caller.fullName || 'Operador',
-    performedByRole: caller.role,
-    timestamp: FieldValue.serverTimestamp(),
-    timestampIso: nowIso,
-  })
-
-  return {
-    success: true,
-    period,
-    periodLabel,
-    generatedCount,
-    skippedCount,
-    totalAmountCents,
-    totalAmountBob: totalAmountCents / 100,
+      status: 'failed',
+      failedAt: Date.now(),
+      error: err.message,
+    }).catch(() => {})
+    throw err
   }
 })
 
@@ -4263,12 +4334,18 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
   const effectiveBranchId = branchId || caller.primaryBranchId || 'punata'
 
   return await db.runTransaction(async (transaction) => {
-    // 1. Verificar idempotencia
+    // 1. Verificar idempotencia con payload fingerprint
     const idempRef = db.collection('idempotency_keys').doc(idempotencyKey)
     const idempDoc = await transaction.get(idempRef)
     if (idempDoc.exists) {
       const cached = idempDoc.data()
-      if (cached.callerUid === callerUid && cached.dueId === dueId && cached.amountCents === cleanAmountCents) {
+      if (
+        cached.callerUid === callerUid &&
+        cached.dueId === dueId &&
+        cached.amountCents === cleanAmountCents &&
+        cached.paymentMethod === paymentMethod &&
+        (cached.shiftId || null) === (shiftId || null)
+      ) {
         return cached.result
       }
       throw new HttpsError('already-exists', 'La clave de idempotencia ya fue utilizada con parámetros distintos.')
@@ -4290,13 +4367,34 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
       throw new HttpsError('invalid-argument', `El monto (Bs ${(cleanAmountCents/100).toFixed(2)}) supera el saldo adeudado de la cuota (Bs ${(due.balanceCents/100).toFixed(2)}).`)
     }
 
-    // 3. Validar turno de caja si es efectivo
+    // 3. Validar turno de caja si es ventanilla o verificar permisos si es fuera de turno
     let activeShift = null
     let shiftRef = null
     if (paymentMethod === 'cash') {
       if (!shiftId) {
-        if (['secretaria', 'encargado_agencia'].includes(caller.role)) {
-          throw new HttpsError('failed-precondition', 'El cobro en efectivo en ventanilla requiere un turno de caja abierto.')
+        throw new HttpsError('failed-precondition', 'El cobro en efectivo en ventanilla requiere un turno de caja abierto.')
+      }
+      shiftRef = db.collection('cash_shifts').doc(shiftId)
+      const shiftDoc = await transaction.get(shiftRef)
+      if (!shiftDoc.exists) {
+        throw new HttpsError('not-found', 'El turno de caja especificado no existe.')
+      }
+      activeShift = shiftDoc.data()
+      if (activeShift.status !== 'open') {
+        throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
+      }
+      const shiftOperator = activeShift.cashierUid || activeShift.operatorUid
+      if (shiftOperator && shiftOperator !== callerUid && caller.role !== 'directiva_admin') {
+        throw new HttpsError('permission-denied', 'El turno de caja no pertenece al operador que realiza el cobro.')
+      }
+      if (activeShift.branchId !== effectiveBranchId) {
+        throw new HttpsError('permission-denied', 'El turno de caja no pertenece a la sucursal de cobro.')
+      }
+    } else {
+      // paymentMethod === 'qr' o 'transfer'
+      if (!shiftId) {
+        if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+          throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden registrar cobros directos fuera de turno de caja.')
         }
       } else {
         shiftRef = db.collection('cash_shifts').doc(shiftId)
@@ -4307,9 +4405,6 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
         activeShift = shiftDoc.data()
         if (activeShift.status !== 'open') {
           throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
-        }
-        if (activeShift.branchId !== effectiveBranchId) {
-          throw new HttpsError('permission-denied', 'El turno de caja no pertenece a la sucursal de cobro.')
         }
       }
     }
@@ -4444,6 +4539,8 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
       callerUid,
       dueId,
       amountCents: cleanAmountCents,
+      paymentMethod,
+      shiftId: shiftId || null,
       result,
       createdAtIso: nowIso,
     })
@@ -4465,7 +4562,7 @@ export const getMemberAccountStatement = onCall({ cors: true }, async (request) 
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'secretaria', 'conductor']
+  const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia']
   if (!allowedRoles.includes(caller.role)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para consultar estados de cuenta de socios.')
   }
@@ -4737,18 +4834,30 @@ export const registerWorkerPayment = onCall({ cors: true }, async (request) => {
     throw new HttpsError('invalid-argument', 'Método de pago no válido (debe ser cash, transfer o check).')
   }
 
+  if (!idempotencyKey || typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) {
+    throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida (mínimo 8 caracteres).')
+  }
+
   const now = new Date()
   const nowIso = now.toISOString()
   const year = now.getFullYear()
 
   return await db.runTransaction(async (transaction) => {
-    // 1. Idempotencia (READ)
-    if (idempotencyKey) {
-      const idempRef = db.collection('idempotency_keys').doc(`worker_pay_${idempotencyKey}`)
-      const idempSnap = await transaction.get(idempRef)
-      if (idempSnap.exists) {
-        return idempSnap.data().response
+    // 1. Idempotencia con verificación de payload fingerprint (READ)
+    const idempRef = db.collection('idempotency_keys').doc(`worker_pay_${idempotencyKey}`)
+    const idempSnap = await transaction.get(idempRef)
+    if (idempSnap.exists) {
+      const cached = idempSnap.data()
+      if (
+        cached.callerUid === callerUid &&
+        cached.workerId === workerId &&
+        cached.amountCents === cleanAmountCents &&
+        cached.paymentMethod === paymentMethod &&
+        (cached.shiftId || null) === (shiftId || null)
+      ) {
+        return cached.response
       }
+      throw new HttpsError('already-exists', 'La clave de idempotencia ya fue utilizada con parámetros distintos.')
     }
 
     // 2. Validar trabajador (READ)
@@ -4762,7 +4871,10 @@ export const registerWorkerPayment = onCall({ cors: true }, async (request) => {
     // 3. Validar turno de caja si se paga en efectivo de caja de ventanilla (READ)
     let shiftRef = null
     let shiftData = null
-    if (paymentMethod === 'cash' && shiftId) {
+    if (paymentMethod === 'cash') {
+      if (!shiftId) {
+        throw new HttpsError('failed-precondition', 'El pago de haberes en efectivo requiere un turno de caja abierto.')
+      }
       shiftRef = db.collection('cash_shifts').doc(shiftId)
       const cashShiftDoc = await transaction.get(shiftRef)
       if (!cashShiftDoc.exists) {
@@ -4771,6 +4883,10 @@ export const registerWorkerPayment = onCall({ cors: true }, async (request) => {
       shiftData = cashShiftDoc.data()
       if (shiftData.status !== 'open') {
         throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
+      }
+      const currentExpected = shiftData.expectedCashCents || 0
+      if (currentExpected < cleanAmountCents) {
+        throw new HttpsError('failed-precondition', `Saldo insuficiente en efectivo en caja (Bs ${(currentExpected / 100).toFixed(2)}) para cubrir el pago de nómina (Bs ${(cleanAmountCents / 100).toFixed(2)}).`)
       }
     }
 
@@ -4873,14 +4989,17 @@ export const registerWorkerPayment = onCall({ cors: true }, async (request) => {
       message: `Pago ${receiptNumber} registrado exitosamente.`,
     }
 
-    if (idempotencyKey) {
-      const idempRef = db.collection('idempotency_keys').doc(`worker_pay_${idempotencyKey}`)
-      transaction.set(idempRef, {
-        response,
-        createdAt: nowIso,
-        createdByUid: callerUid,
-      })
-    }
+    transaction.set(idempRef, {
+      idempotencyKey,
+      callerUid,
+      workerId,
+      amountCents: cleanAmountCents,
+      paymentMethod,
+      shiftId: shiftId || null,
+      response,
+      createdAt: nowIso,
+      createdByUid: callerUid,
+    })
 
     return response
   })
@@ -4950,32 +5069,54 @@ export const registerGeneralExpense = onCall({ cors: true }, async (request) => 
     throw new HttpsError('permission-denied', 'Los egresos superiores a Bs 150 requieren autorización de Encargado de Agencia o Directiva.')
   }
 
+  if (!idempotencyKey || typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) {
+    throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida (mínimo 8 caracteres).')
+  }
+
   const now = new Date()
   const nowIso = now.toISOString()
   const year = now.getFullYear()
 
   return await db.runTransaction(async (transaction) => {
-    // 1. Idempotencia (READ)
-    if (idempotencyKey) {
-      const idempRef = db.collection('idempotency_keys').doc(`gen_expense_${idempotencyKey}`)
-      const idempSnap = await transaction.get(idempRef)
-      if (idempSnap.exists) {
-        return idempSnap.data().response
+    // 1. Idempotencia con verificación de payload fingerprint (READ)
+    const idempRef = db.collection('idempotency_keys').doc(`gen_expense_${idempotencyKey}`)
+    const idempSnap = await transaction.get(idempRef)
+    if (idempSnap.exists) {
+      const cached = idempSnap.data()
+      if (
+        cached.callerUid === callerUid &&
+        cached.category === category &&
+        cached.amountCents === cleanAmountCents &&
+        cached.paymentMethod === paymentMethod &&
+        (cached.shiftId || null) === (shiftId || null)
+      ) {
+        return cached.response
       }
+      throw new HttpsError('already-exists', 'La clave de idempotencia ya fue utilizada con parámetros distintos.')
     }
 
     // 2. Validar turno de caja si se paga en efectivo en sucursal (READ)
     let shiftRef = null
     let shiftData = null
-    if (paymentMethod === 'cash' && shiftId) {
-      shiftRef = db.collection('cash_shifts').doc(shiftId)
-      const shiftSnap = await transaction.get(shiftRef)
-      if (!shiftSnap.exists) {
-        throw new HttpsError('not-found', 'El turno de caja especificado no existe.')
-      }
-      shiftData = shiftSnap.data()
-      if (shiftData.status !== 'open') {
-        throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
+    if (paymentMethod === 'cash') {
+      if (!shiftId) {
+        if (caller.role === 'secretaria') {
+          throw new HttpsError('failed-precondition', 'El egreso operativo en efectivo por ventanilla requiere un turno de caja abierto.')
+        }
+      } else {
+        shiftRef = db.collection('cash_shifts').doc(shiftId)
+        const shiftSnap = await transaction.get(shiftRef)
+        if (!shiftSnap.exists) {
+          throw new HttpsError('not-found', 'El turno de caja especificado no existe.')
+        }
+        shiftData = shiftSnap.data()
+        if (shiftData.status !== 'open') {
+          throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
+        }
+        const currentExpected = shiftData.expectedCashCents || 0
+        if (currentExpected < cleanAmountCents) {
+          throw new HttpsError('failed-precondition', `Saldo insuficiente en efectivo en caja (Bs ${(currentExpected / 100).toFixed(2)}) para cubrir el gasto (Bs ${(cleanAmountCents / 100).toFixed(2)}).`)
+        }
       }
     }
 
@@ -5075,14 +5216,17 @@ export const registerGeneralExpense = onCall({ cors: true }, async (request) => 
       message: `Egreso ${voucherNumber} registrado con éxito.`,
     }
 
-    if (idempotencyKey) {
-      const idempRef = db.collection('idempotency_keys').doc(`gen_expense_${idempotencyKey}`)
-      transaction.set(idempRef, {
-        response,
-        createdAt: nowIso,
-        createdByUid: callerUid,
-      })
-    }
+    transaction.set(idempRef, {
+      idempotencyKey,
+      callerUid,
+      category,
+      amountCents: cleanAmountCents,
+      paymentMethod,
+      shiftId: shiftId || null,
+      response,
+      createdAt: nowIso,
+      createdByUid: callerUid,
+    })
 
     return response
   })
@@ -5138,6 +5282,16 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     }
     const currentAsset = assetSnap.data()
 
+    if (currentAsset.status === 'disposed') {
+      if (caller.role !== 'directiva_admin') {
+        throw new HttpsError('permission-denied', 'Un activo dado de baja no puede ser modificado ni reactivado sin rol directiva_admin.')
+      }
+      const justification = (request.data?.justification || request.data?.notes || '').trim()
+      if (justification.length < 10) {
+        throw new HttpsError('invalid-argument', 'Se requiere una justificación obligatoria (mínimo 10 caracteres) para modificar un activo dado de baja.')
+      }
+    }
+
     const updates = {
       updatedAtIso: nowIso,
       updatedByUid: callerUid,
@@ -5189,6 +5343,10 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     }
     const currentAsset = assetSnap.data()
 
+    if (currentAsset.status === 'disposed') {
+      throw new HttpsError('failed-precondition', 'Un activo dado de baja no puede ser transferido de sucursal ni responsable.')
+    }
+
     if (!physicalLocation && !branchId && !responsiblePersonName) {
       throw new HttpsError('invalid-argument', 'Debe especificar la nueva ubicación, sucursal o responsable.')
     }
@@ -5234,6 +5392,16 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     }
     const currentAsset = assetSnap.data()
 
+    if (currentAsset.status === 'disposed') {
+      if (caller.role !== 'directiva_admin') {
+        throw new HttpsError('permission-denied', 'Un activo dado de baja no puede reactivarse sin rol directiva_admin.')
+      }
+      const justification = (request.data?.justification || request.data?.notes || '').trim()
+      if (justification.length < 10) {
+        throw new HttpsError('invalid-argument', 'Se requiere una justificación obligatoria (mínimo 10 caracteres) para reactivar un activo dado de baja.')
+      }
+    }
+
     if (!status) {
       throw new HttpsError('invalid-argument', 'Debe especificar el nuevo estado del activo.')
     }
@@ -5271,6 +5439,10 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
       throw new HttpsError('not-found', 'El activo no existe.')
     }
     const currentAsset = assetSnap.data()
+
+    if (currentAsset.status === 'disposed') {
+      throw new HttpsError('failed-precondition', 'El activo ya ha sido dado de baja previamente.')
+    }
 
     if (!disposedReason || typeof disposedReason !== 'string' || disposedReason.trim().length < 5) {
       throw new HttpsError('invalid-argument', 'Debe indicar el motivo detallado de la baja del activo.')

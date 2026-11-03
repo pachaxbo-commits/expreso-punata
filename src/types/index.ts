@@ -253,6 +253,7 @@ export interface CashShiftBreakdown {
   totalIncomeCents: number
   shipmentsIncomeCents: number
   codIncomeCents: number
+  driverRemittanceCents?: number
   contributionsIncomeCents: number
   monthlyFeesIncomeCents: number
   otherIncomeCents: number
@@ -302,6 +303,7 @@ export type FinancialMovementType =
   | 'driver_remittance'
   | 'contribution_income'
   | 'monthly_fee_income'
+  | 'worker_payroll'
   | 'expense'
   | 'initial_cash'
   | 'refund'
@@ -317,6 +319,7 @@ export interface FinancialMovement {
   amountCents: number
   paymentMethod: PaymentMethod | 'none'
   concept: string
+  description?: string
   referenceId?: string
   trackingCode?: string | null
   status: 'completed' | 'cancelled'
