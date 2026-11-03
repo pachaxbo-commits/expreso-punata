@@ -130,10 +130,10 @@ async function runProductionLiveVerification() {
 
     // Esperar dashboard
     try {
-      await page.waitForSelector('text=Agencia Punata', { timeout: 10000 })
+      await page.waitForSelector('text=Agencia Central Punata', { timeout: 10000 })
       console.log('   ✓ Acceso concedido. Panel principal renderizado.')
     } catch (e) {
-      console.error('   Error esperando Agencia Punata.')
+      console.error('   Error esperando Agencia Central Punata.')
       const bodySnippet = await page.innerText('body')
       console.log('   Contenido del cuerpo actual:\n', bodySnippet.substring(0, 500))
       const debugShot = path.join(EVIDENCE_DIR, 'debug-login-fail.png')
@@ -142,7 +142,7 @@ async function runProductionLiveVerification() {
     }
 
     // Verificar badge fijo de sucursal y ausencia de selector conmutador
-    const branchBadge = await page.locator('header span:has-text("Agencia Punata")').innerText()
+    const branchBadge = await page.locator('header span:has-text("Central Punata")').innerText()
     console.log(`   Insignia de agencia detectada en barra superior: "${branchBadge}"`)
     const branchSwitcherInHeader = await page.locator('header select').count()
     console.log(`   Selectores de cambio de agencia en barra: ${branchSwitcherInHeader} (Esperado: 0 para secretaria)`)
@@ -158,12 +158,12 @@ async function runProductionLiveVerification() {
     // Prueba de persistencia F5
     console.log('   Probando persistencia de sesión y sucursal con F5...')
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.waitForSelector('header span:has-text("Agencia Punata")', { timeout: 8000 })
+    await page.waitForSelector('header span:has-text("Central Punata")', { timeout: 8000 })
     console.log('   ✓ Sesión y sucursal asignada persistieron correctamente tras F5.')
 
     // Cerrar sesión
     console.log('   Cerrando sesión de secretaria...')
-    await page.locator('button:has-text("Cerrar Sesión")').click()
+    await page.locator('button[title="Cerrar Sesión"]').click()
     await page.waitForSelector('input[type="email"]', { timeout: 8000 })
     console.log('   ✓ Retorno seguro a la pantalla de inicio de sesión.')
 
@@ -182,8 +182,8 @@ async function runProductionLiveVerification() {
     const driverBadge = await page.locator('header span:has-text("Móvil 14")').innerText()
     console.log(`   Insignia de vehículo en barra superior: "${driverBadge}"`)
 
-    const activeTab = await page.locator('nav button[class*="border-blue-600"], nav button[class*="text-blue-600"]').innerText()
-    console.log(`   Pestaña activa por defecto: "${activeTab}" (Esperado: Despachos y Ruta / Manifiestos)`)
+    const activeTab = await page.locator('button:has-text("Despachos y Ruta")').first().innerText()
+    console.log(`   Pestaña activa por defecto: "${activeTab}" (Esperado: Despachos y Ruta)`)
 
     const shotDriver = path.join(EVIDENCE_DIR, '58-prod-conductor-mobile-badge.png')
     await page.screenshot({ path: shotDriver })
@@ -191,7 +191,7 @@ async function runProductionLiveVerification() {
     console.log(`   ✓ Captura de Conductor guardada: 58-prod-conductor-mobile-badge.png`)
 
     // Cerrar sesión
-    await page.locator('button:has-text("Cerrar Sesión")').click()
+    await page.locator('button[title="Cerrar Sesión"]').click()
     await page.waitForSelector('input[type="email"]', { timeout: 8000 })
     console.log('   ✓ Retorno seguro a la pantalla de inicio de sesión.')
 
@@ -203,7 +203,7 @@ async function runProductionLiveVerification() {
     await page.locator('input[placeholder="••••••••"]').fill('Punata2026!')
     await page.locator('button[type="submit"]:has-text("Iniciar Sesión")').click()
 
-    await page.waitForSelector('text=Administrador', { timeout: 15000 })
+    await page.waitForSelector('text=DIRECTIVA ADMIN', { timeout: 15000 })
     console.log('   ✓ Acceso concedido al Administrador General.')
 
     // Verificar conmutador de agencias en barra superior
@@ -222,14 +222,14 @@ async function runProductionLiveVerification() {
     console.log('   ✓ Conmutación a Agencia Cochabamba exitosa.')
 
     // Navegar a Usuarios y verificar formulario de secretaria
-    console.log('   Navegando a Módulo de Administración de Usuarios...')
-    const adminTab = page.locator('nav button:has-text("Administración"), nav button:has-text("Usuarios")')
-    if (await adminTab.count() > 0) {
-      await adminTab.first().click()
+    console.log('   Navegando a Módulo de Configuración / Usuarios...')
+    const configTab = page.locator('button:has-text("Configuración")')
+    if (await configTab.count() > 0) {
+      await configTab.first().click()
       await page.waitForTimeout(500)
 
-      // Clic en pestaña o botón de Usuarios
-      const usersSubTab = page.locator('button:has-text("Gestión de Usuarios"), button:has-text("Usuarios")')
+      // Clic en subpestaña Usuarios si no está activa
+      const usersSubTab = page.locator('button:has-text("Usuarios")')
       if (await usersSubTab.count() > 0) {
         await usersSubTab.first().click()
         await page.waitForTimeout(500)
@@ -267,7 +267,7 @@ async function runProductionLiveVerification() {
     console.log(`   ✓ Captura de Admin guardada: 59-prod-admin-full-switcher.png`)
 
     // Cerrar sesión
-    await page.locator('button:has-text("Cerrar Sesión")').click()
+    await page.locator('button[title="Cerrar Sesión"]').click()
     await page.waitForSelector('input[type="email"]', { timeout: 8000 })
 
     // ==========================================
