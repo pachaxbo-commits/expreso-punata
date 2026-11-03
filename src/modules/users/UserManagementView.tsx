@@ -762,9 +762,13 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
         ci: ci.trim() ? ci.trim() : null, // Opcional, guarda null si no se ingresa
         role,
         primaryBranchId,
-        allowedBranchIds: allowedBranches.includes(primaryBranchId)
-          ? allowedBranches
-          : [primaryBranchId, ...allowedBranches],
+        allowedBranchIds: role === 'secretaria'
+          ? [primaryBranchId]
+          : role === 'directiva_admin'
+            ? ['punata', 'cochabamba']
+            : allowedBranches.includes(primaryBranchId)
+              ? allowedBranches
+              : [primaryBranchId, ...allowedBranches],
         assignedVehiclePlate: role === 'conductor' ? vehiclePlate.trim() : undefined,
         assignedMobileNumber: role === 'conductor' ? mobileNumber.trim() : undefined,
         isActive: true,
@@ -884,13 +888,15 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
               </select>
             </div>
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Sucursal Principal *</label>
+              <label className="font-bold text-slate-700 block mb-1">{role === 'secretaria' ? 'Agencia Asignada *' : 'Sucursal Principal *'}</label>
               <select
                 value={primaryBranchId}
                 onChange={(e) => {
                   const bId = e.target.value
                   setPrimaryBranchId(bId)
-                  if (!allowedBranches.includes(bId)) {
+                  if (role === 'secretaria') {
+                    setAllowedBranches([bId])
+                  } else if (!allowedBranches.includes(bId)) {
                     setAllowedBranches((prev) => [...prev, bId])
                   }
                 }}
@@ -905,24 +911,26 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
             </div>
           </div>
 
-          {/* Sucursales autorizadas */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-            <span className="font-bold text-slate-700 block mb-2">Sucursales con acceso permitido:</span>
-            <div className="flex items-center gap-4">
-              {INITIAL_BRANCHES.map((b) => (
-                <label key={b.id} className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={allowedBranches.includes(b.id)}
-                    disabled={b.id === primaryBranchId}
-                    onChange={() => handleBranchCheckbox(b.id)}
-                    className="rounded text-[#064e3b] focus:ring-[#064e3b]"
-                  />
-                  <span>{b.name}</span>
-                </label>
-              ))}
+          {/* Sucursales autorizadas (oculto para secretaria ya que tiene agencia fija única) */}
+          {role !== 'secretaria' && role !== 'conductor' && (
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <span className="font-bold text-slate-700 block mb-2">Sucursales con acceso permitido:</span>
+              <div className="flex items-center gap-4">
+                {INITIAL_BRANCHES.map((b) => (
+                  <label key={b.id} className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={role === 'directiva_admin' ? true : allowedBranches.includes(b.id)}
+                      disabled={role === 'directiva_admin' || b.id === primaryBranchId}
+                      onChange={() => handleBranchCheckbox(b.id)}
+                      className="rounded text-[#064e3b] focus:ring-[#064e3b]"
+                    />
+                    <span>{b.name}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Campos adicionales para conductor */}
           {role === 'conductor' && (
@@ -1031,9 +1039,13 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
         ci: ci.trim() ? ci.trim() : null, // Opcional, guarda null si no se ingresa
         role: user.role, // El rol se cambia en el modal dedicado para confirmación
         primaryBranchId,
-        allowedBranchIds: allowedBranches.includes(primaryBranchId)
-          ? allowedBranches
-          : [primaryBranchId, ...allowedBranches],
+        allowedBranchIds: user.role === 'secretaria'
+          ? [primaryBranchId]
+          : user.role === 'directiva_admin'
+            ? ['punata', 'cochabamba']
+            : allowedBranches.includes(primaryBranchId)
+              ? allowedBranches
+              : [primaryBranchId, ...allowedBranches],
         assignedVehiclePlate: user.role === 'conductor' ? vehiclePlate.trim() : undefined,
         assignedMobileNumber: user.role === 'conductor' ? mobileNumber.trim() : undefined,
         isActive: user.isActive,
@@ -1129,13 +1141,15 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
           </div>
 
           <div>
-            <label className="font-bold text-slate-700 block mb-1">Sucursal Principal *</label>
+            <label className="font-bold text-slate-700 block mb-1">{user.role === 'secretaria' ? 'Agencia Asignada *' : 'Sucursal Principal *'}</label>
             <select
               value={primaryBranchId}
               onChange={(e) => {
                 const bId = e.target.value
                 setPrimaryBranchId(bId)
-                if (!allowedBranches.includes(bId)) {
+                if (user.role === 'secretaria') {
+                  setAllowedBranches([bId])
+                } else if (!allowedBranches.includes(bId)) {
                   setAllowedBranches((prev) => [...prev, bId])
                 }
               }}
@@ -1149,23 +1163,26 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
             </select>
           </div>
 
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-            <span className="font-bold text-slate-700 block mb-2">Sucursales con acceso permitido:</span>
-            <div className="flex items-center gap-4">
-              {INITIAL_BRANCHES.map((b) => (
-                <label key={b.id} className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={allowedBranches.includes(b.id)}
-                    disabled={b.id === primaryBranchId}
-                    onChange={() => handleBranchCheckbox(b.id)}
-                    className="rounded text-[#064e3b] focus:ring-[#064e3b]"
-                  />
-                  <span>{b.name}</span>
-                </label>
-              ))}
+          {/* Sucursales autorizadas (oculto para secretaria y conductor) */}
+          {user.role !== 'secretaria' && user.role !== 'conductor' && (
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <span className="font-bold text-slate-700 block mb-2">Sucursales con acceso permitido:</span>
+              <div className="flex items-center gap-4">
+                {INITIAL_BRANCHES.map((b) => (
+                  <label key={b.id} className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={user.role === 'directiva_admin' ? true : allowedBranches.includes(b.id)}
+                      disabled={user.role === 'directiva_admin' || b.id === primaryBranchId}
+                      onChange={() => handleBranchCheckbox(b.id)}
+                      className="rounded text-[#064e3b] focus:ring-[#064e3b]"
+                    />
+                    <span>{b.name}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {user.role === 'conductor' && (
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-3">

@@ -927,7 +927,13 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     phone: safePhone,
     role,
     primaryBranchId,
-    allowedBranchIds: Array.isArray(allowedBranchIds) && allowedBranchIds.length > 0 ? allowedBranchIds : [primaryBranchId],
+    allowedBranchIds: role === 'secretaria'
+      ? [primaryBranchId]
+      : role === 'directiva_admin'
+        ? ['punata', 'cochabamba']
+        : (Array.isArray(allowedBranchIds) && allowedBranchIds.length > 0
+            ? (allowedBranchIds.includes(primaryBranchId) ? allowedBranchIds : [primaryBranchId, ...allowedBranchIds])
+            : [primaryBranchId]),
     assignedVehiclePlate: role === 'conductor' ? (assignedVehiclePlate || '') : null,
     assignedMobileNumber: role === 'conductor' ? (assignedMobileNumber || '') : null,
     isActive: Boolean(isActive),
