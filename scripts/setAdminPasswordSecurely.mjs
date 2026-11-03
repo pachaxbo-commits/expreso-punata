@@ -44,8 +44,8 @@ async function setAdminPassword() {
     }
   }
 
-  if (!newPassword || newPassword.trim().length < 8) {
-    throw new Error('La contraseña debe tener al menos 8 caracteres.')
+  if (!newPassword || newPassword.trim().length < 6) {
+    throw new Error('La contraseña debe tener al menos 6 caracteres.')
   }
 
   const token = getFirebaseCliToken()
