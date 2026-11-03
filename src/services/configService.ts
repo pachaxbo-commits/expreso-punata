@@ -78,12 +78,24 @@ export async function fetchSystemConfig(): Promise<SystemConfigResponse> {
       const snap = await getDoc(doc(db, 'system_config', 'expreso_punata'))
       if (snap.exists()) {
         const data = snap.data() as SystemConfig
-        return {
-          success: true,
-          status: 'configured',
-          isOfficial: true,
-          isDefault: false,
-          config: { ...data, id: snap.id, isOfficial: true, status: 'configured' },
+        const isActuallyConfigured = data.status === 'configured' && data.isOfficial === true
+        if (isActuallyConfigured) {
+          return {
+            success: true,
+            status: 'configured',
+            isOfficial: true,
+            isDefault: false,
+            config: { ...data, id: snap.id, isOfficial: true, status: 'configured' },
+          }
+        } else {
+          return {
+            success: true,
+            status: 'unconfigured',
+            isOfficial: false,
+            isDefault: true,
+            config: null,
+            message: 'Configuración oficial pendiente de registro o aprobación por la Administración.',
+          }
         }
       } else {
         return {

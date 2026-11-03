@@ -77,9 +77,14 @@ export const LoginView: React.FC = () => {
           <p className="text-xs text-emerald-200 mt-1 font-medium">
             'Servicio Interprovincial Punata - Cochabamba'
           </p>
-          <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-950/70 border border-emerald-700/60 rounded-full text-[11px] text-emerald-300">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#facc15]" />
-            <span>Sistema Seguro de Encomiendas & Ventanilla</span>
+          <div className="mt-3 flex flex-col items-center gap-1.5">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-950/70 border border-emerald-700/60 rounded-full text-[11px] text-emerald-300">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#facc15]" />
+              <span>Sistema Seguro de Encomiendas & Ventanilla</span>
+            </div>
+            <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-amber-400 text-amber-950 shadow-xs">
+              Entorno Oficial de Demostración
+            </span>
           </div>
         </div>
 

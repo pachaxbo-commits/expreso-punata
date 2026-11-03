@@ -10,11 +10,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Download,
 } from 'lucide-react'
 import type { Shipment, UserProfile, Branch } from '../../types'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { ShipmentDetailModal } from './ShipmentDetailModal'
-import { searchShipmentsServer } from '../../services/shipmentService'
+import { searchShipmentsServer, fetchShipmentsPage } from '../../services/shipmentService'
 
 interface ShipmentsManagementViewProps {
   shipments: Shipment[]
@@ -51,6 +52,33 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   const [serverResults, setServerResults] = useState<Shipment[]>([])
   const [isSearchingServer, setIsSearchingServer] = useState(false)
 
+  // Paginación continua del servidor para registros históricos antiguos
+  const [historicalShipments, setHistoricalShipments] = useState<Shipment[]>([])
+  const [lastVisibleDoc, setLastVisibleDoc] = useState<any | null>(null)
+  const [hasMoreHistory, setHasMoreHistory] = useState(true)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+
+  const handleLoadMoreHistory = async () => {
+    if (isLoadingHistory || !hasMoreHistory) return
+    setIsLoadingHistory(true)
+    try {
+      const res = await fetchShipmentsPage({
+        branchId: currentBranch.id,
+        pageSize: 30,
+        lastVisibleDoc,
+      })
+      if (res.shipments.length > 0) {
+        setHistoricalShipments(prev => [...prev, ...res.shipments])
+        setLastVisibleDoc(res.lastDoc)
+      }
+      setHasMoreHistory(res.hasMore)
+    } catch (err) {
+      console.warn('Error al cargar historial del servidor:', err)
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
+
   useEffect(() => {
     const term = searchTerm.trim()
     if (term.length < 4) {
@@ -74,10 +102,14 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   }, [searchTerm, currentBranch.id])
 
   const combinedShipments = useMemo(() => {
-    if (serverResults.length === 0) return shipments
     const map = new Map<string, Shipment>()
     for (const s of shipments) {
       map.set(s.id, s)
+    }
+    for (const s of historicalShipments) {
+      if (!map.has(s.id)) {
+        map.set(s.id, s)
+      }
     }
     for (const s of serverResults) {
       if (!map.has(s.id)) {
@@ -91,7 +123,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
       return timeB - timeA
     })
     return list
-  }, [shipments, serverResults])
+  }, [shipments, historicalShipments, serverResults])
 
 
 
@@ -468,31 +500,49 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
             )}
 
             {/* Paginación */}
-            {totalPages > 1 && (
-              <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
+            <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+              <div className="flex items-center gap-2">
                 <span>
-                  Página <strong>{currentPage}</strong> de <strong>{totalPages}</strong> ({filteredShipments.length} totales)
+                  Página <strong>{currentPage}</strong> de <strong>{totalPages}</strong> ({filteredShipments.length} en vista)
                 </span>
-                <div className="flex items-center gap-1">
+                {hasMoreHistory && (
                   <button
                     type="button"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="p-1 rounded hover:bg-slate-200 disabled:opacity-40 transition"
+                    onClick={handleLoadMoreHistory}
+                    disabled={isLoadingHistory}
+                    className="ml-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-[11px] font-bold text-[#064e3b] shadow-xs transition"
+                    title="Consultar encomiendas más antiguas directamente en el servidor Cloud"
                   >
-                    <ChevronLeft className="w-4 h-4" />
+                    {isLoadingHistory ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isLoadingHistory ? 'Cargando más...' : 'Cargar más antiguas (Servidor)'}</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="p-1 rounded hover:bg-slate-200 disabled:opacity-40 transition"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
+                )}
               </div>
-            )}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded hover:bg-slate-200 disabled:opacity-40 transition"
+                  title="Página anterior"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1.5 rounded hover:bg-slate-200 disabled:opacity-40 transition"
+                  title="Página siguiente"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
