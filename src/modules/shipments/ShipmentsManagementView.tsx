@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import {
   Package,
   Plus,
@@ -9,10 +9,12 @@ import {
   Boxes,
   ChevronLeft,
   ChevronRight,
+  Loader2,
 } from 'lucide-react'
 import type { Shipment, UserProfile, Branch } from '../../types'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { ShipmentDetailModal } from './ShipmentDetailModal'
+import { searchShipmentsServer } from '../../services/shipmentService'
 
 interface ShipmentsManagementViewProps {
   shipments: Shipment[]
@@ -45,6 +47,52 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
 
+  // Búsqueda del lado del servidor para registros fuera de ventana
+  const [serverResults, setServerResults] = useState<Shipment[]>([])
+  const [isSearchingServer, setIsSearchingServer] = useState(false)
+
+  useEffect(() => {
+    const term = searchTerm.trim()
+    if (term.length < 4) {
+      setServerResults([])
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearchingServer(true)
+      try {
+        const results = await searchShipmentsServer(term, currentBranch.id)
+        setServerResults(results)
+      } catch (err) {
+        console.warn('Error en búsqueda de servidor:', err)
+      } finally {
+        setIsSearchingServer(false)
+      }
+    }, 350)
+
+    return () => clearTimeout(timer)
+  }, [searchTerm, currentBranch.id])
+
+  const combinedShipments = useMemo(() => {
+    if (serverResults.length === 0) return shipments
+    const map = new Map<string, Shipment>()
+    for (const s of shipments) {
+      map.set(s.id, s)
+    }
+    for (const s of serverResults) {
+      if (!map.has(s.id)) {
+        map.set(s.id, s)
+      }
+    }
+    const list = Array.from(map.values())
+    list.sort((a, b) => {
+      const timeA = a.createdAtIso ? new Date(a.createdAtIso).getTime() : 0
+      const timeB = b.createdAtIso ? new Date(b.createdAtIso).getTime() : 0
+      return timeB - timeA
+    })
+    return list
+  }, [shipments, serverResults])
+
 
 
   // 1. Cálculos del Resumen Diario de Operación
@@ -75,9 +123,9 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
     return { registeredToday, pendingDispatch, inTransit, toDeliver }
   }, [shipments, currentBranch.id])
 
-  // 2. Filtrado reactivo de encomiendas
+  // 2. Filtrado reactivo de encomiendas (locales + servidor)
   const filteredShipments = useMemo(() => {
-    return shipments.filter(s => {
+    return combinedShipments.filter(s => {
       if (statusFilter !== 'all' && s.status !== statusFilter) return false
       if (paymentFilter !== 'all' && s.paymentStatus !== paymentFilter) return false
 
@@ -95,7 +143,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
 
       return true
     })
-  }, [shipments, statusFilter, paymentFilter, searchTerm])
+  }, [combinedShipments, statusFilter, paymentFilter, searchTerm])
 
   // 3. Paginación
   const totalPages = Math.max(1, Math.ceil(filteredShipments.length / pageSize))
@@ -180,17 +228,22 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
                   setCurrentPage(1)
                 }}
                 placeholder="Ingrese guía (ej. PUN202600001, PUN-2026-...) o teléfono..."
-                className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#064e3b] bg-slate-50 focus:bg-white transition"
+                className="w-full pl-10 pr-12 py-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#064e3b] bg-slate-50 focus:bg-white transition"
               />
-              {searchTerm && (
-                <button
-                  type="button"
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-slate-600 font-bold"
-                >
-                  Limpiar
-                </button>
-              )}
+              <div className="absolute right-3 top-2.5 flex items-center gap-1.5">
+                {isSearchingServer && (
+                  <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
+                )}
+                {searchTerm && !isSearchingServer && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="text-xs text-slate-400 hover:text-slate-600 font-bold"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
             </div>
             <p className="text-[11px] text-slate-500">
               * Acepta códigos alfanuméricos limpios (<code className="font-mono text-emerald-800">PUN202600042</code>) y guías anteriores con guión.

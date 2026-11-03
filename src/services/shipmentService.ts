@@ -8,6 +8,8 @@ import {
   onSnapshot,
   limit,
   getDocs,
+  orderBy,
+  startAfter,
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions, auth } from '../firebase/config.ts'
@@ -148,7 +150,7 @@ export function subscribeShipmentsByBranch(
   branchId: string,
   onUpdate: (shipments: Shipment[]) => void,
   onError?: (err: Error) => void,
-  maxDocs: number = 200
+  maxDocs: number = 500
 ): () => void {
   const shipmentsRef = collection(db, 'shipments')
 
@@ -333,4 +335,140 @@ export async function fetchShipmentsQuery(
   })
 
   return list
+}
+
+/**
+ * Búsqueda autoritativa del lado del servidor:
+ * 1. O(1) por Tracking Code directo (ej. PUN202600001 o PUN-2026-00001).
+ * 2. Por teléfono de remitente o destinatario si contiene dígitos.
+ * 3. Filtrado por sucursal si branchId !== 'all'.
+ */
+export async function searchShipmentsServer(
+  term: string,
+  branchId: string = 'all'
+): Promise<Shipment[]> {
+  const cleanTerm = term.trim()
+  if (!cleanTerm) return []
+
+  const resultsMap = new Map<string, Shipment>()
+
+  // 1. Intento O(1) por tracking code directo
+  try {
+    const directShipment = await fetchShipmentByTrackingCode(cleanTerm)
+    if (directShipment) {
+      if (
+        branchId === 'all' ||
+        directShipment.originBranchId === branchId ||
+        directShipment.destinationBranchId === branchId
+      ) {
+        resultsMap.set(directShipment.id, directShipment)
+      }
+    }
+  } catch (err) {
+    console.warn('[searchShipmentsServer] Error buscando por tracking code:', err)
+  }
+
+  // 2. Búsqueda por teléfono si contiene al menos 5 dígitos
+  const phoneDigits = cleanTerm.replace(/\D/g, '')
+  if (phoneDigits.length >= 5) {
+    const shipmentsRef = collection(db, 'shipments')
+    try {
+      const senderQ = query(shipmentsRef, where('sender.phone', '==', cleanTerm), limit(25))
+      const senderSnap = await getDocs(senderQ)
+      senderSnap.forEach((d) => {
+        const data = d.data() as Shipment
+        if (
+          branchId === 'all' ||
+          data.originBranchId === branchId ||
+          data.destinationBranchId === branchId
+        ) {
+          resultsMap.set(d.id, { ...data, id: d.id, trackingCode: data.trackingCode || d.id })
+        }
+      })
+
+      const recipientQ = query(shipmentsRef, where('recipient.phone', '==', cleanTerm), limit(25))
+      const recipientSnap = await getDocs(recipientQ)
+      recipientSnap.forEach((d) => {
+        const data = d.data() as Shipment
+        if (
+          branchId === 'all' ||
+          data.originBranchId === branchId ||
+          data.destinationBranchId === branchId
+        ) {
+          resultsMap.set(d.id, { ...data, id: d.id, trackingCode: data.trackingCode || d.id })
+        }
+      })
+    } catch (err) {
+      console.warn('[searchShipmentsServer] Error buscando por teléfono:', err)
+    }
+  }
+
+  const list = Array.from(resultsMap.values())
+  list.sort((a, b) => {
+    const timeA = a.createdAtIso ? new Date(a.createdAtIso).getTime() : 0
+    const timeB = b.createdAtIso ? new Date(b.createdAtIso).getTime() : 0
+    return timeB - timeA
+  })
+  return list
+}
+
+export interface FetchShipmentsPageOptions {
+  branchId?: string
+  pageSize?: number
+  lastVisibleDoc?: any
+}
+
+export interface FetchShipmentsPageResult {
+  shipments: Shipment[]
+  lastDoc: any | null
+  hasMore: boolean
+}
+
+/**
+ * Paginación autoritativa basada en cursores Firestore.
+ */
+export async function fetchShipmentsPage(
+  options: FetchShipmentsPageOptions = {}
+): Promise<FetchShipmentsPageResult> {
+  const { branchId = 'all', pageSize = 20, lastVisibleDoc = null } = options
+  const shipmentsRef = collection(db, 'shipments')
+
+  const constraints: any[] = [
+    orderBy('createdAtIso', 'desc'),
+    limit(pageSize),
+  ]
+
+  if (lastVisibleDoc) {
+    constraints.push(startAfter(lastVisibleDoc))
+  }
+
+  let q
+  if (branchId !== 'all') {
+    q = query(
+      shipmentsRef,
+      or(
+        where('originBranchId', '==', branchId),
+        where('destinationBranchId', '==', branchId)
+      ),
+      ...constraints
+    )
+  } else {
+    q = query(shipmentsRef, ...constraints)
+  }
+
+  const snap = await getDocs(q)
+  const shipments: Shipment[] = []
+  snap.forEach((d) => {
+    const data = d.data() as Shipment
+    shipments.push({
+      ...data,
+      id: d.id,
+      trackingCode: data.trackingCode || d.id,
+    })
+  })
+
+  const lastDoc = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null
+  const hasMore = snap.docs.length === pageSize
+
+  return { shipments, lastDoc, hasMore }
 }
