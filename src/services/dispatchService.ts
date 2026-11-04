@@ -7,7 +7,8 @@ import {
   limit,
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
-import { db, functions } from '../firebase/config.ts'
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
+import { db, functions, storage } from '../firebase/config.ts'
 import type {
   DispatchManifest,
   Vehicle,
@@ -36,11 +37,23 @@ export interface ReceiveManifestInput {
 
 export interface AssignStorageInput {
   shipmentId: string
+  warehouseId: string
+  warehouseName: string
   shelfId: string
   shelfName: string
   moduleId: string
   moduleNumber: number
+  rowNumber: number
+  floorNumber: number
+  spaceNumber: number
   position?: string
+  photo?: {
+    storagePath: string
+    contentType: string
+    sizeBytes: number
+    originalFileName?: string
+    capturedAtIso: string
+  }
 }
 
 export interface ManageVehicleInput {
@@ -123,6 +136,20 @@ export async function assignShipmentStorageThroughBackend(input: AssignStorageIn
 
   const response = await callable(input)
   return response.data
+}
+
+export async function uploadShipmentStoragePhoto(shipmentId: string, file: File) {
+  if (!file.type.startsWith('image/')) throw new Error('La evidencia debe ser una imagen.')
+  if (file.size > 2 * 1024 * 1024) throw new Error('La fotografía no puede superar 2 MB.')
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const suffix = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const storagePath = `shipments/${shipmentId}/storage/${suffix}-${safeName}`
+  await uploadBytes(ref(storage, storagePath), file, { contentType: file.type })
+  return { storagePath, contentType: file.type, sizeBytes: file.size, originalFileName: file.name }
+}
+
+export async function getShipmentStoragePhotoUrl(storagePath: string) {
+  return getDownloadURL(ref(storage, storagePath))
 }
 
 /**
@@ -310,6 +337,12 @@ export interface ManageShelfInput {
     name: string
     code?: string
     description?: string
+    floorCount?: number
+    rowCountPerFloor?: number
+    spaceCountPerFloor?: number
+    capacityPerSpace?: number
+    physicalWarehouseId?: string
+    physicalWarehouseName?: string
     moduleCount?: number
     active?: boolean
   }

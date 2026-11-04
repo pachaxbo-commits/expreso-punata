@@ -6,8 +6,9 @@ import {
   sendPasswordResetEmail,
   User as FirebaseUser,
 } from 'firebase/auth'
+import { httpsCallable } from 'firebase/functions'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { auth, db, isEmulatedEnvironment } from '../../firebase/config'
+import { auth, db, functions, isEmulatedEnvironment } from '../../firebase/config'
 import type { UserProfile, UserRole } from '../../types'
 
 export interface AuthContextType {
@@ -98,23 +99,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           } else {
             if (isEmulatedEnvironment) {
-              const defaultProfile: UserProfile = {
-                uid: user.uid,
-                fullName: user.displayName || user.email?.split('@')[0] || 'Operador Local Emulador',
-                ci: '1234567-CB',
-                phone: '71798765',
-                role: 'secretaria',
-                primaryBranchId: 'punata',
-                allowedBranchIds: ['punata'],
-                isActive: true,
-                createdAt: new Date().toISOString(),
-              }
-              try {
-                await setDoc(doc(db, 'users', user.uid), defaultProfile)
-              } catch {}
-              setUserProfile(defaultProfile)
-              _setCurrentBranchId('punata')
-              saveProfile(defaultProfile)
+              const ensureProfile = httpsCallable(functions, 'ensureLocalUserProfile')
+              await ensureProfile()
+              const createdDoc = await getDoc(doc(db, 'users', user.uid))
+              if (!createdDoc.exists()) throw new Error('El perfil local no pudo persistirse en Firestore Emulator.')
+              const createdProfile = createdDoc.data() as UserProfile
+              setUserProfile(createdProfile)
+              _setCurrentBranchId(createdProfile.primaryBranchId || 'punata')
+              saveProfile(createdProfile)
             } else {
               console.warn('[Auth Seguridad] Usuario autenticado sin perfil en Firestore:', user.uid)
               setAuthError('Su cuenta no tiene un perfil operativo asignado en Expreso Punata. Contacte a la administración para habilitar su sucursal y rol.')

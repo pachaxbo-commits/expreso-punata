@@ -19,6 +19,7 @@ dist-ssr/
 
 # Firebase
 .firebase/
+.firebase-local-profile/
 firebase-debug.log*
 
 # Editor directories and files
