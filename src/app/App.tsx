@@ -21,9 +21,11 @@ import {
   TutorialOverlayCard,
   TutorialTransitionToast,
   TutorialCompletionModal,
+  type TutorialSection,
 } from '../modules/tutorial'
 import { AuthProvider, useAuth } from '../modules/auth/AuthContext'
 import { LoginView } from '../modules/auth/LoginView'
+import { DemoView } from '../modules/demo/DemoView'
 import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../domain/expresoPunataConfig'
 import { DEV_SHIPMENTS } from '../fixtures/devFixtures'
 import { FixedAssetsView } from '../modules/assets/FixedAssetsView'
@@ -598,7 +600,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           tutorial.setIsCompletionModalOpen(false)
           tutorial.startContinuous()
         }}
-        completedSections={tutorial.roleSections.filter((s) =>
+        completedSections={tutorial.roleSections.filter((s: TutorialSection) =>
           tutorial.state.completedSectionIds.includes(s.id)
         )}
         userRole={userProfile.role}
@@ -615,6 +617,16 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 }
 
 export const AppContent: React.FC = () => {
+  const isDemo =
+    typeof window !== 'undefined' &&
+    (window.location.pathname.startsWith('/demo') ||
+      window.location.search.includes('demo=true') ||
+      window.location.hash.startsWith('#/demo'))
+
+  if (isDemo) {
+    return <DemoView />
+  }
+
   const { userProfile, isInitializing } = useAuth()
 
   if (isInitializing) {

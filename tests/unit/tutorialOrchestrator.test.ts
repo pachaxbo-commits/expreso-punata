@@ -134,7 +134,8 @@ describe('SISTEMA INTEGRAL DE TUTORIALES — EXPRESO PUNATA', () => {
   it('5. Principio de Seguridad: Modo Educativo con Cero Mutaciones Financieras', () => {
     // Simulamos la ejecución del orquestador durante un tutorial
     const mockDbWrites: any[] = []
-    const activeStep = TUTORIAL_SECTIONS[2].steps[0] // Nueva Encomienda
+    const shipmentsSec = TUTORIAL_SECTIONS.find(s => s.id === 'shipments_window')!
+    const activeStep = shipmentsSec.steps[0] // Nueva Encomienda
     assert.equal(activeStep.id, 'shipments_btn_new')
 
     // El tutorial solo lee y presenta información, nunca ejecuta mutaciones

@@ -397,6 +397,23 @@ export const LoginView: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Acceso a Demostración Pública Aislada */}
+        <div className="bg-slate-50 border-t border-slate-200 p-4 text-center">
+          <p className="text-xs text-slate-600 mb-2 font-medium">
+            ¿Deseas explorar el sistema sin ingresar credenciales?
+          </p>
+          <a
+            href="/demo"
+            className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black shadow-xs transition cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4 text-slate-950" />
+            <span>Acceder a la Demostración Pública (/demo)</span>
+          </a>
+          <p className="text-[10px] text-slate-400 mt-1.5">
+            Entorno interactivo 100% aislado con roles simulados y tutoriales.
+          </p>
+        </div>
       </div>
     </div>
   )

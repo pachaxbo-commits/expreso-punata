@@ -15,122 +15,14 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 1: 1. ACCESO SEGURO, PERFIL OPERATIVO Y SUCURSALES
-
-**Módulo:** `auth`  
-**Roles Destinatarios:** `secretaria`, `conductor`, `tesoreria`, `encargado_agencia`, `directiva_admin`  
-**Duración Aprox.:** ~3 minutos  
-**Descripción:** Aprende a identificarte en el sistema, reconocer tu agencia asignada y proteger tus credenciales de trabajo.
-
-#### Escena 1.1: Tu Identidad y Rol en Expreso Punata
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="header-user-badge"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Bienvenido a Expreso Punata. En la esquina superior derecha puedes verificar tu nombre de usuario y el rol operativo que tienes asignado en el sistema.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** Es el indicador oficial en la barra superior que muestra tu nombre completo y el rol asignado en el sistema.
-  - **Utilidad:** Permite confirmar que estás trabajando con tu propia cuenta y que tienes los permisos correctos para tu puesto de trabajo.
-  - **Instrucción:** Al iniciar sesión, introduce tu correo corporativo y tu contraseña privada. Nunca compartas tu clave con terceras personas.
-  - **Ejemplo Práctico:** *Si eres Secretaria en Punata, el sistema mostrará tu nombre (ej. Nelson Claros) y la insignia "SECRETARIA".*
-  - **Efecto en el Sistema:** El sistema carga automáticamente tus módulos autorizados y aplica los permisos de seguridad de Expreso Punata.
-  - **Recomendación:** Si necesitas ausentarte de tu ventanilla, utiliza el botón de Cerrar Sesión para evitar registros no autorizados a tu nombre.
-
-#### Escena 1.2: Agencia Asignada y Conmutación de Sucursal
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="header-branch-badge"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Observa la agencia activa en la barra superior. Todos los cobros y guías que registres quedarán asentados en la caja de esta sucursal.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** Es la insignia o selector que identifica la sucursal física en la cual estás operando en este momento.
-  - **Utilidad:** Garantiza que todas las encomiendas, cobranzas de caja y despachos queden vinculados estrictamente a la agencia correcta.
-  - **Instrucción:** Para secretarias y encargados, la agencia es fija según su contrato (Agencia Central Punata o Cochabamba). Los administradores pueden alternar libremente.
-  - **Ejemplo Práctico:** *Si trabajas en la Calle Sucre de Punata, verás "Agencia Central Punata". Si la directiva inspecciona la agencia Cochabamba en Av. República, seleccionará esa sucursal.*
-  - **Efecto en el Sistema:** La caja activa, el catálogo de almacén y las tarifas se configuran automáticamente para la sucursal seleccionada.
-  - **Recomendación:** Las secretarias nunca deben cambiar de agencia sin autorización administrativa previa desde el módulo de usuarios.
-
-#### Escena 1.3: Mi Perfil y Medidas de Seguridad
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="header-profile-btn"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Al pulsar sobre tu perfil podrás revisar tus datos registrados y confirmar que tu cuenta se encuentra debidamente protegida.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** Un botón de acceso rápido para consultar tus datos de usuario, tu fecha de creación y el estado de tu cuenta.
-  - **Utilidad:** Sirve para comprobar la seguridad de tu sesión y solicitar restablecimientos de clave autorizados si es necesario.
-  - **Instrucción:** Haz clic en el botón con tu inicial para abrir la ficha de perfil.
-  - **Ejemplo Práctico:** *La secretaria en Agencia Central Punata consulta su perfil oficial y verifica su estado activo en Expreso Punata.*
-  - **Efecto en el Sistema:** Se abre una ventana modal con el detalle completo de tus permisos y opciones de seguridad.
-  - **Recomendación:** Si sospechas que alguien conoce tu contraseña, solicita inmediatamente un restablecimiento a la Administración general.
-
----
-
-### SECCIÓN 2: 2. PANEL PRINCIPAL Y NAVEGACIÓN OPERATIVA
-
-**Módulo:** `navigation`  
-**Roles Destinatarios:** `secretaria`, `conductor`, `tesoreria`, `encargado_agencia`, `directiva_admin`  
-**Duración Aprox.:** ~3 minutos  
-**Descripción:** Conoce la barra superior, la navegación de pestañas y los indicadores en tiempo real de Expreso Punata.
-
-#### Escena 2.1: Identidad Institucional de Expreso Punata
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="header-brand"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «La barra institucional te acompaña en todo momento, confirmando que te encuentras en el sistema web oficial de Expreso Punata.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** La cabecera oficial con los colores verde y amarillo representativos de la empresa interprovincial Punata - Cochabamba.
-  - **Utilidad:** Identifica la plataforma oficial de trabajo y el entorno en el cual estás operando.
-  - **Instrucción:** No requiere seleccionar nada; es un componente institucional siempre visible en computadoras y celulares.
-  - **Ejemplo Práctico:** *Muestra "EXPRESO PUNATA" con el lema del servicio interprovincial entre Punata y Cochabamba.*
-  - **Efecto en el Sistema:** Proporciona consistencia visual en todas las pantallas del sistema.
-  - **Recomendación:** Verifica siempre que la dirección en tu navegador comience con https para garantizar una conexión cifrada y segura.
-
-#### Escena 2.2: Barra de Pestañas y Módulos Autorizados
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="nav-tabs-bar"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «En la barra de pestañas encontrarás los módulos disponibles para tu labor diaria. Puedes desplazarte horizontalmente tanto en PC como en tu celular.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** El menú principal de navegación con desplazamiento táctil horizontal en celulares y acceso directo en computadoras.
-  - **Utilidad:** Te permite cambiar instantáneamente entre Encomiendas, Almacén, Manifiestos, Caja, Socios, Personal y Reportes.
-  - **Instrucción:** Haz clic o toca la pestaña del módulo al que deseas ingresar.
-  - **Ejemplo Práctico:** *Si necesitas cobrar un envío, pulsa en "Caja del Turno". Si vas a recibir paquetes del Móvil 14, pulsa en "Módulos de Almacén".*
-  - **Efecto en el Sistema:** La vista principal cambia de inmediato sin recargar toda la página web.
-  - **Recomendación:** Solo verás las pestañas correspondientes a tu rol de trabajo. Por ejemplo, un conductor solo ve Despachos y Reportes.
-
-#### Escena 2.3: Centro de Tutoriales Siempre Accesible
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="header-tutorial-btn"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Siempre que tengas una duda, puedes hacer clic en el botón Tutorial para acceder a explicaciones detalladas con ejemplos de la vida real.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** El botón destacado "Tutorial" que te permite abrir este Centro de Aprendizaje en cualquier momento.
-  - **Utilidad:** Permite repasar cualquier función, consultar pasos específicos o reanudar tu capacitación donde la dejaste.
-  - **Instrucción:** Haz clic en "Tutorial" cuando tengas dudas sobre cómo completar un trámite en ventanilla.
-  - **Ejemplo Práctico:** *En ventanilla de Punata, una secretaria repasa cómo registrar un envío especial hacia Cochabamba abriendo el tutorial.*
-  - **Efecto en el Sistema:** Se abre el diálogo interactivo con las opciones de recorrido guiado, sin afectar los datos que tengas en pantalla.
-  - **Recomendación:** El tutorial nunca registra cobros ni envíos reales por accidente; puedes practicar con total confianza.
-
----
-
-### SECCIÓN 3: 3. VENTANILLA DE ENCOMIENDAS: REGISTRO Y FORMULARIO 50/50
+### SECCIÓN 1: 1. VENTANILLA DE ENCOMIENDAS: REGISTRO Y FORMULARIO 50/50
 
 **Módulo:** `shipments`  
 **Roles Destinatarios:** `secretaria`, `encargado_agencia`, `directiva_admin`  
 **Duración Aprox.:** ~5 minutos  
 **Descripción:** Aprende a emitir encomiendas, registrar remitente y destinatario con datos bolivianos y detallar la carga.
 
-#### Escena 3.1: Botón «Nueva Encomienda»
+#### Escena 1.1: Botón «Nueva Encomienda»
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="btn-new-shipment"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -145,7 +37,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** Se abre el formulario completo con la sucursal de origen preseleccionada según tu agencia.
   - **Recomendación:** Antes de abrir el formulario, confirma con el cliente si el paquete ya está debidamente embalado y rotulado.
 
-#### Escena 3.2: Ruta: Origen y Destino del Envío
+#### Escena 1.2: Ruta: Origen y Destino del Envío
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipment-form-route"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -160,7 +52,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** El sistema calcula la tarifa base oficial correspondiente al trayecto seleccionado.
   - **Recomendación:** Asegúrate de confirmar la sucursal de destino; si el cliente se equivoca de agencia, el paquete demorará más en ser retirado.
 
-#### Escena 3.3: Datos del Remitente (Quien Envía)
+#### Escena 1.3: Datos del Remitente (Quien Envía)
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipment-form-sender"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -175,7 +67,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** Los datos quedan impresos en la guía oficial y guardados en el historial de clientes frecuentes.
   - **Recomendación:** El número de celular es vital para enviar notificaciones de estado y confirmar devoluciones en caso de rezago.
 
-#### Escena 3.4: Datos del Destinatario (Quien Recibe)
+#### Escena 1.4: Datos del Destinatario (Quien Recibe)
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipment-form-recipient"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -190,7 +82,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** La agencia de destino exigirá la presentación de este carnet al momento de entregar el paquete.
   - **Recomendación:** Si el remitente indica que otra persona podría recoger, anota los nombres autorizados en las observaciones.
 
-#### Escena 3.5: Descripción de la Carga, Bultos y Peso
+#### Escena 1.5: Descripción de la Carga, Bultos y Peso
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipment-form-cargo"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -207,14 +99,14 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 4: 4. TARIFAS, PRECIO ACORDADO EDITABLE Y COBRO
+### SECCIÓN 2: 2. TARIFAS, PRECIO ACORDADO EDITABLE Y COBRO
 
 **Módulo:** `shipments`  
 **Roles Destinatarios:** `secretaria`, `encargado_agencia`, `directiva_admin`  
 **Duración Aprox.:** ~4 minutos  
 **Descripción:** Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y seleccionar pagos en origen o contraentrega (COD).
 
-#### Escena 4.1: Precio Sugerido vs. Precio Acordado Editable
+#### Escena 2.1: Precio Sugerido vs. Precio Acordado Editable
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipment-pricing-box"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -229,7 +121,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** El backend respeta el monto que escribiste como precio final para la guía, la caja y los reportes financieros.
   - **Recomendación:** El precio acordado debe ser siempre un número entero o con centavos exactos en bolivianos. Nunca dejes el campo vacío.
 
-#### Escena 4.2: Justificación Obligatoria de Cambio de Precio
+#### Escena 2.2: Justificación Obligatoria de Cambio de Precio
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipment-price-reason"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -244,7 +136,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** La justificación queda grabada en el historial de auditoría de la encomienda y aparecerá en los reportes de administración.
   - **Recomendación:** No uses explicaciones genéricas como "acuerdo". Especifica el motivo real para evitar observaciones en auditoría.
 
-#### Escena 4.3: Condición de Pago: Origen vs. Cobro Contraentrega (COD)
+#### Escena 2.3: Condición de Pago: Origen vs. Cobro Contraentrega (COD)
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipment-payment-mode"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -259,7 +151,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** Si es Pagado, se emite un comprobante de cobro para tu caja. Si es Por Cobrar, la guía viaja con saldo pendiente de pago.
   - **Recomendación:** Confirma con el cliente si pagará en efectivo o mediante QR Simple antes de finalizar el registro.
 
-#### Escena 4.4: Emisión de la Guía Oficial e Impresión Térmica
+#### Escena 2.4: Emisión de la Guía Oficial e Impresión Térmica
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipment-btn-submit"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -270,20 +162,20 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Concepto:** El botón final para confirmar el registro, generar el número correlativo alfanumérico e imprimir los comprobantes térmicos.
   - **Utilidad:** Cierra el registro en el sistema, asienta el movimiento en caja y genera el ticket para entregar al cliente y pegar en el bulto.
   - **Instrucción:** Revisa el resumen final en pantalla y pulsa "Registrar Encomienda". Luego selecciona imprimir ticket de 80mm.
-  - **Ejemplo Práctico:** *El sistema genera la guía "PNT-2026-0042". Se imprimen 2 tickets térmicos: copia remitente y etiqueta de paquete con código QR.*
+  - **Ejemplo Práctico:** *El sistema genera la guía "PNT-2026-0042" en Punata. Se imprimen 2 tickets térmicos: copia remitente y etiqueta de paquete con código QR.*
   - **Efecto en el Sistema:** La encomienda aparece en la lista con estado "Recibida en Origen", lista para ser despachada al camión.
   - **Recomendación:** Pega siempre la etiqueta con cinta transparente sobre una superficie visible del paquete para agilizar su escaneo en ruta.
 
 ---
 
-### SECCIÓN 5: 5. SEGUIMIENTO, BÚSQUEDA, EDICIÓN AUDITADA Y ENTREGA CON FIRMA
+### SECCIÓN 3: 3. SEGUIMIENTO, BÚSQUEDA, EDICIÓN AUDITADA Y ENTREGA CON FIRMA
 
 **Módulo:** `shipments`  
 **Roles Destinatarios:** `secretaria`, `encargado_agencia`, `directiva_admin`  
 **Duración Aprox.:** ~4 minutos  
 **Descripción:** Aprende a buscar encomiendas por guía o cliente, gestionar incidencias y efectuar la entrega formal con firma digital.
 
-#### Escena 5.1: Buscador Universal de Guías y Clientes
+#### Escena 3.1: Buscador Universal de Guías y Clientes
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipment-search-input"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -298,7 +190,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** La tabla filtra los resultados en tiempo real mostrando el estado operativo actual y la ubicación del bulto.
   - **Recomendación:** El buscador admite coincidencias parciales; no necesitas escribir los guiones ni las mayúsculas exactamente.
 
-#### Escena 5.2: Ficha Detallada, Historial y Auditoría
+#### Escena 3.2: Ficha Detallada, Historial y Auditoría
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipments-table-row"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -313,7 +205,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** Se abre el panel lateral con la información cronológica completa desde la admisión hasta la custodia actual.
   - **Recomendación:** Cualquier corrección permitida de datos (ej. corregir teléfono) quedará grabada con fecha y nombre del operador.
 
-#### Escena 5.3: Entrega de Encomienda y Firma Digital
+#### Escena 3.3: Entrega de Encomienda y Firma Digital
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="btn-deliver-shipment"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -330,14 +222,14 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 6: 6. CAJA DEL TURNO, COBROS, EGRESOS Y ARQUEO FÍSICO
+### SECCIÓN 4: 4. CAJA DEL TURNO, COBROS, EGRESOS Y ARQUEO FÍSICO
 
 **Módulo:** `cash`  
 **Roles Destinatarios:** `secretaria`, `encargado_agencia`, `tesoreria`, `directiva_admin`  
 **Duración Aprox.:** ~5 minutos  
 **Descripción:** Aprende a abrir tu turno de caja, controlar cobros de encomiendas, registrar egresos menores y realizar el arqueo de billetes y monedas.
 
-#### Escena 6.1: Estado de la Caja y Apertura de Turno
+#### Escena 4.1: Estado de la Caja y Apertura de Turno
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="cash-status-card"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -352,7 +244,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** La caja queda en estado "Abierta" y habilita automáticamente los botones de cobro en ventanilla.
   - **Recomendación:** Cuenta físicamente el dinero del fondo antes de registrar la apertura; no aceptes montos no verificados.
 
-#### Escena 6.2: Movimientos de Caja: Ingresos y Cobranzas
+#### Escena 4.2: Movimientos de Caja: Ingresos y Cobranzas
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="cash-movements-section"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -367,7 +259,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** El saldo teórico de la caja se actualiza en tiempo real sumando los ingresos y restando los egresos.
   - **Recomendación:** Separa físicamente los comprobantes de pagos por QR para que coincidan con el reporte al momento de cerrar.
 
-#### Escena 6.3: Arqueo Físico de Billetes y Monedas Bolivianas
+#### Escena 4.3: Arqueo Físico de Billetes y Monedas Bolivianas
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="cash-count-drawer"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -382,7 +274,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** El sistema calcula automáticamente la diferencia: Sobrante, Faltante o Arqueo Cuadrado (Diferencia Bs 0.00).
   - **Recomendación:** El arqueo debe cuadrar exactamente. Si existe una diferencia, revisa si quedó algún vale de egreso pendiente de registrar.
 
-#### Escena 6.4: Cierre Definitivo de Caja e Impresión de Acta
+#### Escena 4.4: Cierre Definitivo de Caja e Impresión de Acta
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="btn-close-cash-shift"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -399,137 +291,14 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 7: 7. DESPACHOS, MANIFIESTOS DE CARGA Y RUTA INTERPROVINCIAL
-
-**Módulo:** `manifests`  
-**Roles Destinatarios:** `secretaria`, `encargado_agencia`, `directiva_admin`, `conductor`  
-**Duración Aprox.:** ~5 minutos  
-**Descripción:** Aprende a agrupar encomiendas en un manifiesto oficial, asignar conductor y vehículo, registrar la salida y recibir la carga en destino.
-
-#### Escena 7.1: Creación del Manifiesto de Despacho
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="btn-new-manifest"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Para enviar paquetes a la otra agencia, crea un Manifiesto de Despacho que consolida todas las encomiendas del viaje.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** El documento oficial que ampara el transporte de un conjunto de encomiendas desde la agencia de origen hasta la de destino.
-  - **Utilidad:** Garantiza la cadena de custodia durante el viaje por la carretera interprovincial Punata - Cochabamba.
-  - **Instrucción:** Pulsa en "Crear Manifiesto". Selecciona la ruta de viaje (ej. Punata hacia Cochabamba).
-  - **Ejemplo Práctico:** *Preparas el despacho del mediodía que saldrá a las 12:30 PM hacia la terminal de Cochabamba.*
-  - **Efecto en el Sistema:** El sistema lista todas las encomiendas que están actualmente en almacén esperando viajar en esa ruta.
-  - **Recomendación:** Nunca envíes carga en un vehículo sin generar su manifiesto de despacho; es el documento exigido en trancas y por la policía.
-
-#### Escena 7.2: Asignación de Vehículo y Conductor Responsable
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="manifest-assign-vehicle"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Selecciona el móvil y el conductor responsable. Desde este momento, la carga pasa a custodia del transportista asignado.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** Los selectores donde se designa el número de móvil (ej. Móvil 14) y el chofer afiliado a cargo de la custodia.
-  - **Utilidad:** Establece la responsabilidad legal y financiera sobre las encomiendas mientras se encuentren en tránsito.
-  - **Instrucción:** Selecciona el vehículo que realizará el viaje y el nombre del chofer que conducirá.
-  - **Ejemplo Práctico:** *Vehículo: "Móvil 14 — Minibús Toyota Hiace". Conductor: "Grover Orellana".*
-  - **Efecto en el Sistema:** El sistema vincula el manifiesto al perfil del conductor para que pueda consultarlo en su celular.
-  - **Recomendación:** Verifica que el conductor cuente con licencia de conducir vigente y SOAT activo antes de autorizar la salida.
-
-#### Escena 7.3: Selección y Cotejo Físico de Encomiendas
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="manifest-shipments-checklist"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Marca cada paquete que se sube al vehículo verificando que la cantidad de bultos coincida exactamente con la guía.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** Una lista con casillas de verificación para marcar cada paquete que sube físicamente a la maletera o parrilla del vehículo.
-  - **Utilidad:** Evita que queden paquetes olvidados en la oficina o que se carguen bultos dirigidos a otra sucursal.
-  - **Instrucción:** Marca cada guía a medida que el chofer o cargador la sube al vehículo. Verifica el código y el destinatario.
-  - **Ejemplo Práctico:** *En Punata seleccionas 8 encomiendas por un flete total de Bs 180 para el despacho en el Móvil 14.*
-  - **Efecto en el Sistema:** El sistema calcula el peso total del viaje y el flete devengado para comisiones.
-  - **Recomendación:** Si un bulto presenta roturas o humedad antes de subir, no lo despaches sin asentar la observación en el sistema.
-
-#### Escena 7.4: Firma de Custodia y Salida a Ruta
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="btn-confirm-departure"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Al confirmar la salida, las encomiendas pasan a estado En Tránsito y el conductor asume la custodia hasta llegar a destino.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** El botón que formaliza la salida del minibús, genera el manifiesto impreso y cambia el estado de los paquetes a "En Tránsito".
-  - **Utilidad:** Transfiere formalmente la custodia desde la secretaria de origen hacia el conductor.
-  - **Instrucción:** El conductor firma la conformidad en pantalla o recibe la copia física del manifiesto y se pulsa "Confirmar Salida".
-  - **Ejemplo Práctico:** *Se imprime el Manifiesto oficial Punata - Cochabamba para entregar la custodia en ruta al chofer del Móvil 14.*
-  - **Efecto en el Sistema:** En la agencia de destino, los paquetes aparecen como "En Camino" para preparar espacio en sus estantes.
-  - **Recomendación:** El conductor debe portar una copia física o digital del manifiesto durante todo el trayecto interprovincial.
-
----
-
-### SECCIÓN 8: 8. COMISIONES DE CONDUCTORES Y RENDICIÓN DE RUTA
-
-**Módulo:** `manifests` / `commisiones`  
-**Roles Destinatarios:** `conductor`, `secretaria`, `encargado_agencia`, `directiva_admin`  
-**Duración Aprox.:** ~4 minutos  
-**Descripción:** Aprende cómo se calculan las comisiones por fletes, la diferencia con el dinero COD custodiado y cómo liquidar saldos.
-
-#### Escena 8.1: Saldo de Cuenta y Comisiones Devengadas
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="driver-commissions-card"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «En el módulo de comisiones, el chofer puede consultar el saldo acumulado que la empresa le adeuda por concepto de fletes realizados.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** El panel que resume el total de fletes transportados por el chofer y la comisión ganada según la regla de la empresa.
-  - **Utilidad:** Permite al conductor conocer con exactitud cuánto dinero ha ganado por transportar las encomiendas de sus viajes.
-  - **Instrucción:** Selecciona al conductor en la lista para ver su estado de cuenta (ej. Grover Orellana).
-  - **Ejemplo Práctico:** *El conductor transportó fletes por Bs 1,000 en la semana. Con la regla del 20%, acumula Bs 200 de comisión a su favor.*
-  - **Efecto en el Sistema:** El sistema muestra el desglose viaje por viaje de los fletes transportados y el saldo pendiente de liquidar.
-  - **Recomendación:** Las comisiones se generan sobre el valor del flete de transporte, no sobre el valor de la mercadería enviada.
-
-#### Escena 8.2: Diferencia Crítica: Comisión vs. Dinero COD Custodiado
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="driver-cod-warning-box"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Atención: la comisión es la ganancia del chofer, mientras que los cobros en ruta son dinero de la empresa que debe rendirse en caja.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** Una distinción fundamental entre el dinero que pertenece al conductor (su comisión) y el dinero recaudado en ruta que pertenece a la empresa (cobros COD).
-  - **Utilidad:** Evita confusiones financieras en las cuales un conductor retenga cobros de fletes pensando que son su ganancia.
-  - **Instrucción:** Revisa siempre las dos columnas separadas: "Comisión Ganada" (ingreso para el chofer) vs "Fondos COD por Rendir" (dinero a entregar a caja).
-  - **Ejemplo Práctico:** *Si un chofer cobra Bs 100 de un flete contraentrega en ruta, debe entregar los Bs 100 íntegros a caja. Su comisión de Bs 20 se liquidará aparte.*
-  - **Efecto en el Sistema:** Garantiza transparencia absoluta y evita descuadres en las cuentas de la empresa.
-  - **Recomendación:** El dinero de encomiendas por cobrar (COD) es sagrado; el conductor debe entregarlo en ventanilla al llegar a la agencia.
-
-#### Escena 8.3: Liquidación de Comisión y Emisión de Vale
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="btn-settle-commission"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Al liquidar la comisión se genera un egreso formal en la caja y se imprime el vale térmico que el conductor debe firmar.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** El botón que registra el pago de la comisión al conductor, salda su cuenta y emite el vale térmico de liquidación.
-  - **Utilidad:** Formaliza el egreso de dinero de la empresa y entrega al conductor su comprobante de pago firmado.
-  - **Instrucción:** Haz clic en "Liquidar Comisión". Ingresa el monto a pagar (puede ser total o parcial) y el método (efectivo de caja).
-  - **Ejemplo Práctico:** *Se liquidan Bs 200 en efectivo a Grover Orellana. Se imprime el vale térmico con el detalle de las guías correspondientes.*
-  - **Efecto en el Sistema:** El saldo pendiente del chofer vuelve a Bs 0.00 y se genera automáticamente un egreso en la caja del turno.
-  - **Recomendación:** El chofer debe firmar la copia del vale de liquidación como constancia de haber recibido el dinero en efectivo.
-
----
-
-### SECCIÓN 9: 9. MÓDULOS DE ALMACÉN: ESTANTES Y UBICACIÓN FÍSICA
+### SECCIÓN 5: 5. MÓDULOS DE ALMACÉN: ESTANTES Y UBICACIÓN FÍSICA
 
 **Módulo:** `storage`  
 **Roles Destinatarios:** `secretaria`, `encargado_agencia`, `directiva_admin`  
 **Duración Aprox.:** ~4 minutos  
 **Descripción:** Aprende a recepcionar carga que llega de viaje, ubicarla en estantes codificados y localizarla para entrega rápida.
 
-#### Escena 9.1: Recepción de Encomiendas Llegadas de Viaje
+#### Escena 5.1: Recepción de Encomiendas Llegadas de Viaje
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="storage-reception-list"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -544,7 +313,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** La encomienda cambia su estado a "Recibida en Destino (Almacén)" y el sistema envía aviso de retiro al destinatario.
   - **Recomendación:** Si falta algún bulto de la lista, regístralo inmediatamente como incidencia antes de liberar al conductor.
 
-#### Escena 9.2: Asignación de Estante y Módulo Físico
+#### Escena 5.2: Asignación de Estante y Módulo Físico
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="storage-racks-grid"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -561,14 +330,137 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 10: 10. SOCIOS Y MENSUALIDADES DE MANTENIMIENTO
+### SECCIÓN 6: 6. DESPACHOS, MANIFIESTOS DE CARGA Y RUTA INTERPROVINCIAL
+
+**Módulo:** `manifests`  
+**Roles Destinatarios:** `secretaria`, `encargado_agencia`, `directiva_admin`, `conductor`  
+**Duración Aprox.:** ~5 minutos  
+**Descripción:** Aprende a agrupar encomiendas en un manifiesto oficial, asignar conductor y vehículo, registrar la salida y recibir la carga en destino.
+
+#### Escena 6.1: Creación del Manifiesto de Despacho
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="btn-new-manifest"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Para enviar paquetes a la otra agencia, crea un Manifiesto de Despacho que consolida todas las encomiendas del viaje.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** El documento oficial que ampara el transporte de un conjunto de encomiendas desde la agencia de origen hasta la de destino.
+  - **Utilidad:** Garantiza la cadena de custodia durante el viaje por la carretera interprovincial Punata - Cochabamba.
+  - **Instrucción:** Pulsa en "Crear Manifiesto". Selecciona la ruta de viaje (ej. Punata hacia Cochabamba).
+  - **Ejemplo Práctico:** *Preparas el despacho del mediodía que saldrá a las 12:30 PM hacia la terminal de Cochabamba.*
+  - **Efecto en el Sistema:** El sistema lista todas las encomiendas que están actualmente en almacén esperando viajar en esa ruta.
+  - **Recomendación:** Nunca envíes carga en un vehículo sin generar su manifiesto de despacho; es el documento exigido en trancas y por la policía.
+
+#### Escena 6.2: Asignación de Vehículo y Conductor Responsable
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="manifest-assign-vehicle"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Selecciona el móvil y el conductor responsable. Desde este momento, la carga pasa a custodia del transportista asignado.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** Los selectores donde se designa el número de móvil (ej. Móvil 14) y el chofer afiliado a cargo de la custodia.
+  - **Utilidad:** Establece la responsabilidad legal y financiera sobre las encomiendas mientras se encuentren en tránsito.
+  - **Instrucción:** Selecciona el vehículo que realizará el viaje y el nombre del chofer que conducirá.
+  - **Ejemplo Práctico:** *Vehículo: "Móvil 14 — Minibús Toyota Hiace". Conductor: "Grover Orellana".*
+  - **Efecto en el Sistema:** El sistema vincula el manifiesto al perfil del conductor para que pueda consultarlo en su celular.
+  - **Recomendación:** Verifica que el conductor cuente con licencia de conducir vigente y SOAT activo antes de autorizar la salida.
+
+#### Escena 6.3: Selección y Cotejo Físico de Encomiendas
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="manifest-shipments-checklist"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Marca cada paquete que se sube al vehículo verificando que la cantidad de bultos coincida exactamente con la guía.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** Una lista con casillas de verificación para marcar cada paquete que sube físicamente a la maletera o parrilla del vehículo.
+  - **Utilidad:** Evita que queden paquetes olvidados en la oficina o que se carguen bultos dirigidos a otra sucursal.
+  - **Instrucción:** Marca cada guía a medida que el chofer o cargador la sube al vehículo. Verifica el código y el destinatario.
+  - **Ejemplo Práctico:** *En Punata seleccionas 8 encomiendas por un flete total de Bs 180 para el despacho en el Móvil 14.*
+  - **Efecto en el Sistema:** El sistema calcula el peso total del viaje y el flete devengado para comisiones.
+  - **Recomendación:** Si un bulto presenta roturas o humedad antes de subir, no lo despaches sin asentar la observación en el sistema.
+
+#### Escena 6.4: Firma de Custodia y Salida a Ruta
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="btn-confirm-departure"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Al confirmar la salida, las encomiendas pasan a estado En Tránsito y el conductor asume la custodia hasta llegar a destino.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** El botón que formaliza la salida del minibús, genera el manifiesto impreso y cambia el estado de los paquetes a "En Tránsito".
+  - **Utilidad:** Transfiere formalmente la custodia desde la secretaria de origen hacia el conductor.
+  - **Instrucción:** El conductor firma la conformidad en pantalla o recibe la copia física del manifiesto y se pulsa "Confirmar Salida".
+  - **Ejemplo Práctico:** *Se imprime el Manifiesto oficial Punata - Cochabamba para entregar la custodia en ruta al chofer del Móvil 14.*
+  - **Efecto en el Sistema:** En la agencia de destino, los paquetes aparecen como "En Camino" para preparar espacio en sus estantes.
+  - **Recomendación:** El conductor debe portar una copia física o digital del manifiesto durante todo el trayecto interprovincial.
+
+---
+
+### SECCIÓN 7: 7. COMISIONES DE CONDUCTORES Y RENDICIÓN DE RUTA
+
+**Módulo:** `manifests` / `commisiones`  
+**Roles Destinatarios:** `conductor`, `secretaria`, `encargado_agencia`, `directiva_admin`  
+**Duración Aprox.:** ~4 minutos  
+**Descripción:** Aprende cómo se calculan las comisiones por fletes, la diferencia con el dinero COD custodiado y cómo liquidar saldos.
+
+#### Escena 7.1: Saldo de Cuenta y Comisiones Devengadas
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="driver-commissions-card"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «En el módulo de comisiones, el chofer puede consultar el saldo acumulado que la empresa le adeuda por concepto de fletes realizados.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** El panel que resume el total de fletes transportados por el chofer y la comisión ganada según la regla de la empresa.
+  - **Utilidad:** Permite al conductor conocer con exactitud cuánto dinero ha ganado por transportar las encomiendas de sus viajes.
+  - **Instrucción:** Selecciona al conductor en la lista para ver su estado de cuenta (ej. Grover Orellana).
+  - **Ejemplo Práctico:** *El conductor transportó fletes por Bs 1,000 en la semana. Con la regla del 20%, acumula Bs 200 de comisión a su favor.*
+  - **Efecto en el Sistema:** El sistema muestra el desglose viaje por viaje de los fletes transportados y el saldo pendiente de liquidar.
+  - **Recomendación:** Las comisiones se generan sobre el valor del flete de transporte, no sobre el valor de la mercadería enviada.
+
+#### Escena 7.2: Diferencia Crítica: Comisión vs. Dinero COD Custodiado
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="driver-cod-warning-box"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Atención: la comisión es la ganancia del chofer, mientras que los cobros en ruta son dinero de la empresa que debe rendirse en caja.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** Una distinción fundamental entre el dinero que pertenece al conductor (su comisión) y el dinero recaudado en ruta que pertenece a la empresa (cobros COD).
+  - **Utilidad:** Evita confusiones financieras en las cuales un conductor retenga cobros de fletes pensando que son su ganancia.
+  - **Instrucción:** Revisa siempre las dos columnas separadas: "Comisión Ganada" (ingreso para el chofer) vs "Fondos COD por Rendir" (dinero a entregar a caja).
+  - **Ejemplo Práctico:** *Si un chofer cobra Bs 100 de un flete contraentrega en ruta, debe entregar los Bs 100 íntegros a caja. Su comisión de Bs 20 se liquidará aparte.*
+  - **Efecto en el Sistema:** Garantiza transparencia absoluta y evita descuadres en las cuentas de la empresa.
+  - **Recomendación:** El dinero de encomiendas por cobrar (COD) es sagrado; el conductor debe entregarlo en ventanilla al llegar a la agencia.
+
+#### Escena 7.3: Liquidación de Comisión y Emisión de Vale
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="btn-settle-commission"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Al liquidar la comisión se genera un egreso formal en la caja y se imprime el vale térmico que el conductor debe firmar.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** El botón que registra el pago de la comisión al conductor, salda su cuenta y emite el vale térmico de liquidación.
+  - **Utilidad:** Formaliza el egreso de dinero de la empresa y entrega al conductor su comprobante de pago firmado.
+  - **Instrucción:** Haz clic en "Liquidar Comisión". Ingresa el monto a pagar (puede ser total o parcial) y el método (efectivo de caja).
+  - **Ejemplo Práctico:** *Se liquidan Bs 200 en efectivo a Grover Orellana. Se imprime el vale térmico con el detalle de las guías correspondientes.*
+  - **Efecto en el Sistema:** El saldo pendiente del chofer vuelve a Bs 0.00 y se genera automáticamente un egreso en la caja del turno.
+  - **Recomendación:** El chofer debe firmar la copia del vale de liquidación como constancia de haber recibido el dinero en efectivo.
+
+---
+
+### SECCIÓN 8: 8. SOCIOS Y MENSUALIDADES DE MANTENIMIENTO
 
 **Módulo:** `dues`  
 **Roles Destinatarios:** `tesoreria`, `directiva_admin`  
 **Duración Aprox.:** ~4 minutos  
 **Descripción:** Aprende a administrar el padrón de socios afiliados, emitir cuotas mensuales de sostenimiento y recaudar aportes en caja.
 
-#### Escena 10.1: Padrón Oficial de Socios Afiliados
+#### Escena 8.1: Padrón Oficial de Socios Afiliados
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="members-table-container"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -583,7 +475,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** El socio queda registrado y habilitado para prestar servicios de transporte y pagar sus cuotas.
   - **Recomendación:** Mantén los teléfonos de los socios actualizados para comunicar asambleas y reuniones de la directiva.
 
-#### Escena 10.2: Emisión y Recaudación de Cuotas Mensuales
+#### Escena 8.2: Emisión y Recaudación de Cuotas Mensuales
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="btn-collect-member-fee"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -600,14 +492,14 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 11: 11. PERSONAL DE AGENCIA Y GASTOS OPERATIVOS
+### SECCIÓN 9: 9. PERSONAL DE AGENCIA Y GASTOS OPERATIVOS
 
 **Módulo:** `workers`  
 **Roles Destinatarios:** `directiva_admin`, `tesoreria`, `encargado_agencia`  
 **Duración Aprox.:** ~4 minutos  
 **Descripción:** Aprende a registrar al personal de ventanilla y cargadores, emitir anticipos de sueldo y asentar gastos de alquiler, luz y agua.
 
-#### Escena 11.1: Padrón de Trabajadores y Salarios
+#### Escena 9.1: Padrón de Trabajadores y Salarios
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="workers-roster-section"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -622,7 +514,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** El perfil queda creado para asignarle anticipos y pagos mensuales desde el módulo.
   - **Recomendación:** Todo anticipo de sueldo debe estar debidamente firmado por el trabajador al momento de entregar el dinero.
 
-#### Escena 11.2: Registro de Gastos Operativos de Agencia
+#### Escena 9.2: Registro de Gastos Operativos de Agencia
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="btn-new-expense"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -639,14 +531,14 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 12: 12. INVENTARIO DE BIENES FIJOS Y EQUIPAMIENTO
+### SECCIÓN 10: 10. INVENTARIO DE BIENES FIJOS Y EQUIPAMIENTO
 
 **Módulo:** `assets` / `fixed`  
 **Roles Destinatarios:** `encargado_agencia`, `directiva_admin`, `tesoreria`  
 **Duración Aprox.:** ~3 minutos  
 **Descripción:** Aprende a catalogar los activos de la empresa (balanzas, escritorios, computadoras) y controlar traslados y mantenimientos.
 
-#### Escena 12.1: Inventario Patrimonial de la Agencia
+#### Escena 10.1: Inventario Patrimonial de la Agencia
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="assets-table-container"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -663,14 +555,14 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 13: 13. CONTROL DE CONSUMIBLES E INSUMOS OPERATIVOS
+### SECCIÓN 11: 11. CONTROL DE CONSUMIBLES E INSUMOS OPERATIVOS
 
 **Módulo:** `assets` / `consumables`  
 **Roles Destinatarios:** `encargado_agencia`, `directiva_admin`, `tesoreria`  
 **Duración Aprox.:** ~3 minutos  
 **Descripción:** Aprende a controlar las existencias de rollos térmicos de 80mm/58mm, guías de envío y cinta de embalaje con alertas de stock mínimo.
 
-#### Escena 13.1: Control de Existencias y Stock Mínimo
+#### Escena 11.1: Control de Existencias y Stock Mínimo
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="consumables-grid"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -687,14 +579,14 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 14: 14. REPORTES, ESTADÍSTICAS Y EXPORTACIÓN EXCEL / PDF
+### SECCIÓN 12: 12. REPORTES, ESTADÍSTICAS Y EXPORTACIÓN EXCEL / PDF
 
 **Módulo:** `reports`  
 **Roles Destinatarios:** `secretaria`, `encargado_agencia`, `tesoreria`, `directiva_admin`, `conductor`  
 **Duración Aprox.:** ~4 minutos  
 **Descripción:** Aprende a generar informes de fletes, arqueos, comisiones y utilidades, filtrando por sucursal y exportando a planillas Excel.
 
-#### Escena 14.1: Filtros de Período y Sucursal
+#### Escena 12.1: Filtros de Período y Sucursal
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="reports-filters-card"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -709,7 +601,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** Todas las tarjetas numéricas y gráficos se actualizan de forma instantánea con los datos solicitados.
   - **Recomendación:** Para auditorías mensuales oficiales, utiliza siempre el filtro de mes completo cerrado.
 
-#### Escena 14.2: Exportación a Excel XLSX y Reporte PDF Imprimible
+#### Escena 12.2: Exportación a Excel XLSX y Reporte PDF Imprimible
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="reports-export-actions"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -726,14 +618,146 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 15: 15. ADMINISTRACIÓN DE USUARIOS, ROLES Y PERMISOS RBAC
+### SECCIÓN 13: 13. IMPRESORAS TÉRMICAS, FORMATOS Y PROTOCOLO RAWBT
+
+**Módulo:** `config` / `printers`  
+**Roles Destinatarios:** `directiva_admin`  
+**Duración Aprox.:** ~3 minutos  
+**Descripción:** Aprende cómo funciona el motor de impresión PACHAX Printing Core, formatos térmicos de 80mm y 58mm y opciones en PC y celular.
+
+#### Escena 13.1: Perfiles de Impresión y Formato Térmico (80mm / 58mm)
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="printers-config-panel"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Configura tus impresoras térmicas eligiendo el ancho de 80 o 58 milímetros para imprimir tickets y etiquetas con código QR nítido.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** El panel de configuración del motor de impresión para tickets de ventanilla, comprobantes de caja y etiquetas adhesivas.
+  - **Utilidad:** Permite adaptar la salida de impresión al ancho de rollo de la impresora térmica instalada en la computadora o celular.
+  - **Instrucción:** Selecciona el formato predeterminado para tu agencia: "Térmico 80mm" (estándar de ventanilla) o "Térmico 58mm" (móvil).
+  - **Ejemplo Práctico:** *En ventanilla de Punata se utiliza una impresora térmica Xprinter de 80mm con corte automático de papel.*
+  - **Efecto en el Sistema:** Todos los tickets generados se renderizan exactamente en el ancho del rollo sin márgenes desperdiciados.
+  - **Recomendación:** Si imprimes desde un teléfono Android, el sistema soporta la apertura directa mediante la aplicación gratuita RawBT.
+
+---
+
+### SECCIÓN 14: 14. ACCESO SEGURO, PERFIL OPERATIVO Y SUCURSALES (OPCIONAL)
+
+**Módulo:** `auth`  
+**Roles Destinatarios:** `secretaria`, `conductor`, `tesoreria`, `encargado_agencia`, `directiva_admin`  
+**Duración Aprox.:** ~3 minutos  
+**Descripción:** Aprende a identificarte en el sistema, reconocer tu agencia asignada y proteger tus credenciales de trabajo.
+
+#### Escena 14.1: Tu Identidad y Rol en Expreso Punata
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="header-user-badge"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Bienvenido a Expreso Punata. En la esquina superior derecha puedes verificar tu nombre de usuario y el rol operativo que tienes asignado en el sistema.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** Es el indicador oficial en la barra superior que muestra tu nombre completo y el rol asignado en el sistema.
+  - **Utilidad:** Permite confirmar que estás trabajando con tu propia cuenta y que tienes los permisos correctos para tu puesto de trabajo.
+  - **Instrucción:** Al iniciar sesión, introduce tu correo corporativo y tu contraseña privada. Nunca compartas tu clave con terceras personas.
+  - **Ejemplo Práctico:** *Si eres Secretaria en Punata, el sistema mostrará tu nombre (ej. Nelson Claros) y la insignia "SECRETARIA".*
+  - **Efecto en el Sistema:** El sistema carga automáticamente tus módulos autorizados y aplica los permisos de seguridad de Expreso Punata.
+  - **Recomendación:** Si necesitas ausentarte de tu ventanilla, utiliza el botón de Cerrar Sesión para evitar registros no autorizados a tu nombre.
+
+#### Escena 14.2: Agencia Asignada y Conmutación de Sucursal
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="header-branch-badge"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Observa la agencia activa en la barra superior. Todos los cobros y guías que registres quedarán asentados en la caja de esta sucursal.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** Es la insignia o selector que identifica la sucursal física en la cual estás operando en este momento.
+  - **Utilidad:** Garantiza que todas las encomiendas, cobranzas de caja y despachos queden vinculados estrictamente a la agencia correcta.
+  - **Instrucción:** Para secretarias y encargados, la agencia es fija según su contrato (Agencia Central Punata o Cochabamba). Los administradores pueden alternar libremente.
+  - **Ejemplo Práctico:** *Si trabajas en la Calle Sucre de Punata, verás "Agencia Central Punata". Si la directiva inspecciona la agencia Cochabamba en Av. República, seleccionará esa sucursal.*
+  - **Efecto en el Sistema:** La caja activa, el catálogo de almacén y las tarifas se configuran automáticamente para la sucursal seleccionada.
+  - **Recomendación:** Las secretarias nunca deben cambiar de agencia sin autorización administrativa previa desde el módulo de usuarios.
+
+#### Escena 14.3: Mi Perfil y Medidas de Seguridad
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="header-profile-btn"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Al pulsar sobre tu perfil podrás revisar tus datos registrados y confirmar que tu cuenta se encuentra debidamente protegida.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** Un botón de acceso rápido para consultar tus datos de usuario, tu fecha de creación y el estado de tu cuenta.
+  - **Utilidad:** Sirve para comprobar la seguridad de tu sesión y solicitar restablecimientos de clave autorizados si es necesario.
+  - **Instrucción:** Haz clic en el botón con tu inicial para abrir la ficha de perfil.
+  - **Ejemplo Práctico:** *La secretaria en Agencia Central Punata consulta su perfil oficial y verifica su estado activo en Expreso Punata.*
+  - **Efecto en el Sistema:** Se abre una ventana modal con el detalle completo de tus permisos y opciones de seguridad.
+  - **Recomendación:** Si sospechas que alguien conoce tu contraseña, solicita inmediatamente un restablecimiento a la Administración general.
+
+---
+
+### SECCIÓN 15: 15. PANEL PRINCIPAL Y NAVEGACIÓN OPERATIVA (OPCIONAL)
+
+**Módulo:** `navigation`  
+**Roles Destinatarios:** `secretaria`, `conductor`, `tesoreria`, `encargado_agencia`, `directiva_admin`  
+**Duración Aprox.:** ~3 minutos  
+**Descripción:** Conoce la barra superior, la navegación de pestañas y los indicadores en tiempo real de Expreso Punata.
+
+#### Escena 15.1: Identidad Institucional de Expreso Punata
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="header-brand"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «La barra institucional te acompaña en todo momento, confirmando que te encuentras en el sistema web oficial de Expreso Punata.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** La cabecera oficial con los colores verde y amarillo representativos de la empresa interprovincial Punata - Cochabamba.
+  - **Utilidad:** Identifica la plataforma oficial de trabajo y el entorno en el cual estás operando.
+  - **Instrucción:** No requiere seleccionar nada; es un componente institucional siempre visible en computadoras y celulares.
+  - **Ejemplo Práctico:** *Muestra "EXPRESO PUNATA" con el lema del servicio interprovincial entre Punata y Cochabamba.*
+  - **Efecto en el Sistema:** Proporciona consistencia visual en todas las pantallas del sistema.
+  - **Recomendación:** Verifica siempre que la dirección en tu navegador comience con https para garantizar una conexión cifrada y segura.
+
+#### Escena 15.2: Barra de Pestañas y Módulos Autorizados
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="nav-tabs-bar"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «En la barra de pestañas encontrarás los módulos disponibles para tu labor diaria. Puedes desplazarte horizontalmente tanto en PC como en tu celular.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** El menú principal de navegación con desplazamiento táctil horizontal en celulares y acceso directo en computadoras.
+  - **Utilidad:** Te permite cambiar instantáneamente entre Encomiendas, Almacén, Manifiestos, Caja, Socios, Personal y Reportes.
+  - **Instrucción:** Haz clic o toca la pestaña del módulo al que deseas ingresar.
+  - **Ejemplo Práctico:** *Si necesitas cobrar un envío, pulsa en "Caja del Turno". Si vas a recibir paquetes del Móvil 14, pulsa en "Módulos de Almacén".*
+  - **Efecto en el Sistema:** La vista principal cambia de inmediato sin recargar toda la página web.
+  - **Recomendación:** Solo verás las pestañas correspondientes a tu rol de trabajo. Por ejemplo, un conductor solo ve Despachos y Reportes.
+
+#### Escena 15.3: Centro de Tutoriales Siempre Accesible
+
+- **Objetivo en Pantalla:** `[data-tutorial-target="header-tutorial-btn"]`
+- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
+- **Locución / Voz en Off:**
+  > «Siempre que tengas una duda, puedes hacer clic en el botón Tutorial para acceder a explicaciones detalladas con ejemplos de la vida real.»
+
+- **Puntos Pedagógicos Clave:**
+  - **Concepto:** El botón destacado "Tutorial" que te permite abrir este Centro de Aprendizaje en cualquier momento.
+  - **Utilidad:** Permite repasar cualquier función, consultar pasos específicos o reanudar tu capacitación donde la dejaste.
+  - **Instrucción:** Haz clic en "Tutorial" cuando tengas dudas sobre cómo completar un trámite en ventanilla.
+  - **Ejemplo Práctico:** *En ventanilla de Punata, una secretaria repasa cómo registrar un envío especial hacia Cochabamba abriendo el tutorial.*
+  - **Efecto en el Sistema:** Se abre el diálogo interactivo con las opciones de recorrido guiado, sin afectar los datos que tengas en pantalla.
+  - **Recomendación:** El tutorial nunca registra cobros ni envíos reales por accidente; puedes practicar con total confianza.
+
+---
+
+### SECCIÓN 16: 16. ADMINISTRACIÓN DE USUARIOS, ROLES Y PERMISOS RBAC (OPCIONAL)
 
 **Módulo:** `config` / `users`  
 **Roles Destinatarios:** `directiva_admin`  
 **Duración Aprox.:** ~4 minutos  
 **Descripción:** Aprende a dar de alta operadores, asignarles sucursal obligatoria, gestionar permisos de directiva y restablecer claves con seguridad.
 
-#### Escena 15.1: Padrón de Usuarios del Sistema
+#### Escena 16.1: Padrón de Usuarios del Sistema
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="users-management-table"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -748,7 +772,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** El administrador tiene control soberano para editar datos, cambiar contraseñas o suspender accesos al instante.
   - **Recomendación:** Desactiva inmediatamente la cuenta de cualquier persona que deje de trabajar en la empresa para salvaguardar la información.
 
-#### Escena 15.2: Asignación Estricta de Sucursal por Rol
+#### Escena 16.2: Asignación Estricta de Sucursal por Rol
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="btn-new-user-modal"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -765,14 +789,14 @@ Tiempo Estimado de Locución: **~66 minutos**
 
 ---
 
-### SECCIÓN 16: 16. CONFIGURACIÓN EMPRESARIAL, TARIFAS Y PARÁMETROS OFICIALES
+### SECCIÓN 17: 17. CONFIGURACIÓN EMPRESARIAL, TARIFAS Y PARÁMETROS OFICIALES (OPCIONAL)
 
 **Módulo:** `config` / `general`  
 **Roles Destinatarios:** `directiva_admin`  
 **Duración Aprox.:** ~4 minutos  
 **Descripción:** Aprende a configurar la identidad de la empresa, actualizar las tarifas base sugeridas y gobernar los parámetros del sistema.
 
-#### Escena 16.1: Identidad Legal y Datos Comerciales
+#### Escena 17.1: Identidad Legal y Datos Comerciales
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="config-general-form"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -787,7 +811,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** Los cambios se guardan de forma autoritativa en Firestore y se reflejan de inmediato en todas las terminales.
   - **Recomendación:** Cualquier modificación en el NIT o datos legales debe ser aprobada previamente en acta de asamblea de socios.
 
-#### Escena 16.2: Editor de Tarifas Base y Recargos Sugeridos
+#### Escena 17.2: Editor de Tarifas Base y Recargos Sugeridos
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="config-tariffs-table"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -801,30 +825,6 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Ejemplo Práctico:** *Sobre de documentos: Bs 10. Paquete mediano: Bs 25. Kilo adicional: Bs 1.50.*
   - **Efecto en el Sistema:** El formulario de Nueva Encomienda calcula inmediatamente las cotizaciones sugeridas con las nuevas tarifas.
   - **Recomendación:** El precio sugerido es una guía; recuerda que la secretaria siempre puede editar el precio acordado final en ventanilla.
-
----
-
-### SECCIÓN 17: 17. IMPRESORAS TÉRMICAS, FORMATOS Y PROTOCOLO RAWBT
-
-**Módulo:** `config` / `printers`  
-**Roles Destinatarios:** `directiva_admin`  
-**Duración Aprox.:** ~3 minutos  
-**Descripción:** Aprende cómo funciona el motor de impresión PACHAX Printing Core, formatos térmicos de 80mm y 58mm y opciones en PC y celular.
-
-#### Escena 17.1: Perfiles de Impresión y Formato Térmico (80mm / 58mm)
-
-- **Objetivo en Pantalla:** `[data-tutorial-target="printers-config-panel"]`
-- **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
-- **Locución / Voz en Off:**
-  > «Configura tus impresoras térmicas eligiendo el ancho de 80 o 58 milímetros para imprimir tickets y etiquetas con código QR nítido.»
-
-- **Puntos Pedagógicos Clave:**
-  - **Concepto:** El panel de configuración del motor de impresión para tickets de ventanilla, comprobantes de caja y etiquetas adhesivas.
-  - **Utilidad:** Permite adaptar la salida de impresión al ancho de rollo de la impresora térmica instalada en la computadora o celular.
-  - **Instrucción:** Selecciona el formato predeterminado para tu agencia: "Térmico 80mm" (estándar de ventanilla) o "Térmico 58mm" (móvil).
-  - **Ejemplo Práctico:** *En ventanilla de Punata se utiliza una impresora térmica Xprinter de 80mm con corte automático de papel.*
-  - **Efecto en el Sistema:** Todos los tickets generados se renderizan exactamente en el ancho del rollo sin márgenes desperdiciados.
-  - **Recomendación:** Si imprimes desde un teléfono Android, el sistema soporta la apertura directa mediante la aplicación gratuita RawBT.
 
 ---
 
