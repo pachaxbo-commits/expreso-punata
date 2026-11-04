@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { canonicalizeValue, computeCanonicalHash, deepCompareFields } from './controlledFirestorePurge.mjs'
 
 export const TARGET_PROJECT_ID = 'expreso-punata-dev'
 export const TARGET_DATABASE_ID = '(default)'
@@ -11,11 +12,11 @@ export const DEFAULT_BACKUP_PATH = 'C:/Users/fabri/.gemini/antigravity/brain/39f
 function getFirebaseCliToken() {
   const configPath = path.join(os.homedir(), '.config', 'configstore', 'firebase-tools.json')
   if (!fs.existsSync(configPath)) {
-    throw new Error(`No se encontró configuración de Firebase CLI en: ${configPath}`)
+    throw new Error(`[SEGURIDAD] No se encontró configuración de Firebase CLI en: ${configPath}`)
   }
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
   const token = config.tokens?.access_token
-  if (!token) throw new Error('No se encontró un access_token activo en Firebase CLI.')
+  if (!token) throw new Error('[SEGURIDAD] No se encontró un access_token activo en Firebase CLI.')
   return token
 }
 
@@ -68,13 +69,20 @@ export async function restoreDocuments(options = {}) {
   console.log(`SOBREESCRITURA:   ${forceOverwrite ? 'PERMITIDA (--force-overwrite)' : 'PROTEGIDA (RECHAZA COLISIÓN)'}`)
   console.log('====================================================================\n')
 
+  // Validación estricta del proyecto
+  const targetProject = options.targetProjectId || TARGET_PROJECT_ID
+  if (targetProject !== TARGET_PROJECT_ID) {
+    throw new Error(`[ERROR SEGURIDAD]: Proyecto objetivo ${targetProject} no coincide con el autorizado ${TARGET_PROJECT_ID}`)
+  }
+
+  // 1. Verificación obligatoria de integridad criptográfica (sin excepciones)
   if (!fs.existsSync(backupPath)) {
-    throw new Error(`El archivo de respaldo privado no existe en: ${backupPath}`)
+    throw new Error(`[ERROR CRÍTICO]: El archivo de respaldo privado no existe en: ${backupPath}`)
   }
 
   const backupBuffer = fs.readFileSync(backupPath)
   const actualHash = computeSha256(backupBuffer)
-  if (actualHash !== EXPECTED_BACKUP_SHA256 && !options.skipHashCheck) {
+  if (actualHash !== EXPECTED_BACKUP_SHA256) {
     throw new Error(`[INTEGRIDAD FALLIDA]: Hash SHA-256 no coincide.\nEsperado: ${EXPECTED_BACKUP_SHA256}\nObtenido: ${actualHash}`)
   }
   console.log(`✓ Hash SHA-256 verificado con éxito (${actualHash.slice(0, 16)}...)\n`)
@@ -89,7 +97,6 @@ export async function restoreDocuments(options = {}) {
 
   const headers = { 'Content-Type': 'application/json' }
   if (emulatorHost) {
-    // En el emulador de Firebase, 'Bearer owner' confiere permisos administrativos de Service Account
     headers.Authorization = 'Bearer owner'
   } else {
     const token = getFirebaseCliToken()
@@ -101,6 +108,7 @@ export async function restoreDocuments(options = {}) {
   let totalSubdocsRestorable = 0
   let totalRestoredParents = 0
   let totalRestoredSubs = 0
+  const successfullyRestoredRecords = []
 
   for (const col of collectionsToRestore) {
     const colData = inventory[col]
@@ -114,6 +122,9 @@ export async function restoreDocuments(options = {}) {
 
       // Comprobar existencia en destino
       const checkRes = await fetch(docUrl, { headers })
+      if (!checkRes.ok && checkRes.status !== 404) {
+        throw new Error(`[ERROR HTTP INESPERADO]: Consulta "${col}/${doc.id}" retornó HTTP ${checkRes.status}`)
+      }
       const docExists = checkRes.status === 200
 
       if (docExists && !forceOverwrite) {
@@ -122,7 +133,6 @@ export async function restoreDocuments(options = {}) {
         console.log(`  ✓ [CANDIDATO_LISTO] "${col}/${doc.id}" (${Object.keys(doc.fields || {}).length} campos)`)
 
         if (isExecuteRequested) {
-          // Utilizar PATCH para escribir/sobreescribir conservando tipos exactos
           const writeRes = await fetch(docUrl, {
             method: 'PATCH',
             headers,
@@ -130,14 +140,15 @@ export async function restoreDocuments(options = {}) {
           })
 
           if (!writeRes.ok) {
-            throw new Error(`[ERROR RESTAURACIÓN] Falló escritura de "${col}/${doc.id}": HTTP ${writeRes.status}`)
+            throw new Error(`[ERROR HTTP RESTAURACIÓN] Falló escritura de "${col}/${doc.id}": HTTP ${writeRes.status}`)
           }
           totalRestoredParents++
+          successfullyRestoredRecords.push({ type: 'parent', col, id: doc.id, fields: doc.fields })
           console.log(`    -> [ESCRITO] Documento padre "${doc.id}" restaurado exitosamente.`)
         }
       }
 
-      // Procesar subcolecciones si existen en el respaldo
+      // Procesar subcolecciones (13 subdocumentos)
       if (doc.subcollections) {
         for (const [subColName, subList] of Object.entries(doc.subcollections)) {
           for (const subDoc of subList) {
@@ -145,6 +156,9 @@ export async function restoreDocuments(options = {}) {
             const subUrl = `${baseUrl}/${col}/${doc.id}/${subColName}/${subDoc.id}`
 
             const checkSubRes = await fetch(subUrl, { headers })
+            if (!checkSubRes.ok && checkSubRes.status !== 404) {
+              throw new Error(`[ERROR HTTP INESPERADO]: Consulta "${col}/${doc.id}/${subColName}/${subDoc.id}" retornó HTTP ${checkSubRes.status}`)
+            }
             const subExists = checkSubRes.status === 200
 
             if (subExists && !forceOverwrite) {
@@ -160,9 +174,10 @@ export async function restoreDocuments(options = {}) {
                 })
 
                 if (!writeSubRes.ok) {
-                  throw new Error(`[ERROR RESTAURACIÓN SUBDOC] Falló escritura de "${subUrl}": HTTP ${writeSubRes.status}`)
+                  throw new Error(`[ERROR HTTP RESTAURACIÓN SUBDOC] Falló escritura de "${subUrl}": HTTP ${writeSubRes.status}`)
                 }
                 totalRestoredSubs++
+                successfullyRestoredRecords.push({ type: 'subdoc', col, parentId: doc.id, subCol: subColName, id: subDoc.id, fields: subDoc.fields })
                 console.log(`      -> [ESCRITO] Subdocumento "${subDoc.id}" restaurado.`)
               }
             }
@@ -173,27 +188,56 @@ export async function restoreDocuments(options = {}) {
     console.log('')
   }
 
+  // ====================================================================
+  // POST-VERIFICACIÓN EXHAUSTIVA DE TODA LA ESCRITURA REALIZADA
+  // ====================================================================
+  if (isExecuteRequested && successfullyRestoredRecords.length > 0) {
+    console.log('====================================================================')
+    console.log('POST-VERIFICACIÓN DE RESTAURACIÓN (COMPARACIÓN CANÓNICA CAMPO POR CAMPO)')
+    console.log('====================================================================')
+
+    for (const rec of successfullyRestoredRecords) {
+      const readUrl = rec.type === 'parent'
+        ? `${baseUrl}/${rec.col}/${rec.id}`
+        : `${baseUrl}/${rec.col}/${rec.parentId}/${rec.subCol}/${rec.id}`
+
+      const readRes = await fetch(readUrl, { headers })
+      if (!readRes.ok) {
+        throw new Error(`[FALLO POST-VERIFICACIÓN]: Registro restaurado no accesible: HTTP ${readRes.status} en ${readUrl}`)
+      }
+
+      const liveData = await readRes.json()
+      const comp = deepCompareFields(liveData.fields, rec.fields)
+      if (!comp.match) {
+        throw new Error(`[DISCREPANCIA EN RESTAURACIÓN]: Registro ${rec.id} no coincide con el respaldo:\n${comp.diffs.join('\n')}`)
+      }
+    }
+    console.log(`✓ Verificación completada: ${successfullyRestoredRecords.length} registros verificados con 100% de coincidencia canónica.\n`)
+  }
+
   console.log('====================================================================')
   console.log('RESUMEN DE PROCESO DE RESTAURACIÓN:')
   console.log(`- Documentos candidatos evaluados: ${totalCandidatesRestorable}`)
   console.log(`- Subdocumentos evaluados:         ${totalSubdocsRestorable}`)
+  console.log(`- Total de registros evaluados:    ${totalCandidatesRestorable + totalSubdocsRestorable} de 28`)
   console.log(`- Documentos padres restaurados:   ${totalRestoredParents}`)
   console.log(`- Subdocumentos restaurados:       ${totalRestoredSubs}`)
-  console.log(`- Estado:                          ${isExecuteRequested ? 'RESTAURACIÓN FINALIZADA' : 'SIMULACIÓN COMPLETADA (DRY-RUN)'}`)
+  console.log(`- Estado:                          ${isExecuteRequested ? 'RESTAURACIÓN FINALIZADA Y VERIFICADA' : 'SIMULACIÓN COMPLETADA (DRY-RUN)'}`)
   console.log('====================================================================\n')
 
   return {
     totalCandidatesRestorable,
     totalSubdocsRestorable,
     totalRestoredParents,
-    totalRestoredSubs
+    totalRestoredSubs,
+    totalRestored: totalRestoredParents + totalRestoredSubs
   }
 }
 
 // Ejecución directa
 if (process.argv[1]?.endsWith('restoreFromPrivateBackup.mjs')) {
   restoreDocuments().catch(err => {
-    console.error('[EXCEPCIÓN CRÍTICA EN RESTAURACIÓN]:', err.message)
+    console.error('[EXCEPCIÓN CRÍTICA EN RESTAURACIÓN]:', err.message || err)
     process.exit(1)
   })
 }
