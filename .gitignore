@@ -40,3 +40,12 @@ firebase-debug.log*
 .vercel
 .admin-password-reset.txt
 evidence/
+
+# Sensitive Audit, Database Exports and Backups
+docs/audit/
+*.audit.json
+*inventory*.json
+*-inventory-*.json
+firestore-inventory*.json
+*.backup.json
+*.export.json

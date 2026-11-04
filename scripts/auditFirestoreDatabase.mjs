@@ -65,25 +65,24 @@ async function auditCollections() {
   }
 
   console.log('====================================================================')
-  console.log('INVENTARIO DETALLADO DE COLECCIONES EN FIRESTORE (expreso-punata-dev)')
+  console.log('RESUMEN DE COLECCIONES EN FIRESTORE (expreso-punata-dev)')
   console.log('====================================================================')
   for (const [col, info] of Object.entries(inventory)) {
     console.log(`- Colección "${col}": ${info.count} documentos`)
-    if (info.count > 0 && info.count <= 10) {
-      for (const d of info.documents) {
-        console.log(`    • ID: ${d.id}`)
-      }
-    } else if (info.count > 10) {
-      console.log(`    • Primeros 5 IDs: ${info.documents.slice(0, 5).map(d => d.id).join(', ')} ...`)
-    }
   }
   console.log('====================================================================')
 
-  // Guardar archivo de inventario json para respaldo y análisis
-  const outPath = path.resolve('docs/audit/firestore-inventory-pre-clean.json')
-  fs.mkdirSync(path.dirname(outPath), { recursive: true })
-  fs.writeFileSync(outPath, JSON.stringify(inventory, null, 2), 'utf8')
-  console.log(`Inventario completo guardado en: ${outPath}`)
+  // SEGURIDAD: Nunca guardar exportaciones de datos en rutas dentro del repositorio público.
+  const outArg = process.argv.find(a => a.startsWith('--output='))
+  if (outArg) {
+    const customPath = outArg.split('=')[1]
+    fs.mkdirSync(path.dirname(customPath), { recursive: true })
+    fs.writeFileSync(customPath, JSON.stringify(inventory, null, 2), 'utf8')
+    console.log(`Inventario seguro guardado en ruta externa: ${customPath}`)
+  } else {
+    console.log('NOTA DE SEGURIDAD: Por política de privacidad, no se escribe ningún archivo en el repositorio público.')
+    console.log('Para generar un respaldo privado local fuera de git, ejecute: node scripts/auditFirestoreDatabase.mjs --output=<ruta_externa>')
+  }
 }
 
 auditCollections().catch(console.error)
