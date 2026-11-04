@@ -13,6 +13,42 @@ const db = getFirestore()
 const authAdmin = getAuth()
 const storageAdmin = getStorage()
 
+/**
+ * Crea el perfil operativo inicial únicamente dentro de Firebase Emulator.
+ * Las escrituras siguen pasando por Admin SDK; firestore.rules permanece cerrado.
+ */
+export const ensureLocalUserProfile = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para inicializar su perfil local.')
+  }
+  if (process.env.FIRESTORE_EMULATOR_HOST === undefined || process.env.FUNCTIONS_EMULATOR !== 'true') {
+    throw new HttpsError('failed-precondition', 'La inicialización automática de perfiles solo está disponible en emuladores locales.')
+  }
+
+  const uid = request.auth.uid
+  const userRef = db.collection('users').doc(uid)
+  const existing = await userRef.get()
+  if (existing.exists) return { created: false, profile: existing.data() }
+
+  const nowIso = new Date().toISOString()
+  const profile = {
+    uid,
+    email: request.auth.token.email || null,
+    fullName: request.auth.token.name || request.auth.token.email?.split('@')[0] || 'Operador Local',
+    ci: null,
+    phone: '',
+    role: 'secretaria',
+    primaryBranchId: 'punata',
+    allowedBranchIds: ['punata', 'cochabamba'],
+    isActive: true,
+    createdAt: nowIso,
+    createdReason: 'local_emulator_bootstrap',
+  }
+
+  await userRef.create(profile)
+  return { created: true, profile }
+})
+
 // Tarifas referenciales de desarrollo (no oficiales ni confirmadas con Expreso Punata)
 const TARIFFS_DEV_REFERENCE = {
   baseFeeCents: 1500, // Referencial desarrollo: Bs. 15.00
@@ -823,12 +859,12 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
         const willDemoteRole = role !== 'directiva_admin'
 
         if (isCurrentlyActiveAdmin && (willBeInactive || willDemoteRole)) {
-          const activeAdminsQuery = db.collection('users')
-            .where('role', '==', 'directiva_admin')
-            .where('isActive', '==', true)
-
+          // Consultar por rol y filtrar isActive en memoria evita depender de un
+          // índice compuesto durante las pruebas y mantiene la protección fail-closed.
+          const activeAdminsQuery = db.collection('users').where('role', '==', 'directiva_admin')
           const activeAdminsSnap = await transaction.get(activeAdminsQuery)
-          const otherAdmins = activeAdminsSnap.docs.filter((d) => d.id !== safeTargetUid)
+          const activeAdmins = activeAdminsSnap.docs.filter((d) => d.data()?.isActive === true)
+          const otherAdmins = activeAdmins.filter((d) => d.id !== safeTargetUid)
 
           if (otherAdmins.length === 0) {
             throw new HttpsError(
@@ -2731,11 +2767,17 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
 
   const {
     shipmentId,
+    warehouseId = 'ALMACEN-1',
+    warehouseName = 'Almacén 1',
     shelfId,
     shelfName,
     moduleId,
     moduleNumber,
+    rowNumber = 1,
+    floorNumber = 1,
+    spaceNumber = 1,
     position = '',
+    photo = null,
   } = request.data || {}
 
   if (!shipmentId || typeof shipmentId !== 'string') {
@@ -2743,6 +2785,12 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
   }
   if (!shelfId || !moduleId || typeof moduleNumber !== 'number') {
     throw new HttpsError('invalid-argument', 'Debe especificar estante, módulo y número de módulo.')
+  }
+  if (!warehouseId || !warehouseName || ![rowNumber, floorNumber, spaceNumber].every((value) => Number.isInteger(value) && value > 0)) {
+    throw new HttpsError('invalid-argument', 'Almacén, fila, piso y espacio deben ser válidos.')
+  }
+  if (photo && (!photo.storagePath?.startsWith(`shipments/${shipmentId}/storage/`) || !photo.contentType?.startsWith('image/') || photo.sizeBytes > 2 * 1024 * 1024)) {
+    throw new HttpsError('invalid-argument', 'La fotografía de almacenamiento no es válida.')
   }
 
   return await db.runTransaction(async (transaction) => {
@@ -2774,6 +2822,25 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
     }
 
     const destBranch = sData.destinationBranchId || 'cochabamba'
+    const occupancySnap = await transaction.get(
+      db.collection('shipments').where('destinationBranchId', '==', destBranch)
+    )
+    const occupied = occupancySnap.docs.some((doc) => {
+      if (doc.id === shipmentId) return false
+      const location = doc.data().storageLocation || {}
+      return doc.data().status === 'stored' &&
+        location.branchId === destBranch &&
+        location.warehouseId === warehouseId &&
+        location.shelfId === shelfId &&
+        location.moduleNumber === moduleNumber &&
+        location.rowNumber === rowNumber &&
+        location.floorNumber === floorNumber &&
+        location.spaceNumber === spaceNumber
+    })
+    if (occupied) {
+      throw new HttpsError('already-exists', 'El espacio físico seleccionado ya está ocupado por otra encomienda.')
+    }
+
     const shelfRef = db.collection('branches').doc(destBranch).collection('shelves').doc(shelfId)
     let shelfDoc = await transaction.get(shelfRef)
 
@@ -2821,8 +2888,13 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
     }
 
     const shelfInfo = typeof shelfDoc.data === 'function' ? shelfDoc.data() : shelfDoc
+    const physicalModuleMatch = /^MODULO-(\d+)$/.exec(String(shelfId))
+    const physicalModuleNumber = physicalModuleMatch ? Number(physicalModuleMatch[1]) : null
     const maxModules = shelfInfo?.moduleCount || 5
-    if (moduleNumber < 1 || moduleNumber > maxModules) {
+    if (physicalModuleNumber !== null && moduleNumber !== physicalModuleNumber) {
+      throw new HttpsError('invalid-argument', `La ubicación ${shelfId} requiere moduleNumber ${physicalModuleNumber}.`)
+    }
+    if (moduleNumber < 1 || moduleNumber > maxModules && physicalModuleNumber === null) {
       throw new HttpsError('invalid-argument', `El número de módulo debe estar entre 1 y ${maxModules}.`)
     }
 
@@ -2831,10 +2903,15 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
 
     const newLocation = {
       branchId: destBranch,
+      warehouseId,
+      warehouseName,
       shelfId,
       shelfName: shelfName || shelfInfo.name || shelfId,
       moduleId,
       moduleNumber,
+      rowNumber,
+      floorNumber,
+      spaceNumber,
       position: position || '',
       storedAt: nowIso,
       storedByUid: callerUid,
@@ -2844,6 +2921,13 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
     transaction.update(shipmentRef, {
       status: 'stored',
       storageLocation: newLocation,
+      ...(photo ? {
+        storagePhoto: {
+          ...photo,
+          capturedByUid: callerUid,
+          capturedByName: callerData.fullName || 'Operador',
+        },
+      } : {}),
       updatedAt: now,
     })
 
@@ -2851,10 +2935,15 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
     const moveRef = shipmentRef.collection('storage_moves').doc()
     transaction.set(moveRef, {
       branchId: destBranch,
+      warehouseId,
+      warehouseName,
       shelfId,
       shelfName: shelfName || shelfInfo.name || shelfId,
       moduleId,
       moduleNumber,
+      rowNumber,
+      floorNumber,
+      spaceNumber,
       position: position || '',
       operatorUid: callerUid,
       operatorName: callerData.fullName || 'Operador',
@@ -2870,7 +2959,7 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
       operatorUid: callerUid,
       operatorName: callerData.fullName || 'Operador',
       branchId: destBranch,
-      note: `Almacenado físicamente en ${shelfName || shelfInfo.name || shelfId} / Módulo ${moduleNumber}${position ? ' (' + position + ')' : ''}`,
+      note: `Almacenado físicamente en ${warehouseName} / ${shelfName || shelfInfo.name || shelfId} / Módulo ${moduleNumber} / Fila ${rowNumber} / Piso ${floorNumber} / Espacio ${spaceNumber}${position ? ' (' + position + ')' : ''}`,
       createdAt: now,
       createdAtIso: nowIso,
     })
@@ -3179,8 +3268,34 @@ export const manageShelf = onCall({ cors: true }, async (request) => {
       throw new HttpsError('invalid-argument', 'Datos de estante incompletos.')
     }
     const moduleCount = Number(shelfData.moduleCount) || 5
+    const floorCount = shelfData.floorCount === undefined ? undefined : Number(shelfData.floorCount)
+    const rowCountPerFloor = shelfData.rowCountPerFloor === undefined ? undefined : Number(shelfData.rowCountPerFloor)
+    const spaceCountPerFloor = shelfData.spaceCountPerFloor === undefined ? undefined : Number(shelfData.spaceCountPerFloor)
+    const capacityPerSpace = shelfData.capacityPerSpace === undefined ? 1 : Number(shelfData.capacityPerSpace)
+    for (const [label, value] of [['pisos', floorCount], ['filas por piso', rowCountPerFloor], ['espacios por piso', spaceCountPerFloor], ['capacidad por espacio', capacityPerSpace]]) {
+      if (value !== undefined && (!Number.isInteger(value) || value < 1 || value > 100)) {
+        throw new HttpsError('invalid-argument', `La configuración de ${label} debe ser un entero entre 1 y 100.`)
+      }
+    }
     if (moduleCount < 1 || moduleCount > 20) {
       throw new HttpsError('invalid-argument', 'El número de módulos debe estar entre 1 y 20.')
+    }
+
+    // No permitir que una reconfiguración deje fuera una encomienda almacenada.
+    // Las ubicaciones existentes deben reubicarse antes de reducir pisos o espacios.
+    if (floorCount !== undefined && spaceCountPerFloor !== undefined) {
+      const storedShipments = await db.collection('shipments')
+        .where('destinationBranchId', '==', branchId)
+        .where('status', '==', 'stored')
+        .get()
+      const affected = storedShipments.docs.find((doc) => {
+        const location = doc.data()?.storageLocation || {}
+        return location.shelfId === shelfData.id &&
+          ((location.floorNumber || 1) > floorCount || (location.spaceNumber || 1) > spaceCountPerFloor || (rowCountPerFloor !== undefined && (location.rowNumber || 1) > rowCountPerFloor))
+      })
+      if (affected) {
+        throw new HttpsError('failed-precondition', 'No se puede reducir la estructura: existe una encomienda almacenada en un piso o espacio afectado. Reubíquela primero.')
+      }
     }
 
     const shelfRef = shelvesCol.doc(shelfData.id)
@@ -3192,6 +3307,12 @@ export const manageShelf = onCall({ cors: true }, async (request) => {
       code: shelfData.code || shelfData.id,
       description: shelfData.description || '',
       moduleCount,
+      ...(floorCount === undefined ? {} : { floorCount }),
+      ...(rowCountPerFloor === undefined ? {} : { rowCountPerFloor }),
+      ...(spaceCountPerFloor === undefined ? {} : { spaceCountPerFloor }),
+      capacityPerSpace,
+      physicalWarehouseId: shelfData.physicalWarehouseId || 'ALMACEN-1',
+      physicalWarehouseName: shelfData.physicalWarehouseName || 'Almacén 1',
       active: shelfData.active !== false,
       updatedAt: now,
     }
