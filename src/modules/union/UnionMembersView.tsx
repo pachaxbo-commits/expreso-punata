@@ -11,6 +11,7 @@ import {
   Printer,
   X,
   Plus,
+  PlusCircle,
   RefreshCw,
   Receipt,
 } from 'lucide-react'
@@ -402,10 +403,22 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
           ) : filteredMembers.length === 0 ? (
             <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 shadow-sm">
               <Users className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-              <p className="text-sm font-bold text-slate-700">No se encontraron socios</p>
-              <p className="text-xs text-slate-500 mt-1">
-                {searchTerm ? 'Intente con otros criterios de búsqueda.' : 'Aún no hay socios registrados en el padrón.'}
+              <p className="text-sm font-bold text-slate-700">
+                {searchTerm ? 'No se encontraron socios' : 'Aún no existen socios registrados.'}
               </p>
+              <p className="text-xs text-slate-500 mt-1 mb-3">
+                {searchTerm ? 'Intente con otros criterios de búsqueda.' : 'El padrón oficial sindical está listo para incorporar al primer socio transportista o conductor.'}
+              </p>
+              {!searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setIsMemberModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#064e3b] hover:bg-[#053d2e] text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer"
+                >
+                  <PlusCircle className="w-4 h-4 text-[#facc15]" />
+                  <span>Agregar socio</span>
+                </button>
+              )}
             </div>
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">

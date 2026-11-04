@@ -1,15 +1,15 @@
 import React, { useState } from 'react'
 import {
+  BookOpen,
   X,
   Play,
   RotateCcw,
+  Sparkles,
   CheckCircle,
   Clock,
-  BookOpen,
   ArrowRight,
-  Sparkles,
-  AlertCircle,
   HelpCircle,
+  AlertCircle
 } from 'lucide-react'
 import type { TutorialSection, TutorialOrchestratorState } from '../types'
 
@@ -37,7 +37,7 @@ export const TutorialCenterModal: React.FC<TutorialCenterModalProps> = ({
   onReset,
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false)
-  const [activeTab, setActiveTab] = useState<'all' | 'completed' | 'pending'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'operational' | 'config' | 'completed'>('operational')
 
   if (!isOpen) return null
 
@@ -48,34 +48,43 @@ export const TutorialCenterModal: React.FC<TutorialCenterModalProps> = ({
   const hasResume = Boolean(state.currentSectionId)
   const resumeSection = sections.find((s) => s.id === state.currentSectionId)
 
+  const operationalSections = sections.filter((s) => !s.isOptional)
+  const configSections = sections.filter((s) => s.isOptional)
+
   const filteredSections = sections.filter((sec) => {
     const isDone = state.completedSectionIds.includes(sec.id)
     if (activeTab === 'completed') return isDone
-    if (activeTab === 'pending') return !isDone
+    if (activeTab === 'operational') return !sec.isOptional
+    if (activeTab === 'config') return Boolean(sec.isOptional)
     return true
   })
 
   return (
     <div className="fixed inset-0 z-[1300] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Cabecera del Centro de Aprendizaje */}
-        <div className="bg-[#064e3b] text-white p-4 sm:p-5 flex items-center justify-between border-b border-emerald-800">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Centro de Aprendizaje Expreso Punata"
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden border border-slate-200 z-[1201] flex flex-col max-h-[90vh]"
+      >
+        {/* Cabecera Principal */}
+        <div className="bg-[#064e3b] text-white p-4 sm:p-5 flex items-center justify-between border-b border-emerald-900">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#facc15] text-[#064e3b] flex items-center justify-center shadow-md shrink-0">
-              <BookOpen className="w-5 h-5 font-bold" />
+            <div className="w-10 h-10 rounded-xl bg-[#facc15] text-[#064e3b] flex items-center justify-center font-black shadow-md shrink-0">
+              <BookOpen className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-extrabold tracking-tight text-white">
-                  Centro de Tutoriales Expreso Punata
-                </h2>
-                <span className="text-[10px] bg-emerald-900 text-[#facc15] font-bold px-2 py-0.5 rounded-full uppercase">
-                  Rol {userRole.replace('_', ' ')}
+                <span className="text-[11px] font-black uppercase tracking-wider text-[#facc15]">
+                  Capacitación Oficial
+                </span>
+                <span className="text-[10px] bg-emerald-900 text-emerald-200 px-2 py-0.5 rounded-full font-mono uppercase">
+                  {userRole}
                 </span>
               </div>
-              <p className="text-xs text-emerald-200 mt-0.5">
-                Capacitación guiada e interactiva para dominar todos los módulos de la empresa.
-              </p>
+              <h2 className="text-base sm:text-lg font-extrabold text-white leading-tight">
+                Centro de Tutoriales Expreso Punata
+              </h2>
             </div>
           </div>
 
@@ -110,7 +119,7 @@ export const TutorialCenterModal: React.FC<TutorialCenterModalProps> = ({
                 <button
                   type="button"
                   onClick={onResume}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-extrabold bg-[#064e3b] hover:bg-[#053d2e] text-white shadow-sm transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-extrabold bg-[#064e3b] hover:bg-[#053d2e] text-white shadow-xs transition cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5 text-[#facc15]" />
                   <span>Continuar donde lo dejé</span>
@@ -120,10 +129,10 @@ export const TutorialCenterModal: React.FC<TutorialCenterModalProps> = ({
               <button
                 type="button"
                 onClick={onStartContinuous}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-extrabold bg-[#facc15] hover:bg-yellow-400 text-[#064e3b] shadow-sm transition cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-extrabold bg-[#facc15] hover:bg-yellow-400 text-[#064e3b] shadow-xs transition cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Iniciar Recorrido Completo</span>
+                <span>Iniciar Recorrido Operativo</span>
               </button>
             </div>
           </div>
@@ -146,15 +155,37 @@ export const TutorialCenterModal: React.FC<TutorialCenterModalProps> = ({
           )}
         </div>
 
-        {/* Pestañas de Filtro de Módulos */}
-        <div className="px-4 sm:px-5 pt-3 pb-2 flex items-center justify-between border-b border-slate-200">
-          <div className="flex items-center gap-1 text-xs">
+        {/* Pestañas de Filtro de Módulos (Reorganizadas con Ruta Operativa Primero) */}
+        <div className="px-4 sm:px-5 pt-3 pb-2 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200">
+          <div className="flex items-center gap-1 text-xs flex-wrap">
+            <button
+              type="button"
+              onClick={() => setActiveTab('operational')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                activeTab === 'operational'
+                  ? 'bg-emerald-800 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              Ruta Operativa ({operationalSections.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('config')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                activeTab === 'config'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              Configuración / Opcionales ({configSections.length})
+            </button>
             <button
               type="button"
               onClick={() => setActiveTab('all')}
               className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
                 activeTab === 'all'
-                  ? 'bg-slate-900 text-white'
+                  ? 'bg-slate-900 text-white shadow-xs'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
@@ -162,21 +193,10 @@ export const TutorialCenterModal: React.FC<TutorialCenterModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('pending')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
-                activeTab === 'pending'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              Pendientes ({totalSections - completedCount})
-            </button>
-            <button
-              type="button"
               onClick={() => setActiveTab('completed')}
               className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
                 activeTab === 'completed'
-                  ? 'bg-slate-900 text-white'
+                  ? 'bg-slate-900 text-white shadow-xs'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
@@ -253,6 +273,16 @@ export const TutorialCenterModal: React.FC<TutorialCenterModalProps> = ({
                     <span className="font-extrabold text-sm text-slate-900">
                       {sec.title}
                     </span>
+                    {sec.isOptional ? (
+                      <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">
+                        Opcional
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold bg-emerald-100/70 text-emerald-900 px-2 py-0.5 rounded-full border border-emerald-200">
+                        Ruta Operativa
+                      </span>
+                    )}
+
                     {isCompleted ? (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
                         <CheckCircle className="w-3 h-3 text-emerald-600" />
@@ -269,11 +299,13 @@ export const TutorialCenterModal: React.FC<TutorialCenterModalProps> = ({
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-slate-600 leading-relaxed">
+
+                  <p className="text-xs text-slate-600 leading-snug">
                     {sec.description}
                   </p>
+
                   <div className="flex items-center gap-3 text-[11px] text-slate-500 pt-0.5">
-                    <span>{sec.steps.length} pasos formativos</span>
+                    <span>{sec.steps.length} pasos</span>
                     <span>•</span>
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3" />

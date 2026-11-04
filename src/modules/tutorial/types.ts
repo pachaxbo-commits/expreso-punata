@@ -38,6 +38,8 @@ export interface TutorialSection {
   estimatedMinutes: number
   allowedRoles: UserRole[]
   steps: TutorialStep[]
+  category?: 'operational' | 'configuration'
+  isOptional?: boolean
 }
 
 export interface TutorialOrchestratorState {
