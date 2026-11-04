@@ -27,7 +27,6 @@ import { AuthProvider, useAuth } from '../modules/auth/AuthContext'
 import { LoginView } from '../modules/auth/LoginView'
 import { DemoView } from '../modules/demo/DemoView'
 import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../domain/expresoPunataConfig'
-import { DEV_SHIPMENTS } from '../fixtures/devFixtures'
 import { FixedAssetsView } from '../modules/assets/FixedAssetsView'
 import { ReportsManagementView } from '../modules/reports/ReportsManagementView.tsx'
 import { WorkersAndExpensesView } from '../modules/workers/WorkersAndExpensesView'
@@ -132,7 +131,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   // Encomiendas a listar (prioriza registros de Firestore Emulator)
   // En entorno Cloud o cuando el backend está conectado, mostramos exclusivamente datos reales de Firestore (0 si está vacío).
   // Los fixtures DEV_SHIPMENTS solo se usan si estamos en emulador local aislado y sin conexión.
-  const displayedShipments = backendConnected || !isEmulatedEnvironment ? realShipments : DEV_SHIPMENTS
+  // Encomiendas oficiales en tiempo real desde Firestore
+  const displayedShipments = realShipments
 
 
 
@@ -154,9 +154,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-sm sm:text-base tracking-tight text-[#facc15] uppercase">
                   {EXPRESO_PUNATA_COMPANY.name}
-                </span>
-                <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded border border-amber-500/40 uppercase tracking-wider">
-                  Entorno de Demostración
                 </span>
               </div>
               <p className="text-[11px] text-emerald-200 hidden sm:block">
@@ -268,14 +265,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           </div>
         </div>
       </header>
-      {/* Indicador discreto de Demostración */}
-      <div className="bg-amber-50/90 border-b border-amber-200 text-amber-900 text-[11px] font-medium px-4 py-1 flex items-center justify-between">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
-          <span><strong>Modo Demostración Oficial:</strong> Operaciones y registros ficticios para pruebas de visualización y presentación comercial.</span>
-        </span>
-        <span className="text-[10px] text-amber-700 font-mono hidden md:inline">expreso-punata-dev • Demostración</span>
-      </div>
 
       {/* Contenido Principal */}
       <main className="max-w-7xl mx-auto px-4 py-5 flex-1 w-full">
