@@ -222,12 +222,12 @@ export function useTutorial({
     } else {
       // Finished section!
       const completedIds = Array.from(new Set([...state.completedSectionIds, activeSection.id]))
-      const currentIndex = roleSections.findIndex((s) => s.id === activeSection.id)
+      const currentIndex = roleSections.findIndex((s: TutorialSection) => s.id === activeSection.id)
       const nextSec = currentIndex >= 0 && currentIndex < roleSections.length - 1
         ? roleSections[currentIndex + 1]
         : null
 
-      if (state.isContinuousActive && nextSec) {
+      if (state.isContinuousActive && nextSec && !nextSec.isOptional) {
         // Continuous transition
         const transition: ContinuousTransitionState = {
           active: true,
@@ -259,7 +259,7 @@ export function useTutorial({
         // Final section or single tour finished!
         setIsTourActive(false)
         setActiveSectionId(null)
-        const isAllDone = roleSections.every((s) => completedIds.includes(s.id))
+        const isAllDone = roleSections.every((s: TutorialSection) => completedIds.includes(s.id))
 
         updateState((prev) => ({
           ...prev,

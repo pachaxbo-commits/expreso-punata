@@ -396,15 +396,36 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
           {/* Tabla Compacta y Profesional */}
           <div data-tutorial-target="shipments-table-row" className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             {paginatedShipments.length === 0 ? (
-              <div className="p-8 text-center space-y-2">
-                <Package className="w-10 h-10 text-slate-300 mx-auto" />
-                <p className="text-xs font-bold text-slate-700">
-                  No se encontraron encomiendas con los filtros activos.
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Pruebe limpiando el texto de búsqueda o cambiando el estado.
-                </p>
-              </div>
+              shipments.length === 0 && !searchTerm && statusFilter === 'all' && paymentFilter === 'all' ? (
+                <div className="p-10 text-center space-y-3">
+                  <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto text-emerald-700">
+                    <Package className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-800">
+                    Actualmente no hay encomiendas registradas.
+                  </h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    La ventanilla está lista para emitir la primera guía oficial con tarifa base o precio acordado.
+                  </p>
+                  <button
+                    onClick={onOpenNewWizard}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#064e3b] hover:bg-[#053d2e] text-white rounded-xl text-xs font-bold shadow-sm transition cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 text-[#facc15]" />
+                    <span>Registrar primera encomienda</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-8 text-center space-y-2">
+                  <Package className="w-10 h-10 text-slate-300 mx-auto" />
+                  <p className="text-xs font-bold text-slate-700">
+                    No se encontraron encomiendas con los filtros activos.
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Pruebe limpiando el texto de búsqueda o cambiando el estado.
+                  </p>
+                </div>
+              )
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">

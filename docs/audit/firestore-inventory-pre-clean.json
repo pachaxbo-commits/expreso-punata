@@ -1,0 +1,3326 @@
+{
+  "users": {
+    "count": 4,
+    "documents": [
+      {
+        "id": "JxFhNzQAijVE8XEH6UG9O3YZQP03",
+        "fields": {
+          "ci": {
+            "stringValue": "5182901"
+          },
+          "updatedAtIso": {
+            "stringValue": "2026-11-03T18:58:22.486Z"
+          },
+          "claimsSyncedAt": {
+            "timestampValue": "2026-11-03T18:58:22.829Z"
+          },
+          "updatedAt": {
+            "timestampValue": "2026-11-03T18:58:22.618Z"
+          },
+          "assignedVehiclePlate": {
+            "nullValue": null
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T18:58:22.486Z"
+          },
+          "allowedBranchIds": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "punata"
+                }
+              ]
+            }
+          },
+          "phone": {
+            "stringValue": "71458920"
+          },
+          "createdReason": {
+            "stringValue": "admin_provisioned"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T18:58:22.618Z"
+          },
+          "uid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "assignedMobileNumber": {
+            "nullValue": null
+          },
+          "claimsSyncedAtIso": {
+            "stringValue": "2026-11-03T18:58:22.787Z"
+          },
+          "role": {
+            "stringValue": "secretaria"
+          },
+          "primaryBranchId": {
+            "stringValue": "punata"
+          },
+          "fullName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "isActive": {
+            "booleanValue": true
+          },
+          "email": {
+            "stringValue": "secretaria.punata@expresopunata.com"
+          },
+          "syncStatus": {
+            "stringValue": "synced"
+          }
+        }
+      },
+      {
+        "id": "Sjt5WRr350fxQubPREKd7XQwzE02",
+        "fields": {
+          "updatedAt": {
+            "timestampValue": "2026-11-03T18:58:25.187Z"
+          },
+          "allowedBranchIds": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "punata"
+                },
+                {
+                  "stringValue": "cochabamba"
+                }
+              ]
+            }
+          },
+          "uid": {
+            "stringValue": "Sjt5WRr350fxQubPREKd7XQwzE02"
+          },
+          "phone": {
+            "stringValue": "71234567"
+          },
+          "updatedAtIso": {
+            "stringValue": "2026-11-03T18:58:25.083Z"
+          },
+          "createdReason": {
+            "stringValue": "admin_provisioned"
+          },
+          "fullName": {
+            "stringValue": "Marcelino Soto Fuentes"
+          },
+          "email": {
+            "stringValue": "chofer.movil14@expresopunata.com"
+          },
+          "isActive": {
+            "booleanValue": true
+          },
+          "assignedVehiclePlate": {
+            "stringValue": "2341-ABC"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T18:58:25.083Z"
+          },
+          "claimsSyncedAt": {
+            "timestampValue": "2026-11-03T18:58:25.380Z"
+          },
+          "role": {
+            "stringValue": "conductor"
+          },
+          "assignedMobileNumber": {
+            "stringValue": "14"
+          },
+          "primaryBranchId": {
+            "stringValue": "punata"
+          },
+          "syncStatus": {
+            "stringValue": "synced"
+          },
+          "ci": {
+            "stringValue": "3128472"
+          },
+          "claimsSyncedAtIso": {
+            "stringValue": "2026-11-03T18:58:25.359Z"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T18:58:25.187Z"
+          }
+        }
+      },
+      {
+        "id": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2",
+        "fields": {
+          "allowedBranchIds": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "punata"
+                },
+                {
+                  "stringValue": "cochabamba"
+                }
+              ]
+            }
+          },
+          "uid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "assignedVehiclePlate": {
+            "nullValue": null
+          },
+          "role": {
+            "stringValue": "directiva_admin"
+          },
+          "fullName": {
+            "stringValue": "Nelson"
+          },
+          "email": {
+            "stringValue": "admin@expresopunata.com"
+          },
+          "assignedMobileNumber": {
+            "nullValue": null
+          },
+          "syncStatus": {
+            "stringValue": "synced"
+          },
+          "isActive": {
+            "booleanValue": true
+          },
+          "primaryBranchId": {
+            "stringValue": "punata"
+          },
+          "createdReason": {
+            "stringValue": "cli_bootstrap_authorized"
+          },
+          "updatedAtIso": {
+            "stringValue": "2026-11-02T16:13:17.403Z"
+          },
+          "ci": {
+            "nullValue": null
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-02T16:13:17.403Z"
+          },
+          "phone": {
+            "stringValue": "75999279"
+          }
+        }
+      },
+      {
+        "id": "se6I1SAMKabAlByXL51DJh3uclG2",
+        "fields": {
+          "role": {
+            "stringValue": "secretaria"
+          },
+          "createdReason": {
+            "stringValue": "admin_provisioned"
+          },
+          "allowedBranchIds": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "cochabamba"
+                }
+              ]
+            }
+          },
+          "claimsSyncedAt": {
+            "timestampValue": "2026-11-03T18:58:24.123Z"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T18:58:23.917Z"
+          },
+          "assignedVehiclePlate": {
+            "nullValue": null
+          },
+          "isActive": {
+            "booleanValue": true
+          },
+          "ci": {
+            "stringValue": "4892104"
+          },
+          "fullName": {
+            "stringValue": "Elena Quispe Rodriguez"
+          },
+          "claimsSyncedAtIso": {
+            "stringValue": "2026-11-03T18:58:24.090Z"
+          },
+          "uid": {
+            "stringValue": "se6I1SAMKabAlByXL51DJh3uclG2"
+          },
+          "assignedMobileNumber": {
+            "nullValue": null
+          },
+          "phone": {
+            "stringValue": "72091823"
+          },
+          "updatedAt": {
+            "timestampValue": "2026-11-03T18:58:23.917Z"
+          },
+          "primaryBranchId": {
+            "stringValue": "cochabamba"
+          },
+          "updatedAtIso": {
+            "stringValue": "2026-11-03T18:58:23.794Z"
+          },
+          "email": {
+            "stringValue": "secretaria.cbba@expresopunata.com"
+          },
+          "syncStatus": {
+            "stringValue": "synced"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T18:58:23.794Z"
+          }
+        }
+      }
+    ]
+  },
+  "system_config": {
+    "count": 1,
+    "documents": [
+      {
+        "id": "expreso_punata",
+        "fields": {
+          "status": {
+            "stringValue": "configured"
+          },
+          "updatedAtIso": {
+            "stringValue": "2026-11-03T18:58:20.481Z"
+          },
+          "updatedByName": {
+            "stringValue": "Nelson"
+          },
+          "dues": {
+            "mapValue": {
+              "fields": {
+                "monthlyDueCents": {
+                  "integerValue": "0"
+                },
+                "lateFeePercentage": {
+                  "integerValue": "0"
+                },
+                "monthlyDueBob": {
+                  "integerValue": "0"
+                },
+                "gracePeriodDays": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          },
+          "commissions": {
+            "mapValue": {
+              "fields": {
+                "defaultValue": {
+                  "integerValue": "0"
+                },
+                "defaultType": {
+                  "stringValue": "percentage"
+                }
+              }
+            }
+          },
+          "company": {
+            "mapValue": {
+              "fields": {
+                "legalNotice": {
+                  "stringValue": "DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL"
+                },
+                "acronym": {
+                  "stringValue": "EP"
+                },
+                "legalName": {
+                  "stringValue": "Expreso Punata S.R.L."
+                },
+                "name": {
+                  "stringValue": "EXPRESO PUNATA"
+                },
+                "taxNotice": {
+                  "stringValue": ""
+                },
+                "logoUrl": {
+                  "stringValue": ""
+                },
+                "tradeName": {
+                  "stringValue": "EXPRESO PUNATA"
+                }
+              }
+            }
+          },
+          "updatedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "isDemo": {
+            "booleanValue": true
+          },
+          "printing": {
+            "mapValue": {
+              "fields": {
+                "openDrawer": {
+                  "booleanValue": true
+                },
+                "headerNotice": {
+                  "stringValue": ""
+                },
+                "footerNotice": {
+                  "stringValue": ""
+                },
+                "cutPaper": {
+                  "booleanValue": true
+                }
+              }
+            }
+          },
+          "tariffs": {
+            "mapValue": {
+              "fields": {
+                "freeWeightKg": {
+                  "integerValue": "4"
+                },
+                "extraKgRateBob": {
+                  "integerValue": "2"
+                },
+                "extraKgRateCents": {
+                  "integerValue": "200"
+                },
+                "baseFeeBob": {
+                  "integerValue": "15"
+                },
+                "homeDeliveryFeeCents": {
+                  "integerValue": "500"
+                },
+                "baseFeeCents": {
+                  "integerValue": "1500"
+                },
+                "homeDeliveryFeeBob": {
+                  "integerValue": "5"
+                }
+              }
+            }
+          },
+          "isOfficial": {
+            "booleanValue": true
+          }
+        }
+      }
+    ]
+  },
+  "agencias": {
+    "count": 0,
+    "documents": []
+  },
+  "branches": {
+    "count": 0,
+    "documents": []
+  },
+  "shipments": {
+    "count": 6,
+    "documents": [
+      {
+        "id": "PUN-2026-00001",
+        "fields": {
+          "paidAt": {
+            "stringValue": "2026-11-03T17:11:58.704Z"
+          },
+          "updatedAt": {
+            "timestampValue": "2026-11-03T17:11:58.751Z"
+          },
+          "finalAmountCents": {
+            "integerValue": "1500"
+          },
+          "recipient": {
+            "mapValue": {
+              "fields": {
+                "phone": {
+                  "stringValue": "67867856"
+                },
+                "docNumber": {
+                  "stringValue": "124345234"
+                },
+                "name": {
+                  "stringValue": "Dario"
+                }
+              }
+            }
+          },
+          "paymentNotice": {
+            "nullValue": null
+          },
+          "paymentMethod": {
+            "stringValue": "qr"
+          },
+          "id": {
+            "stringValue": "PUN-2026-00001"
+          },
+          "deliveryType": {
+            "stringValue": "agency"
+          },
+          "discountCents": {
+            "integerValue": "0"
+          },
+          "deliveryAddress": {
+            "nullValue": null
+          },
+          "shippingFeeCents": {
+            "integerValue": "1500"
+          },
+          "weightSurchargeCents": {
+            "integerValue": "0"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T17:11:58.751Z"
+          },
+          "totalWeightKg": {
+            "integerValue": "2"
+          },
+          "destinationBranchId": {
+            "stringValue": "cochabamba"
+          },
+          "paidCashierUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "originBranchId": {
+            "stringValue": "punata"
+          },
+          "sender": {
+            "mapValue": {
+              "fields": {
+                "phone": {
+                  "stringValue": "76493921"
+                },
+                "docNumber": {
+                  "stringValue": "2143523"
+                },
+                "name": {
+                  "stringValue": "helmy"
+                }
+              }
+            }
+          },
+          "registeredByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "paidCashierName": {
+            "stringValue": "Nelson"
+          },
+          "registeredByBranchId": {
+            "stringValue": "punata"
+          },
+          "trackingCode": {
+            "stringValue": "PUN-2026-00001"
+          },
+          "paymentStatus": {
+            "stringValue": "paid"
+          },
+          "items": {
+            "arrayValue": {
+              "values": [
+                {
+                  "mapValue": {
+                    "fields": {
+                      "description": {
+                        "stringValue": "Caja de embutidos"
+                      },
+                      "category": {
+                        "stringValue": "perishable"
+                      },
+                      "quantity": {
+                        "integerValue": "1"
+                      },
+                      "packaging": {
+                        "stringValue": "caja"
+                      },
+                      "weightKg": {
+                        "integerValue": "2"
+                      },
+                      "isFragile": {
+                        "booleanValue": false
+                      },
+                      "isPerishable": {
+                        "booleanValue": false
+                      },
+                      "handlingNotes": {
+                        "nullValue": null
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T17:11:58.704Z"
+          },
+          "registeredByName": {
+            "stringValue": "Nelson"
+          },
+          "cashShiftId": {
+            "stringValue": "TUR-PUN-2026-0001"
+          },
+          "declaredValueTotal": {
+            "integerValue": "0"
+          },
+          "homeDeliveryFeeCents": {
+            "integerValue": "0"
+          },
+          "prohibitedGoodsNoticeAccepted": {
+            "booleanValue": true
+          },
+          "paymentTiming": {
+            "stringValue": "origin_paid"
+          },
+          "packageCount": {
+            "integerValue": "1"
+          },
+          "financialMovementId": {
+            "stringValue": "MOV-PUN-2026-00001"
+          },
+          "status": {
+            "stringValue": "received"
+          }
+        }
+      },
+      {
+        "id": "PUN202600002",
+        "fields": {
+          "items": {
+            "arrayValue": {
+              "values": [
+                {
+                  "mapValue": {
+                    "fields": {
+                      "description": {
+                        "stringValue": "Caja pesada de repuestos mecánicos"
+                      },
+                      "category": {
+                        "stringValue": "general"
+                      },
+                      "quantity": {
+                        "integerValue": "1"
+                      },
+                      "packaging": {
+                        "stringValue": "paquete"
+                      },
+                      "weightKg": {
+                        "integerValue": "7"
+                      },
+                      "isFragile": {
+                        "booleanValue": false
+                      },
+                      "isPerishable": {
+                        "booleanValue": false
+                      },
+                      "handlingNotes": {
+                        "nullValue": null
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "declaredValueTotal": {
+            "integerValue": "0"
+          },
+          "priceAdjustedByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "isPriceAdjusted": {
+            "booleanValue": true
+          },
+          "priceAdjustmentReason": {
+            "stringValue": "Caja con repuestos pesados acordada en ventanilla"
+          },
+          "deliveryType": {
+            "stringValue": "agency"
+          },
+          "homeDeliveryFeeCents": {
+            "integerValue": "0"
+          },
+          "financialMovementId": {
+            "stringValue": "MOV-PUN202600002"
+          },
+          "registeredByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "sender": {
+            "mapValue": {
+              "fields": {
+                "phone": {
+                  "stringValue": "70711223"
+                },
+                "name": {
+                  "stringValue": "Juan Perez Calvimontes"
+                },
+                "docNumber": {
+                  "stringValue": "3456789"
+                }
+              }
+            }
+          },
+          "paymentStatus": {
+            "stringValue": "paid"
+          },
+          "shippingFeeCents": {
+            "integerValue": "1500"
+          },
+          "paymentTiming": {
+            "stringValue": "origin_paid"
+          },
+          "registeredByBranchId": {
+            "stringValue": "punata"
+          },
+          "paidAt": {
+            "stringValue": "2026-11-03T18:59:19.524Z"
+          },
+          "priceAdjustedAt": {
+            "stringValue": "2026-11-03T18:59:19.524Z"
+          },
+          "deliveryAddress": {
+            "nullValue": null
+          },
+          "finalAmountCents": {
+            "integerValue": "2200"
+          },
+          "destinationBranchId": {
+            "stringValue": "cochabamba"
+          },
+          "discountCents": {
+            "integerValue": "0"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T18:59:19.524Z"
+          },
+          "agreedAmountCents": {
+            "integerValue": "2200"
+          },
+          "weightSurchargeCents": {
+            "integerValue": "600"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T18:59:19.573Z"
+          },
+          "cashShiftId": {
+            "stringValue": "TUR-PUN-2026-0002"
+          },
+          "trackingCode": {
+            "stringValue": "PUN202600002"
+          },
+          "originBranchId": {
+            "stringValue": "punata"
+          },
+          "suggestedAmountCents": {
+            "integerValue": "2100"
+          },
+          "prohibitedGoodsNoticeAccepted": {
+            "booleanValue": true
+          },
+          "priceAdjustedByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "paymentMethod": {
+            "stringValue": "cash"
+          },
+          "status": {
+            "stringValue": "received"
+          },
+          "paidCashierUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "paymentNotice": {
+            "nullValue": null
+          },
+          "updatedAt": {
+            "timestampValue": "2026-11-03T18:59:19.573Z"
+          },
+          "registeredByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "recipient": {
+            "mapValue": {
+              "fields": {
+                "name": {
+                  "stringValue": "Carlos Mendoza Rios"
+                },
+                "docNumber": {
+                  "stringValue": "4567890"
+                },
+                "phone": {
+                  "stringValue": "71722334"
+                }
+              }
+            }
+          },
+          "id": {
+            "stringValue": "PUN202600002"
+          },
+          "packageCount": {
+            "integerValue": "1"
+          },
+          "paidCashierName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "totalWeightKg": {
+            "integerValue": "7"
+          }
+        }
+      },
+      {
+        "id": "PUN202600003",
+        "fields": {
+          "updatedAt": {
+            "timestampValue": "2026-11-03T18:59:20.048Z"
+          },
+          "items": {
+            "arrayValue": {
+              "values": [
+                {
+                  "mapValue": {
+                    "fields": {
+                      "description": {
+                        "stringValue": "Sobre de correspondencia urgente"
+                      },
+                      "category": {
+                        "stringValue": "general"
+                      },
+                      "quantity": {
+                        "integerValue": "1"
+                      },
+                      "packaging": {
+                        "stringValue": "paquete"
+                      },
+                      "weightKg": {
+                        "integerValue": "1"
+                      },
+                      "isFragile": {
+                        "booleanValue": false
+                      },
+                      "isPerishable": {
+                        "booleanValue": false
+                      },
+                      "handlingNotes": {
+                        "nullValue": null
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "recipient": {
+            "mapValue": {
+              "fields": {
+                "phone": {
+                  "stringValue": "73744556"
+                },
+                "docNumber": {
+                  "stringValue": "6789012"
+                },
+                "name": {
+                  "stringValue": "Ana Quispe Gutierrez"
+                }
+              }
+            }
+          },
+          "registeredByBranchId": {
+            "stringValue": "punata"
+          },
+          "financialMovementId": {
+            "nullValue": null
+          },
+          "paymentStatus": {
+            "stringValue": "pending"
+          },
+          "originBranchId": {
+            "stringValue": "punata"
+          },
+          "paidCashierName": {
+            "nullValue": null
+          },
+          "paidCashierUid": {
+            "nullValue": null
+          },
+          "homeDeliveryFeeCents": {
+            "integerValue": "0"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T18:59:20.048Z"
+          },
+          "deliveryType": {
+            "stringValue": "agency"
+          },
+          "paymentTiming": {
+            "stringValue": "destination_cod"
+          },
+          "status": {
+            "stringValue": "received"
+          },
+          "prohibitedGoodsNoticeAccepted": {
+            "booleanValue": true
+          },
+          "registeredByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "destinationBranchId": {
+            "stringValue": "cochabamba"
+          },
+          "deliveryAddress": {
+            "nullValue": null
+          },
+          "packageCount": {
+            "integerValue": "1"
+          },
+          "priceAdjustedAt": {
+            "nullValue": null
+          },
+          "discountCents": {
+            "integerValue": "0"
+          },
+          "agreedAmountCents": {
+            "integerValue": "1500"
+          },
+          "paymentMethod": {
+            "nullValue": null
+          },
+          "paidAt": {
+            "nullValue": null
+          },
+          "id": {
+            "stringValue": "PUN202600003"
+          },
+          "paymentNotice": {
+            "nullValue": null
+          },
+          "priceAdjustedByName": {
+            "nullValue": null
+          },
+          "declaredValueTotal": {
+            "integerValue": "0"
+          },
+          "priceAdjustedByUid": {
+            "nullValue": null
+          },
+          "weightSurchargeCents": {
+            "integerValue": "0"
+          },
+          "registeredByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "priceAdjustmentReason": {
+            "nullValue": null
+          },
+          "sender": {
+            "mapValue": {
+              "fields": {
+                "phone": {
+                  "stringValue": "72733445"
+                },
+                "name": {
+                  "stringValue": "Maria Fernandez Zeballos"
+                },
+                "docNumber": {
+                  "stringValue": "5678901"
+                }
+              }
+            }
+          },
+          "finalAmountCents": {
+            "integerValue": "1500"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T18:59:20.023Z"
+          },
+          "totalWeightKg": {
+            "integerValue": "1"
+          },
+          "shippingFeeCents": {
+            "integerValue": "1500"
+          },
+          "trackingCode": {
+            "stringValue": "PUN202600003"
+          },
+          "suggestedAmountCents": {
+            "integerValue": "1500"
+          },
+          "isPriceAdjusted": {
+            "booleanValue": false
+          },
+          "cashShiftId": {
+            "nullValue": null
+          }
+        }
+      },
+      {
+        "id": "PUN202600004",
+        "fields": {
+          "paymentStatus": {
+            "stringValue": "paid"
+          },
+          "priceAdjustedByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "priceAdjustedByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "declaredValueTotal": {
+            "integerValue": "0"
+          },
+          "weightSurchargeCents": {
+            "integerValue": "0"
+          },
+          "recipient": {
+            "mapValue": {
+              "fields": {
+                "name": {
+                  "stringValue": "Lucia Vallejos Claros"
+                },
+                "docNumber": {
+                  "stringValue": "8901234"
+                },
+                "phone": {
+                  "stringValue": "75766778"
+                }
+              }
+            }
+          },
+          "suggestedAmountCents": {
+            "integerValue": "1500"
+          },
+          "cashShiftId": {
+            "stringValue": "TUR-PUN-2026-0002"
+          },
+          "destinationBranchId": {
+            "stringValue": "cochabamba"
+          },
+          "updatedAt": {
+            "timestampValue": "2026-11-03T18:59:20.603Z"
+          },
+          "status": {
+            "stringValue": "received"
+          },
+          "shippingFeeCents": {
+            "integerValue": "1500"
+          },
+          "paidCashierName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T18:59:20.603Z"
+          },
+          "originBranchId": {
+            "stringValue": "punata"
+          },
+          "finalAmountCents": {
+            "integerValue": "1200"
+          },
+          "prohibitedGoodsNoticeAccepted": {
+            "booleanValue": true
+          },
+          "deliveryType": {
+            "stringValue": "agency"
+          },
+          "agreedAmountCents": {
+            "integerValue": "1200"
+          },
+          "paymentTiming": {
+            "stringValue": "origin_paid"
+          },
+          "paidCashierUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "paymentNotice": {
+            "nullValue": null
+          },
+          "isPriceAdjusted": {
+            "booleanValue": true
+          },
+          "paymentMethod": {
+            "stringValue": "cash"
+          },
+          "homeDeliveryFeeCents": {
+            "integerValue": "0"
+          },
+          "financialMovementId": {
+            "stringValue": "MOV-PUN202600004"
+          },
+          "packageCount": {
+            "integerValue": "1"
+          },
+          "registeredByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "paidAt": {
+            "stringValue": "2026-11-03T18:59:20.582Z"
+          },
+          "discountCents": {
+            "integerValue": "0"
+          },
+          "registeredByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "sender": {
+            "mapValue": {
+              "fields": {
+                "docNumber": {
+                  "stringValue": "7890123"
+                },
+                "phone": {
+                  "stringValue": "74755667"
+                },
+                "name": {
+                  "stringValue": "Pedro Alcocer Soto"
+                }
+              }
+            }
+          },
+          "totalWeightKg": {
+            "integerValue": "2"
+          },
+          "registeredByBranchId": {
+            "stringValue": "punata"
+          },
+          "trackingCode": {
+            "stringValue": "PUN202600004"
+          },
+          "id": {
+            "stringValue": "PUN202600004"
+          },
+          "priceAdjustmentReason": {
+            "stringValue": "Descuento fidelidad cliente frecuente"
+          },
+          "items": {
+            "arrayValue": {
+              "values": [
+                {
+                  "mapValue": {
+                    "fields": {
+                      "description": {
+                        "stringValue": "Caja de repostería típica de Punata"
+                      },
+                      "category": {
+                        "stringValue": "general"
+                      },
+                      "quantity": {
+                        "integerValue": "1"
+                      },
+                      "packaging": {
+                        "stringValue": "paquete"
+                      },
+                      "weightKg": {
+                        "integerValue": "2"
+                      },
+                      "isFragile": {
+                        "booleanValue": false
+                      },
+                      "isPerishable": {
+                        "booleanValue": false
+                      },
+                      "handlingNotes": {
+                        "nullValue": null
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "priceAdjustedAt": {
+            "stringValue": "2026-11-03T18:59:20.582Z"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T18:59:20.582Z"
+          },
+          "deliveryAddress": {
+            "nullValue": null
+          }
+        }
+      },
+      {
+        "id": "PUN202600005",
+        "fields": {
+          "suggestedAmountCents": {
+            "integerValue": "1500"
+          },
+          "shippingFeeCents": {
+            "integerValue": "1500"
+          },
+          "registeredByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "packageCount": {
+            "integerValue": "1"
+          },
+          "agreedAmountCents": {
+            "integerValue": "1200"
+          },
+          "currentLocation": {
+            "stringValue": "in_transit"
+          },
+          "discountCents": {
+            "integerValue": "0"
+          },
+          "manifestNumber": {
+            "stringValue": "MAN-PUN-2026-0001"
+          },
+          "isPriceAdjusted": {
+            "booleanValue": true
+          },
+          "weightSurchargeCents": {
+            "integerValue": "0"
+          },
+          "paymentNotice": {
+            "nullValue": null
+          },
+          "sender": {
+            "mapValue": {
+              "fields": {
+                "docNumber": {
+                  "stringValue": "7890123"
+                },
+                "phone": {
+                  "stringValue": "74755667"
+                },
+                "name": {
+                  "stringValue": "Pedro Alcocer Soto"
+                }
+              }
+            }
+          },
+          "finalAmountCents": {
+            "integerValue": "1200"
+          },
+          "paymentMethod": {
+            "stringValue": "cash"
+          },
+          "financialMovementId": {
+            "stringValue": "MOV-PUN202600005"
+          },
+          "priceAdjustedAt": {
+            "stringValue": "2026-11-03T19:00:55.939Z"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T19:00:55.939Z"
+          },
+          "paidAt": {
+            "stringValue": "2026-11-03T19:00:55.939Z"
+          },
+          "deliveryAddress": {
+            "nullValue": null
+          },
+          "priceAdjustmentReason": {
+            "stringValue": "Descuento fidelidad cliente frecuente"
+          },
+          "dispatchedAt": {
+            "timestampValue": "2026-11-03T19:00:56.722Z"
+          },
+          "totalWeightKg": {
+            "integerValue": "2"
+          },
+          "trackingCode": {
+            "stringValue": "PUN202600005"
+          },
+          "updatedAt": {
+            "timestampValue": "2026-11-03T19:00:56.722Z"
+          },
+          "registeredByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "recipient": {
+            "mapValue": {
+              "fields": {
+                "phone": {
+                  "stringValue": "75766778"
+                },
+                "docNumber": {
+                  "stringValue": "8901234"
+                },
+                "name": {
+                  "stringValue": "Lucia Vallejos Claros"
+                }
+              }
+            }
+          },
+          "manifestId": {
+            "stringValue": "sKTgXpgZhQDDUqoIQxAf"
+          },
+          "id": {
+            "stringValue": "PUN202600005"
+          },
+          "cashShiftId": {
+            "stringValue": "TUR-PUN-2026-0002"
+          },
+          "paymentStatus": {
+            "stringValue": "paid"
+          },
+          "status": {
+            "stringValue": "in_transit"
+          },
+          "homeDeliveryFeeCents": {
+            "integerValue": "0"
+          },
+          "declaredValueTotal": {
+            "integerValue": "0"
+          },
+          "priceAdjustedByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "paymentTiming": {
+            "stringValue": "origin_paid"
+          },
+          "prohibitedGoodsNoticeAccepted": {
+            "booleanValue": true
+          },
+          "items": {
+            "arrayValue": {
+              "values": [
+                {
+                  "mapValue": {
+                    "fields": {
+                      "description": {
+                        "stringValue": "Caja de repostería típica de Punata"
+                      },
+                      "category": {
+                        "stringValue": "general"
+                      },
+                      "quantity": {
+                        "integerValue": "1"
+                      },
+                      "packaging": {
+                        "stringValue": "paquete"
+                      },
+                      "weightKg": {
+                        "integerValue": "2"
+                      },
+                      "isFragile": {
+                        "booleanValue": false
+                      },
+                      "isPerishable": {
+                        "booleanValue": false
+                      },
+                      "handlingNotes": {
+                        "nullValue": null
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "deliveryType": {
+            "stringValue": "agency"
+          },
+          "assignedVehicle": {
+            "mapValue": {
+              "fields": {
+                "manifestId": {
+                  "stringValue": "sKTgXpgZhQDDUqoIQxAf"
+                },
+                "vehiclePlate": {
+                  "stringValue": "2341-ABC"
+                },
+                "vehicleId": {
+                  "stringValue": "qs7h1UuKqfRgCzVgFeFx"
+                },
+                "driverName": {
+                  "stringValue": "Marcelino Soto Fuentes"
+                },
+                "driverUid": {
+                  "stringValue": "Sjt5WRr350fxQubPREKd7XQwzE02"
+                },
+                "mobileNumber": {
+                  "stringValue": "14"
+                }
+              }
+            }
+          },
+          "destinationBranchId": {
+            "stringValue": "cochabamba"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T19:00:55.964Z"
+          },
+          "registeredByBranchId": {
+            "stringValue": "punata"
+          },
+          "originBranchId": {
+            "stringValue": "punata"
+          },
+          "priceAdjustedByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "paidCashierName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "paidCashierUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          }
+        }
+      },
+      {
+        "id": "PUN202600006",
+        "fields": {
+          "trackingCode": {
+            "stringValue": "PUN202600006"
+          },
+          "registeredByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "weightSurchargeCents": {
+            "integerValue": "0"
+          },
+          "dispatchedAt": {
+            "timestampValue": "2026-11-03T19:01:30.154Z"
+          },
+          "paidAt": {
+            "stringValue": "2026-11-03T19:01:29.330Z"
+          },
+          "paidCashierName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "totalWeightKg": {
+            "integerValue": "2"
+          },
+          "priceAdjustedByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "originBranchId": {
+            "stringValue": "punata"
+          },
+          "paidCashierUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "priceAdjustmentReason": {
+            "stringValue": "Descuento fidelidad cliente frecuente"
+          },
+          "sender": {
+            "mapValue": {
+              "fields": {
+                "docNumber": {
+                  "stringValue": "7890123"
+                },
+                "phone": {
+                  "stringValue": "74755667"
+                },
+                "name": {
+                  "stringValue": "Pedro Alcocer Soto"
+                }
+              }
+            }
+          },
+          "deliveredAtIso": {
+            "stringValue": "2026-11-03T19:01:33.981Z"
+          },
+          "packageCount": {
+            "integerValue": "1"
+          },
+          "homeDeliveryFeeCents": {
+            "integerValue": "0"
+          },
+          "shippingFeeCents": {
+            "integerValue": "1500"
+          },
+          "paymentTiming": {
+            "stringValue": "origin_paid"
+          },
+          "priceAdjustedAt": {
+            "stringValue": "2026-11-03T19:01:29.330Z"
+          },
+          "finalAmountCents": {
+            "integerValue": "1200"
+          },
+          "manifestNumber": {
+            "stringValue": "MAN-PUN-2026-0002"
+          },
+          "isPriceAdjusted": {
+            "booleanValue": true
+          },
+          "prohibitedGoodsNoticeAccepted": {
+            "booleanValue": true
+          },
+          "arrivedAt": {
+            "timestampValue": "2026-11-03T19:01:32.830Z"
+          },
+          "recipient": {
+            "mapValue": {
+              "fields": {
+                "name": {
+                  "stringValue": "Lucia Vallejos Claros"
+                },
+                "phone": {
+                  "stringValue": "75766778"
+                },
+                "docNumber": {
+                  "stringValue": "8901234"
+                }
+              }
+            }
+          },
+          "updatedAt": {
+            "timestampValue": "2026-11-03T19:01:34.023Z"
+          },
+          "priceAdjustedByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "destinationBranchId": {
+            "stringValue": "cochabamba"
+          },
+          "cashShiftId": {
+            "stringValue": "TUR-PUN-2026-0002"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T19:01:29.330Z"
+          },
+          "suggestedAmountCents": {
+            "integerValue": "1500"
+          },
+          "assignedVehicle": {
+            "mapValue": {
+              "fields": {
+                "manifestId": {
+                  "stringValue": "zCe9qvEoRvy2BfgVWov6"
+                },
+                "vehicleId": {
+                  "stringValue": "qs7h1UuKqfRgCzVgFeFx"
+                },
+                "driverName": {
+                  "stringValue": "Marcelino Soto Fuentes"
+                },
+                "mobileNumber": {
+                  "stringValue": "14"
+                },
+                "vehiclePlate": {
+                  "stringValue": "2341-ABC"
+                },
+                "driverUid": {
+                  "stringValue": "Sjt5WRr350fxQubPREKd7XQwzE02"
+                }
+              }
+            }
+          },
+          "discountCents": {
+            "integerValue": "0"
+          },
+          "deliveredAt": {
+            "timestampValue": "2026-11-03T19:01:34.023Z"
+          },
+          "arrivedAtBranchId": {
+            "stringValue": "cochabamba"
+          },
+          "paymentMethod": {
+            "stringValue": "cash"
+          },
+          "paymentNotice": {
+            "nullValue": null
+          },
+          "manifestId": {
+            "stringValue": "zCe9qvEoRvy2BfgVWov6"
+          },
+          "arrivedPackages": {
+            "integerValue": "1"
+          },
+          "financialMovementId": {
+            "stringValue": "MOV-PUN202600006"
+          },
+          "deliveryRecord": {
+            "mapValue": {
+              "fields": {
+                "signatureUrl": {
+                  "stringValue": "shipments/PUN202600006/signatures/signature_1793732493535_88bf0a52.png"
+                },
+                "branchId": {
+                  "stringValue": "cochabamba"
+                },
+                "deliveredAtIso": {
+                  "stringValue": "2026-11-03T19:01:33.981Z"
+                },
+                "signature": {
+                  "mapValue": {
+                    "fields": {
+                      "mimeType": {
+                        "stringValue": "image/png"
+                      },
+                      "uploadedAtIso": {
+                        "stringValue": "2026-11-03T19:01:33.914Z"
+                      },
+                      "sha256": {
+                        "stringValue": "6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0"
+                      },
+                      "sizeBytes": {
+                        "integerValue": "70"
+                      },
+                      "storagePath": {
+                        "stringValue": "shipments/PUN202600006/signatures/signature_1793732493535_88bf0a52.png"
+                      },
+                      "verified": {
+                        "booleanValue": true
+                      }
+                    }
+                  }
+                },
+                "deliveredByRole": {
+                  "stringValue": "secretaria"
+                },
+                "deliveredByUid": {
+                  "stringValue": "se6I1SAMKabAlByXL51DJh3uclG2"
+                },
+                "deliveryChannel": {
+                  "stringValue": "agency_counter"
+                },
+                "photoEvidenceUrl": {
+                  "nullValue": null
+                },
+                "deliveredAt": {
+                  "timestampValue": "2026-11-03T19:01:34.023Z"
+                },
+                "receivedByDocNumber": {
+                  "stringValue": "8901234"
+                },
+                "receivedByDocType": {
+                  "stringValue": "CI"
+                },
+                "collectedAmountCents": {
+                  "nullValue": null
+                },
+                "recipientRelationship": {
+                  "stringValue": "titular"
+                },
+                "deliveredByName": {
+                  "stringValue": "Elena Quispe Rodriguez"
+                },
+                "authorizationNote": {
+                  "stringValue": "Entrega en ventanilla previa verificación de CI"
+                },
+                "receivedByName": {
+                  "stringValue": "Lucia Vallejos Claros"
+                },
+                "collectedByDriverUid": {
+                  "nullValue": null
+                }
+              }
+            }
+          },
+          "storageLocation": {
+            "nullValue": null
+          },
+          "agreedAmountCents": {
+            "integerValue": "1200"
+          },
+          "items": {
+            "arrayValue": {
+              "values": [
+                {
+                  "mapValue": {
+                    "fields": {
+                      "description": {
+                        "stringValue": "Caja de repostería típica de Punata"
+                      },
+                      "category": {
+                        "stringValue": "general"
+                      },
+                      "quantity": {
+                        "integerValue": "1"
+                      },
+                      "packaging": {
+                        "stringValue": "paquete"
+                      },
+                      "weightKg": {
+                        "integerValue": "2"
+                      },
+                      "isFragile": {
+                        "booleanValue": false
+                      },
+                      "isPerishable": {
+                        "booleanValue": false
+                      },
+                      "handlingNotes": {
+                        "nullValue": null
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T19:01:29.360Z"
+          },
+          "deliveryType": {
+            "stringValue": "agency"
+          },
+          "deliveryAddress": {
+            "nullValue": null
+          },
+          "id": {
+            "stringValue": "PUN202600006"
+          },
+          "registeredByBranchId": {
+            "stringValue": "punata"
+          },
+          "registeredByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "status": {
+            "stringValue": "delivered"
+          },
+          "currentLocation": {
+            "stringValue": "cochabamba"
+          },
+          "paymentStatus": {
+            "stringValue": "paid"
+          },
+          "declaredValueTotal": {
+            "integerValue": "0"
+          }
+        }
+      }
+    ]
+  },
+  "cash_shifts": {
+    "count": 3,
+    "documents": [
+      {
+        "id": "TUR-CBB-2026-0001",
+        "fields": {
+          "closedByUid": {
+            "nullValue": null
+          },
+          "initialCashCents": {
+            "integerValue": "5000"
+          },
+          "differenceCents": {
+            "nullValue": null
+          },
+          "initialCashBreakdown": {
+            "nullValue": null
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T19:00:59.268Z"
+          },
+          "differenceStatus": {
+            "nullValue": null
+          },
+          "notes": {
+            "stringValue": "Turno demostrativo agencia Cochabamba"
+          },
+          "shiftNumber": {
+            "stringValue": "TUR-CBB-2026-0001"
+          },
+          "operatorUid": {
+            "stringValue": "se6I1SAMKabAlByXL51DJh3uclG2"
+          },
+          "closedByName": {
+            "nullValue": null
+          },
+          "breakdown": {
+            "mapValue": {
+              "fields": {
+                "monthlyFeesIncomeCents": {
+                  "integerValue": "0"
+                },
+                "transferIncomeCents": {
+                  "integerValue": "0"
+                },
+                "totalIncomeCents": {
+                  "integerValue": "0"
+                },
+                "otherIncomeCents": {
+                  "integerValue": "0"
+                },
+                "cashIncomeCents": {
+                  "integerValue": "0"
+                },
+                "initialCashCents": {
+                  "integerValue": "5000"
+                },
+                "expensesCents": {
+                  "integerValue": "0"
+                },
+                "refundsCents": {
+                  "integerValue": "0"
+                },
+                "contributionsIncomeCents": {
+                  "integerValue": "0"
+                },
+                "codIncomeCents": {
+                  "integerValue": "0"
+                },
+                "shipmentsIncomeCents": {
+                  "integerValue": "0"
+                },
+                "netCashCents": {
+                  "integerValue": "5000"
+                },
+                "pendingIncomeCents": {
+                  "integerValue": "0"
+                },
+                "qrIncomeCents": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          },
+          "actualCashCents": {
+            "nullValue": null
+          },
+          "branchId": {
+            "stringValue": "cochabamba"
+          },
+          "id": {
+            "stringValue": "TUR-CBB-2026-0001"
+          },
+          "openedAtServer": {
+            "timestampValue": "2026-11-03T19:00:59.268Z"
+          },
+          "expectedCashCents": {
+            "integerValue": "5000"
+          },
+          "openedAt": {
+            "stringValue": "2026-11-03T19:00:59.145Z"
+          },
+          "closedAt": {
+            "nullValue": null
+          },
+          "status": {
+            "stringValue": "open"
+          },
+          "closingNotes": {
+            "nullValue": null
+          },
+          "updatedAt": {
+            "timestampValue": "2026-11-03T19:00:59.268Z"
+          },
+          "movementsCount": {
+            "integerValue": "1"
+          },
+          "operatorName": {
+            "stringValue": "Elena Quispe Rodriguez"
+          }
+        }
+      },
+      {
+        "id": "TUR-PUN-2026-0001",
+        "fields": {
+          "branchId": {
+            "stringValue": "punata"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T17:11:52.711Z"
+          },
+          "differenceStatus": {
+            "nullValue": null
+          },
+          "closedByUid": {
+            "nullValue": null
+          },
+          "expectedCashCents": {
+            "integerValue": "20000"
+          },
+          "initialCashCents": {
+            "integerValue": "20000"
+          },
+          "id": {
+            "stringValue": "TUR-PUN-2026-0001"
+          },
+          "initialCashBreakdown": {
+            "nullValue": null
+          },
+          "openedAt": {
+            "stringValue": "2026-11-03T17:11:52.553Z"
+          },
+          "closedAt": {
+            "nullValue": null
+          },
+          "notes": {
+            "stringValue": ""
+          },
+          "shiftNumber": {
+            "stringValue": "TUR-PUN-2026-0001"
+          },
+          "status": {
+            "stringValue": "open"
+          },
+          "breakdown": {
+            "mapValue": {
+              "fields": {
+                "netCashCents": {
+                  "integerValue": "20000"
+                },
+                "transferIncomeCents": {
+                  "integerValue": "0"
+                },
+                "initialCashCents": {
+                  "integerValue": "20000"
+                },
+                "shipmentsIncomeCents": {
+                  "integerValue": "1500"
+                },
+                "qrIncomeCents": {
+                  "integerValue": "1500"
+                },
+                "contributionsIncomeCents": {
+                  "integerValue": "0"
+                },
+                "cashIncomeCents": {
+                  "integerValue": "0"
+                },
+                "refundsCents": {
+                  "integerValue": "0"
+                },
+                "totalIncomeCents": {
+                  "integerValue": "1500"
+                },
+                "otherIncomeCents": {
+                  "integerValue": "0"
+                },
+                "pendingIncomeCents": {
+                  "integerValue": "0"
+                },
+                "expensesCents": {
+                  "integerValue": "0"
+                },
+                "codIncomeCents": {
+                  "integerValue": "0"
+                },
+                "monthlyFeesIncomeCents": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          },
+          "operatorUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "closedByName": {
+            "nullValue": null
+          },
+          "openedAtServer": {
+            "timestampValue": "2026-11-03T17:11:52.711Z"
+          },
+          "actualCashCents": {
+            "nullValue": null
+          },
+          "differenceCents": {
+            "nullValue": null
+          },
+          "operatorName": {
+            "stringValue": "Nelson"
+          },
+          "updatedAt": {
+            "timestampValue": "2026-11-03T17:11:58.751Z"
+          },
+          "movementsCount": {
+            "integerValue": "2"
+          },
+          "closingNotes": {
+            "nullValue": null
+          }
+        }
+      },
+      {
+        "id": "TUR-PUN-2026-0002",
+        "fields": {
+          "breakdown": {
+            "mapValue": {
+              "fields": {
+                "totalIncomeCents": {
+                  "integerValue": "5800"
+                },
+                "otherIncomeCents": {
+                  "integerValue": "0"
+                },
+                "refundsCents": {
+                  "integerValue": "0"
+                },
+                "contributionsIncomeCents": {
+                  "integerValue": "0"
+                },
+                "initialCashCents": {
+                  "integerValue": "10000"
+                },
+                "netCashCents": {
+                  "integerValue": "15800"
+                },
+                "pendingIncomeCents": {
+                  "integerValue": "0"
+                },
+                "cashIncomeCents": {
+                  "integerValue": "5800"
+                },
+                "qrIncomeCents": {
+                  "integerValue": "0"
+                },
+                "monthlyFeesIncomeCents": {
+                  "integerValue": "0"
+                },
+                "codIncomeCents": {
+                  "integerValue": "0"
+                },
+                "shipmentsIncomeCents": {
+                  "integerValue": "5800"
+                },
+                "expensesCents": {
+                  "integerValue": "0"
+                },
+                "transferIncomeCents": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          },
+          "openedAtServer": {
+            "timestampValue": "2026-11-03T18:59:18.427Z"
+          },
+          "notes": {
+            "stringValue": "Turno de ventanilla demostrativo Punata"
+          },
+          "id": {
+            "stringValue": "TUR-PUN-2026-0002"
+          },
+          "closedByName": {
+            "nullValue": null
+          },
+          "expectedCashCents": {
+            "integerValue": "15800"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-03T18:59:18.427Z"
+          },
+          "initialCashBreakdown": {
+            "nullValue": null
+          },
+          "movementsCount": {
+            "integerValue": "5"
+          },
+          "updatedAt": {
+            "timestampValue": "2026-11-03T19:01:29.360Z"
+          },
+          "operatorUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "initialCashCents": {
+            "integerValue": "10000"
+          },
+          "status": {
+            "stringValue": "open"
+          },
+          "differenceStatus": {
+            "nullValue": null
+          },
+          "shiftNumber": {
+            "stringValue": "TUR-PUN-2026-0002"
+          },
+          "differenceCents": {
+            "nullValue": null
+          },
+          "closedAt": {
+            "nullValue": null
+          },
+          "openedAt": {
+            "stringValue": "2026-11-03T18:59:18.185Z"
+          },
+          "operatorName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "actualCashCents": {
+            "nullValue": null
+          },
+          "closingNotes": {
+            "nullValue": null
+          },
+          "closedByUid": {
+            "nullValue": null
+          },
+          "branchId": {
+            "stringValue": "punata"
+          }
+        }
+      }
+    ]
+  },
+  "cash_movements": {
+    "count": 0,
+    "documents": []
+  },
+  "dispatch_manifests": {
+    "count": 0,
+    "documents": []
+  },
+  "driver_settlements": {
+    "count": 0,
+    "documents": []
+  },
+  "union_members": {
+    "count": 3,
+    "documents": [
+      {
+        "id": "member-soc-007",
+        "fields": {
+          "phone": {
+            "stringValue": "72345678"
+          },
+          "fullName": {
+            "stringValue": "Walter Camacho Vargas"
+          },
+          "updatedByName": {
+            "stringValue": "Nelson"
+          },
+          "memberNumber": {
+            "stringValue": "SOC-007"
+          },
+          "updatedAtIso": {
+            "stringValue": "2026-11-03T18:58:31.172Z"
+          },
+          "monthlyFeeCents": {
+            "integerValue": "5000"
+          },
+          "createdByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "createdByName": {
+            "stringValue": "Nelson"
+          },
+          "vehiclePlate": {
+            "stringValue": "1892-XYZ"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T18:58:31.172Z"
+          },
+          "updatedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "ci": {
+            "stringValue": "4892019"
+          },
+          "id": {
+            "stringValue": "member-soc-007"
+          },
+          "status": {
+            "stringValue": "active"
+          },
+          "category": {
+            "stringValue": "propietario_transporte"
+          },
+          "monthlyFeeBob": {
+            "integerValue": "50"
+          },
+          "notes": {
+            "nullValue": null
+          },
+          "joinedAt": {
+            "stringValue": "2026-11-03"
+          },
+          "assignedMobileNumber": {
+            "stringValue": "07"
+          }
+        }
+      },
+      {
+        "id": "member-soc-014",
+        "fields": {
+          "category": {
+            "stringValue": "propietario_transporte"
+          },
+          "status": {
+            "stringValue": "active"
+          },
+          "phone": {
+            "stringValue": "71234567"
+          },
+          "monthlyFeeBob": {
+            "integerValue": "50"
+          },
+          "joinedAt": {
+            "stringValue": "2026-11-03"
+          },
+          "ci": {
+            "stringValue": "3128472"
+          },
+          "monthlyFeeCents": {
+            "integerValue": "5000"
+          },
+          "assignedMobileNumber": {
+            "stringValue": "14"
+          },
+          "createdByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "vehiclePlate": {
+            "stringValue": "2341-ABC"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T18:58:30.629Z"
+          },
+          "fullName": {
+            "stringValue": "Marcelino Soto Fuentes"
+          },
+          "id": {
+            "stringValue": "member-soc-014"
+          },
+          "updatedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "createdByName": {
+            "stringValue": "Nelson"
+          },
+          "updatedByName": {
+            "stringValue": "Nelson"
+          },
+          "updatedAtIso": {
+            "stringValue": "2026-11-03T18:58:30.629Z"
+          },
+          "memberNumber": {
+            "stringValue": "SOC-014"
+          },
+          "notes": {
+            "nullValue": null
+          }
+        }
+      },
+      {
+        "id": "member-soc-022",
+        "fields": {
+          "notes": {
+            "nullValue": null
+          },
+          "updatedAtIso": {
+            "stringValue": "2026-11-03T18:58:31.660Z"
+          },
+          "memberNumber": {
+            "stringValue": "SOC-022"
+          },
+          "fullName": {
+            "stringValue": "Roberto Torrico Claros"
+          },
+          "createdByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "ci": {
+            "stringValue": "3981023"
+          },
+          "updatedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "vehiclePlate": {
+            "stringValue": "3109-DEF"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T18:58:31.660Z"
+          },
+          "monthlyFeeBob": {
+            "integerValue": "50"
+          },
+          "phone": {
+            "stringValue": "73456789"
+          },
+          "createdByName": {
+            "stringValue": "Nelson"
+          },
+          "joinedAt": {
+            "stringValue": "2026-11-03"
+          },
+          "id": {
+            "stringValue": "member-soc-022"
+          },
+          "assignedMobileNumber": {
+            "stringValue": "22"
+          },
+          "status": {
+            "stringValue": "active"
+          },
+          "category": {
+            "stringValue": "propietario_transporte"
+          },
+          "monthlyFeeCents": {
+            "integerValue": "5000"
+          },
+          "updatedByName": {
+            "stringValue": "Nelson"
+          }
+        }
+      }
+    ]
+  },
+  "union_fees": {
+    "count": 0,
+    "documents": []
+  },
+  "workers": {
+    "count": 0,
+    "documents": []
+  },
+  "general_expenses": {
+    "count": 0,
+    "documents": []
+  },
+  "fixed_assets": {
+    "count": 3,
+    "documents": [
+      {
+        "id": "1Kyclsk2wYS85Q1Tmle6",
+        "fields": {
+          "status": {
+            "stringValue": "available"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T19:18:34.254Z"
+          },
+          "name": {
+            "stringValue": "Balanza Electrónica Digital 150kg"
+          },
+          "updatedAtIso": {
+            "stringValue": "2026-11-03T19:18:34.254Z"
+          },
+          "notes": {
+            "stringValue": ""
+          },
+          "category": {
+            "stringValue": "maquinaria"
+          },
+          "createdByName": {
+            "stringValue": "Nelson"
+          },
+          "acquisitionDate": {
+            "stringValue": "2026-11-03"
+          },
+          "responsiblePersonName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "description": {
+            "stringValue": "Balanza para pesaje de encomiendas y carga pesada"
+          },
+          "createdByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "acquisitionCostCents": {
+            "integerValue": "120000"
+          },
+          "responsiblePersonUid": {
+            "nullValue": null
+          },
+          "id": {
+            "stringValue": "1Kyclsk2wYS85Q1Tmle6"
+          },
+          "photoUrl": {
+            "stringValue": ""
+          },
+          "acquisitionCostBob": {
+            "integerValue": "1200"
+          },
+          "physicalLocation": {
+            "stringValue": "Área de recepción y pesaje Punata"
+          },
+          "barcodeQr": {
+            "stringValue": "ACT-PUN-0002"
+          },
+          "assetCode": {
+            "stringValue": "ACT-PUN-0002"
+          },
+          "branchId": {
+            "stringValue": "punata"
+          }
+        }
+      },
+      {
+        "id": "7o8E7XpwQ9Xh95PIEuK1",
+        "fields": {
+          "updatedAtIso": {
+            "stringValue": "2026-11-03T19:18:34.964Z"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T19:18:34.964Z"
+          },
+          "acquisitionDate": {
+            "stringValue": "2026-11-03"
+          },
+          "branchId": {
+            "stringValue": "cochabamba"
+          },
+          "createdByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "physicalLocation": {
+            "stringValue": "Ventanilla Cochabamba"
+          },
+          "photoUrl": {
+            "stringValue": ""
+          },
+          "acquisitionCostBob": {
+            "integerValue": "850"
+          },
+          "status": {
+            "stringValue": "available"
+          },
+          "notes": {
+            "stringValue": ""
+          },
+          "assetCode": {
+            "stringValue": "ACT-CBB-0001"
+          },
+          "barcodeQr": {
+            "stringValue": "ACT-CBB-0001"
+          },
+          "id": {
+            "stringValue": "7o8E7XpwQ9Xh95PIEuK1"
+          },
+          "acquisitionCostCents": {
+            "integerValue": "85000"
+          },
+          "description": {
+            "stringValue": "Impresora térmica de alta velocidad para comprobantes y rótulos"
+          },
+          "responsiblePersonName": {
+            "stringValue": "Elena Quispe Rodriguez"
+          },
+          "responsiblePersonUid": {
+            "nullValue": null
+          },
+          "createdByName": {
+            "stringValue": "Nelson"
+          },
+          "category": {
+            "stringValue": "impresion"
+          },
+          "name": {
+            "stringValue": "Impresora Térmica Xprinter 80mm USB/Red"
+          }
+        }
+      },
+      {
+        "id": "ay1a03gJYQdMz9XhF4ER",
+        "fields": {
+          "photoUrl": {
+            "stringValue": ""
+          },
+          "acquisitionDate": {
+            "stringValue": "2026-11-03"
+          },
+          "id": {
+            "stringValue": "ay1a03gJYQdMz9XhF4ER"
+          },
+          "name": {
+            "stringValue": "Computadora Todo-en-Uno HP Ventanilla"
+          },
+          "responsiblePersonName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "createdByName": {
+            "stringValue": "Nelson"
+          },
+          "branchId": {
+            "stringValue": "punata"
+          },
+          "description": {
+            "stringValue": "Equipo de ventanilla para emisión de boletos y guías"
+          },
+          "physicalLocation": {
+            "stringValue": "Ventanilla 1 Punata"
+          },
+          "category": {
+            "stringValue": "computo"
+          },
+          "acquisitionCostCents": {
+            "integerValue": "350000"
+          },
+          "updatedAtIso": {
+            "stringValue": "2026-11-03T19:18:33.347Z"
+          },
+          "notes": {
+            "stringValue": ""
+          },
+          "status": {
+            "stringValue": "available"
+          },
+          "createdAtIso": {
+            "stringValue": "2026-11-03T19:18:33.347Z"
+          },
+          "responsiblePersonUid": {
+            "nullValue": null
+          },
+          "createdByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "acquisitionCostBob": {
+            "integerValue": "3500"
+          },
+          "barcodeQr": {
+            "stringValue": "ACT-PUN-0001"
+          },
+          "assetCode": {
+            "stringValue": "ACT-PUN-0001"
+          }
+        }
+      }
+    ]
+  },
+  "consumables": {
+    "count": 0,
+    "documents": []
+  },
+  "audit_logs": {
+    "count": 21,
+    "documents": [
+      {
+        "id": "2vAfITlThLW0K5gkYZVh",
+        "fields": {
+          "performedByUid": {
+            "stringValue": "se6I1SAMKabAlByXL51DJh3uclG2"
+          },
+          "action": {
+            "stringValue": "deliver_shipment"
+          },
+          "details": {
+            "mapValue": {
+              "fields": {
+                "deliveryChannel": {
+                  "stringValue": "agency_counter"
+                },
+                "receivedByDocNumber": {
+                  "stringValue": "8901234"
+                },
+                "signatureStoragePath": {
+                  "stringValue": "shipments/PUN202600006/signatures/signature_1793732493535_88bf0a52.png"
+                },
+                "receivedByName": {
+                  "stringValue": "Lucia Vallejos Claros"
+                },
+                "recipientRelationship": {
+                  "stringValue": "titular"
+                },
+                "trackingCode": {
+                  "stringValue": "PUN202600006"
+                },
+                "collectedByDriver": {
+                  "booleanValue": false
+                },
+                "paymentMethod": {
+                  "nullValue": null
+                },
+                "paymentCollected": {
+                  "booleanValue": false
+                }
+              }
+            }
+          },
+          "entityId": {
+            "stringValue": "PUN202600006"
+          },
+          "entityType": {
+            "stringValue": "shipment"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T19:01:34.023Z"
+          },
+          "performedByName": {
+            "stringValue": "Elena Quispe Rodriguez"
+          }
+        }
+      },
+      {
+        "id": "CL4rbXFUHXS2nP1bhKh1",
+        "fields": {
+          "action": {
+            "stringValue": "fixed_asset_created"
+          },
+          "assetId": {
+            "stringValue": "ay1a03gJYQdMz9XhF4ER"
+          },
+          "assetCode": {
+            "stringValue": "ACT-PUN-0001"
+          },
+          "performedBy": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "performedByName": {
+            "stringValue": "Nelson"
+          },
+          "timestamp": {
+            "stringValue": "2026-11-03T19:18:33.347Z"
+          },
+          "details": {
+            "stringValue": "Activo registrado: ACT-PUN-0001 - Computadora Todo-en-Uno HP Ventanilla en punata"
+          }
+        }
+      },
+      {
+        "id": "EUhwNnhKRgJdqReYtyY3",
+        "fields": {
+          "branchId": {
+            "stringValue": "punata"
+          },
+          "performedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "entityId": {
+            "stringValue": "TUR-PUN-2026-0001"
+          },
+          "performedByName": {
+            "stringValue": "Nelson"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T17:11:52.553Z"
+          },
+          "action": {
+            "stringValue": "CASH_SHIFT_OPENED"
+          },
+          "initialCashCents": {
+            "integerValue": "20000"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T17:11:52.711Z"
+          },
+          "entityType": {
+            "stringValue": "cash_shift"
+          }
+        }
+      },
+      {
+        "id": "InywfIhHmApHBTB03xTj",
+        "fields": {
+          "timestamp": {
+            "timestampValue": "2026-11-03T19:01:30.154Z"
+          },
+          "entityType": {
+            "stringValue": "manifest"
+          },
+          "action": {
+            "stringValue": "create_dispatch_manifest"
+          },
+          "entityId": {
+            "stringValue": "zCe9qvEoRvy2BfgVWov6"
+          },
+          "details": {
+            "mapValue": {
+              "fields": {
+                "totalPackages": {
+                  "integerValue": "1"
+                },
+                "mobileNumber": {
+                  "stringValue": "14"
+                },
+                "manifestNumber": {
+                  "stringValue": "MAN-PUN-2026-0002"
+                },
+                "driverName": {
+                  "stringValue": "Marcelino Soto Fuentes"
+                },
+                "totalWeightKg": {
+                  "integerValue": "2"
+                },
+                "originBranchId": {
+                  "stringValue": "punata"
+                },
+                "totalCodAmountCents": {
+                  "integerValue": "0"
+                },
+                "destinationBranchId": {
+                  "stringValue": "cochabamba"
+                },
+                "shipmentCount": {
+                  "integerValue": "1"
+                },
+                "vehiclePlate": {
+                  "stringValue": "2341-ABC"
+                },
+                "driverUid": {
+                  "stringValue": "Sjt5WRr350fxQubPREKd7XQwzE02"
+                }
+              }
+            }
+          },
+          "performedByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "performedByName": {
+            "stringValue": "Rosmery Flores Morales"
+          }
+        }
+      },
+      {
+        "id": "KaOCOXwx3DOLxgcVQpTa",
+        "fields": {
+          "assetCode": {
+            "stringValue": "ACT-PUN-0002"
+          },
+          "assetId": {
+            "stringValue": "1Kyclsk2wYS85Q1Tmle6"
+          },
+          "timestamp": {
+            "stringValue": "2026-11-03T19:18:34.254Z"
+          },
+          "performedByName": {
+            "stringValue": "Nelson"
+          },
+          "details": {
+            "stringValue": "Activo registrado: ACT-PUN-0002 - Balanza Electrónica Digital 150kg en punata"
+          },
+          "action": {
+            "stringValue": "fixed_asset_created"
+          },
+          "performedBy": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          }
+        }
+      },
+      {
+        "id": "LpqvbMUkP2fqv0w5wWuK",
+        "fields": {
+          "performedByRole": {
+            "stringValue": "directiva_admin"
+          },
+          "targetId": {
+            "stringValue": "member-soc-007"
+          },
+          "performedByName": {
+            "stringValue": "Nelson"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T18:58:31.336Z"
+          },
+          "performedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "fullName": {
+            "stringValue": "Walter Camacho Vargas"
+          },
+          "targetCollection": {
+            "stringValue": "union_members"
+          },
+          "action": {
+            "stringValue": "union_member_created"
+          },
+          "memberNumber": {
+            "stringValue": "SOC-007"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T18:58:31.172Z"
+          }
+        }
+      },
+      {
+        "id": "Mmq80533bLguJvdYL4Dq",
+        "fields": {
+          "assetCode": {
+            "stringValue": "ACT-CBB-0001"
+          },
+          "assetId": {
+            "stringValue": "7o8E7XpwQ9Xh95PIEuK1"
+          },
+          "action": {
+            "stringValue": "fixed_asset_created"
+          },
+          "details": {
+            "stringValue": "Activo registrado: ACT-CBB-0001 - Impresora Térmica Xprinter 80mm USB/Red en cochabamba"
+          },
+          "performedByName": {
+            "stringValue": "Nelson"
+          },
+          "performedBy": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "timestamp": {
+            "stringValue": "2026-11-03T19:18:34.964Z"
+          }
+        }
+      },
+      {
+        "id": "TbPa7Th9ZB9hK2UTl02q",
+        "fields": {
+          "fullName": {
+            "stringValue": "Marcelino Soto Fuentes"
+          },
+          "performedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T18:58:30.862Z"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T18:58:30.629Z"
+          },
+          "targetId": {
+            "stringValue": "member-soc-014"
+          },
+          "performedByRole": {
+            "stringValue": "directiva_admin"
+          },
+          "memberNumber": {
+            "stringValue": "SOC-014"
+          },
+          "targetCollection": {
+            "stringValue": "union_members"
+          },
+          "performedByName": {
+            "stringValue": "Nelson"
+          },
+          "action": {
+            "stringValue": "union_member_created"
+          }
+        }
+      },
+      {
+        "id": "TuJ8gF327FPuN5X8k0Gx",
+        "fields": {
+          "action": {
+            "stringValue": "union_dues_generated"
+          },
+          "periodLabel": {
+            "stringValue": "Noviembre 2026"
+          },
+          "totalAmountCents": {
+            "integerValue": "15000"
+          },
+          "generatedCount": {
+            "integerValue": "3"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T18:58:33.121Z"
+          },
+          "targetCollection": {
+            "stringValue": "union_dues"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T18:58:32.468Z"
+          },
+          "performedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "warnings": {
+            "arrayValue": {}
+          },
+          "performedByName": {
+            "stringValue": "Nelson"
+          },
+          "skippedCount": {
+            "integerValue": "0"
+          },
+          "period": {
+            "stringValue": "2026-11"
+          },
+          "performedByRole": {
+            "stringValue": "directiva_admin"
+          },
+          "warningsCount": {
+            "integerValue": "0"
+          }
+        }
+      },
+      {
+        "id": "UaZkQ2O2JfVBXZQmQIRD",
+        "fields": {
+          "performedByName": {
+            "stringValue": "Nelson"
+          },
+          "targetId": {
+            "stringValue": "member-soc-022"
+          },
+          "performedByRole": {
+            "stringValue": "directiva_admin"
+          },
+          "targetCollection": {
+            "stringValue": "union_members"
+          },
+          "memberNumber": {
+            "stringValue": "SOC-022"
+          },
+          "performedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T18:58:31.660Z"
+          },
+          "action": {
+            "stringValue": "union_member_created"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T18:58:31.827Z"
+          },
+          "fullName": {
+            "stringValue": "Roberto Torrico Claros"
+          }
+        }
+      },
+      {
+        "id": "aUvG8fBCeTtL0DQddhoa",
+        "fields": {
+          "action": {
+            "stringValue": "system_config_updated"
+          },
+          "details": {
+            "stringValue": "Actualización autoritativa de configuración oficial de Expreso Punata"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T18:58:20.481Z"
+          },
+          "performedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "performedByName": {
+            "stringValue": "Nelson"
+          }
+        }
+      },
+      {
+        "id": "aVajwWbuFl7MVfk30Wn8",
+        "fields": {
+          "action": {
+            "stringValue": "USER_PROFILE_PROVISIONED_AND_SYNCED"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T18:58:22.829Z"
+          },
+          "entityType": {
+            "stringValue": "user_profile"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T18:58:22.788Z"
+          },
+          "performedByEmail": {
+            "stringValue": "admin@expresopunata.com"
+          },
+          "id": {
+            "stringValue": "aVajwWbuFl7MVfk30Wn8"
+          },
+          "entityId": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "performedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "details": {
+            "mapValue": {
+              "fields": {
+                "email": {
+                  "stringValue": "secretaria.punata@expresopunata.com"
+                },
+                "claimsSynced": {
+                  "booleanValue": true
+                },
+                "ciProvided": {
+                  "booleanValue": true
+                },
+                "role": {
+                  "stringValue": "secretaria"
+                },
+                "isActive": {
+                  "booleanValue": true
+                },
+                "fullName": {
+                  "stringValue": "Rosmery Flores Morales"
+                },
+                "primaryBranchId": {
+                  "stringValue": "punata"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "cFDVz9MgyF4ta5ECJ3gn",
+        "fields": {
+          "entityId": {
+            "stringValue": "TUR-PUN-2026-0002"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T18:59:18.427Z"
+          },
+          "initialCashCents": {
+            "integerValue": "10000"
+          },
+          "branchId": {
+            "stringValue": "punata"
+          },
+          "performedByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "action": {
+            "stringValue": "CASH_SHIFT_OPENED"
+          },
+          "performedByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "entityType": {
+            "stringValue": "cash_shift"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T18:59:18.185Z"
+          }
+        }
+      },
+      {
+        "id": "deh676sWMuVXynq9M9hi",
+        "fields": {
+          "action": {
+            "stringValue": "driver_confirm_custody"
+          },
+          "performedByName": {
+            "stringValue": "Marcelino Soto Fuentes"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T19:00:58.266Z"
+          },
+          "performedByUid": {
+            "stringValue": "Sjt5WRr350fxQubPREKd7XQwzE02"
+          },
+          "details": {
+            "mapValue": {
+              "fields": {
+                "notes": {
+                  "stringValue": ""
+                },
+                "reason": {
+                  "nullValue": null
+                },
+                "overrideApplied": {
+                  "booleanValue": false
+                },
+                "manifestNumber": {
+                  "stringValue": "MAN-PUN-2026-0001"
+                }
+              }
+            }
+          },
+          "entityId": {
+            "stringValue": "sKTgXpgZhQDDUqoIQxAf"
+          },
+          "entityType": {
+            "stringValue": "manifest"
+          }
+        }
+      },
+      {
+        "id": "j1t8FQtgQRSVT3ZycI3a",
+        "fields": {
+          "performedByName": {
+            "stringValue": "Elena Quispe Rodriguez"
+          },
+          "entityType": {
+            "stringValue": "manifest"
+          },
+          "performedByUid": {
+            "stringValue": "se6I1SAMKabAlByXL51DJh3uclG2"
+          },
+          "details": {
+            "mapValue": {
+              "fields": {
+                "discrepancies": {
+                  "arrayValue": {}
+                },
+                "totalShipments": {
+                  "integerValue": "1"
+                },
+                "discrepanciesCount": {
+                  "integerValue": "0"
+                },
+                "destinationBranchId": {
+                  "stringValue": "cochabamba"
+                },
+                "manifestNumber": {
+                  "stringValue": "MAN-PUN-2026-0002"
+                },
+                "custodyOverrideApplied": {
+                  "booleanValue": false
+                }
+              }
+            }
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T19:01:32.830Z"
+          },
+          "action": {
+            "stringValue": "receive_dispatch_manifest"
+          },
+          "entityId": {
+            "stringValue": "zCe9qvEoRvy2BfgVWov6"
+          }
+        }
+      },
+      {
+        "id": "jp4nc3bVlGdS2rMgaOm8",
+        "fields": {
+          "action": {
+            "stringValue": "driver_confirm_custody"
+          },
+          "entityId": {
+            "stringValue": "zCe9qvEoRvy2BfgVWov6"
+          },
+          "entityType": {
+            "stringValue": "manifest"
+          },
+          "details": {
+            "mapValue": {
+              "fields": {
+                "reason": {
+                  "nullValue": null
+                },
+                "notes": {
+                  "stringValue": ""
+                },
+                "overrideApplied": {
+                  "booleanValue": false
+                },
+                "manifestNumber": {
+                  "stringValue": "MAN-PUN-2026-0002"
+                }
+              }
+            }
+          },
+          "performedByName": {
+            "stringValue": "Marcelino Soto Fuentes"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T19:01:31.379Z"
+          },
+          "performedByUid": {
+            "stringValue": "Sjt5WRr350fxQubPREKd7XQwzE02"
+          }
+        }
+      },
+      {
+        "id": "k1LuIT8cvVOtgzlL6OeK",
+        "fields": {
+          "action": {
+            "stringValue": "INITIAL_ADMIN_BOOTSTRAP_CLI"
+          },
+          "entityId": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "performedBy": {
+            "stringValue": "PACHAX_CLI_TOOL"
+          },
+          "entityType": {
+            "stringValue": "user_profile"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-02T16:13:17.403Z"
+          },
+          "details": {
+            "mapValue": {
+              "fields": {
+                "primaryBranchId": {
+                  "stringValue": "punata"
+                },
+                "email": {
+                  "stringValue": "admin@expresopunata.com"
+                },
+                "phone": {
+                  "stringValue": "75999279"
+                },
+                "ciProvided": {
+                  "booleanValue": false
+                },
+                "role": {
+                  "stringValue": "directiva_admin"
+                },
+                "fullName": {
+                  "stringValue": "Nelson"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "le2wu7TtlRyeFkobzfKs",
+        "fields": {
+          "entityType": {
+            "stringValue": "user_profile"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T18:58:24.123Z"
+          },
+          "performedByEmail": {
+            "stringValue": "admin@expresopunata.com"
+          },
+          "id": {
+            "stringValue": "le2wu7TtlRyeFkobzfKs"
+          },
+          "performedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "action": {
+            "stringValue": "USER_PROFILE_PROVISIONED_AND_SYNCED"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T18:58:24.090Z"
+          },
+          "details": {
+            "mapValue": {
+              "fields": {
+                "ciProvided": {
+                  "booleanValue": true
+                },
+                "primaryBranchId": {
+                  "stringValue": "cochabamba"
+                },
+                "email": {
+                  "stringValue": "secretaria.cbba@expresopunata.com"
+                },
+                "role": {
+                  "stringValue": "secretaria"
+                },
+                "fullName": {
+                  "stringValue": "Elena Quispe Rodriguez"
+                },
+                "isActive": {
+                  "booleanValue": true
+                },
+                "claimsSynced": {
+                  "booleanValue": true
+                }
+              }
+            }
+          },
+          "entityId": {
+            "stringValue": "se6I1SAMKabAlByXL51DJh3uclG2"
+          }
+        }
+      },
+      {
+        "id": "nQHRa9JTnKS3PoB3VG4B",
+        "fields": {
+          "action": {
+            "stringValue": "CASH_SHIFT_OPENED"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T19:00:59.268Z"
+          },
+          "entityType": {
+            "stringValue": "cash_shift"
+          },
+          "branchId": {
+            "stringValue": "cochabamba"
+          },
+          "performedByUid": {
+            "stringValue": "se6I1SAMKabAlByXL51DJh3uclG2"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T19:00:59.145Z"
+          },
+          "initialCashCents": {
+            "integerValue": "5000"
+          },
+          "performedByName": {
+            "stringValue": "Elena Quispe Rodriguez"
+          },
+          "entityId": {
+            "stringValue": "TUR-CBB-2026-0001"
+          }
+        }
+      },
+      {
+        "id": "r4zlI5UZISDrXqHGy70N",
+        "fields": {
+          "entityId": {
+            "stringValue": "sKTgXpgZhQDDUqoIQxAf"
+          },
+          "details": {
+            "mapValue": {
+              "fields": {
+                "totalCodAmountCents": {
+                  "integerValue": "0"
+                },
+                "destinationBranchId": {
+                  "stringValue": "cochabamba"
+                },
+                "mobileNumber": {
+                  "stringValue": "14"
+                },
+                "driverUid": {
+                  "stringValue": "Sjt5WRr350fxQubPREKd7XQwzE02"
+                },
+                "totalPackages": {
+                  "integerValue": "1"
+                },
+                "totalWeightKg": {
+                  "integerValue": "2"
+                },
+                "shipmentCount": {
+                  "integerValue": "1"
+                },
+                "vehiclePlate": {
+                  "stringValue": "2341-ABC"
+                },
+                "driverName": {
+                  "stringValue": "Marcelino Soto Fuentes"
+                },
+                "manifestNumber": {
+                  "stringValue": "MAN-PUN-2026-0001"
+                },
+                "originBranchId": {
+                  "stringValue": "punata"
+                }
+              }
+            }
+          },
+          "performedByName": {
+            "stringValue": "Rosmery Flores Morales"
+          },
+          "action": {
+            "stringValue": "create_dispatch_manifest"
+          },
+          "entityType": {
+            "stringValue": "manifest"
+          },
+          "performedByUid": {
+            "stringValue": "JxFhNzQAijVE8XEH6UG9O3YZQP03"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T19:00:56.722Z"
+          }
+        }
+      },
+      {
+        "id": "vJbyirmoa928ictVU4MV",
+        "fields": {
+          "entityId": {
+            "stringValue": "Sjt5WRr350fxQubPREKd7XQwzE02"
+          },
+          "action": {
+            "stringValue": "USER_PROFILE_PROVISIONED_AND_SYNCED"
+          },
+          "details": {
+            "mapValue": {
+              "fields": {
+                "isActive": {
+                  "booleanValue": true
+                },
+                "role": {
+                  "stringValue": "conductor"
+                },
+                "fullName": {
+                  "stringValue": "Marcelino Soto Fuentes"
+                },
+                "email": {
+                  "stringValue": "chofer.movil14@expresopunata.com"
+                },
+                "primaryBranchId": {
+                  "stringValue": "punata"
+                },
+                "ciProvided": {
+                  "booleanValue": true
+                },
+                "claimsSynced": {
+                  "booleanValue": true
+                }
+              }
+            }
+          },
+          "id": {
+            "stringValue": "vJbyirmoa928ictVU4MV"
+          },
+          "performedByEmail": {
+            "stringValue": "admin@expresopunata.com"
+          },
+          "entityType": {
+            "stringValue": "user_profile"
+          },
+          "timestampIso": {
+            "stringValue": "2026-11-03T18:58:25.359Z"
+          },
+          "performedByUid": {
+            "stringValue": "hqsHSQksaMfiLuoxO9EGG5PCNNJ2"
+          },
+          "timestamp": {
+            "timestampValue": "2026-11-03T18:58:25.380Z"
+          }
+        }
+      }
+    ]
+  }
+}

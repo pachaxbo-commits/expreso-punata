@@ -1,144 +1,14 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-11-03T21:53:45.992Z",
+  "generatedAt": "2026-11-03T22:56:04.887Z",
   "company": "EXPRESO PUNATA",
   "totalSections": 17,
   "totalSteps": 44,
   "sections": [
     {
-      "id": "login_profile",
-      "moduleId": "auth",
-      "title": "1. Acceso Seguro, Perfil Operativo y Sucursales",
-      "shortTitle": "Acceso y Perfil",
-      "description": "Aprende a identificarte en el sistema, reconocer tu agencia asignada y proteger tus credenciales de trabajo.",
-      "estimatedMinutes": 3,
-      "allowedRoles": [
-        "secretaria",
-        "conductor",
-        "tesoreria",
-        "encargado_agencia",
-        "directiva_admin"
-      ],
-      "steps": [
-        {
-          "id": "login_credentials",
-          "sectionId": "login_profile",
-          "order": 1,
-          "target": "[data-tutorial-target=\"header-user-badge\"]",
-          "fallbackTarget": "header",
-          "placement": "bottom",
-          "title": "Tu Identidad y Rol en Expreso Punata",
-          "whatIsIt": "Es el indicador oficial en la barra superior que muestra tu nombre completo y el rol asignado en el sistema.",
-          "whatIsItFor": "Permite confirmar que estás trabajando con tu propia cuenta y que tienes los permisos correctos para tu puesto de trabajo.",
-          "whatToWriteOrSelect": "Al iniciar sesión, introduce tu correo corporativo y tu contraseña privada. Nunca compartas tu clave con terceras personas.",
-          "example": "Si eres Secretaria en Punata, el sistema mostrará tu nombre (ej. Nelson Claros) y la insignia \"SECRETARIA\".",
-          "whatHappensAfter": "El sistema carga automáticamente tus módulos autorizados y aplica los permisos de seguridad de Expreso Punata.",
-          "importantTip": "Si necesitas ausentarte de tu ventanilla, utiliza el botón de Cerrar Sesión para evitar registros no autorizados a tu nombre.",
-          "audioScript": "Bienvenido a Expreso Punata. En la esquina superior derecha puedes verificar tu nombre de usuario y el rol operativo que tienes asignado en el sistema."
-        },
-        {
-          "id": "login_branch_indicator",
-          "sectionId": "login_profile",
-          "order": 2,
-          "target": "[data-tutorial-target=\"header-branch-badge\"]",
-          "fallbackTarget": "header",
-          "placement": "bottom",
-          "title": "Agencia Asignada y Conmutación de Sucursal",
-          "whatIsIt": "Es la insignia o selector que identifica la sucursal física en la cual estás operando en este momento.",
-          "whatIsItFor": "Garantiza que todas las encomiendas, cobranzas de caja y despachos queden vinculados estrictamente a la agencia correcta.",
-          "whatToWriteOrSelect": "Para secretarias y encargados, la agencia es fija según su contrato (Agencia Central Punata o Cochabamba). Los administradores pueden alternar libremente.",
-          "example": "Si trabajas en la Calle Sucre de Punata, verás \"Agencia Central Punata\". Si la directiva inspecciona la agencia Cochabamba en Av. República, seleccionará esa sucursal.",
-          "whatHappensAfter": "La caja activa, el catálogo de almacén y las tarifas se configuran automáticamente para la sucursal seleccionada.",
-          "importantTip": "Las secretarias nunca deben cambiar de agencia sin autorización administrativa previa desde el módulo de usuarios.",
-          "audioScript": "Observa la agencia activa en la barra superior. Todos los cobros y guías que registres quedarán asentados en la caja de esta sucursal."
-        },
-        {
-          "id": "login_profile_options",
-          "sectionId": "login_profile",
-          "order": 3,
-          "target": "[data-tutorial-target=\"header-profile-btn\"]",
-          "fallbackTarget": "header",
-          "placement": "bottom",
-          "title": "Mi Perfil y Medidas de Seguridad",
-          "whatIsIt": "Un botón de acceso rápido para consultar tus datos de usuario, tu fecha de creación y el estado de tu cuenta.",
-          "whatIsItFor": "Sirve para comprobar la seguridad de tu sesión y solicitar restablecimientos de clave autorizados si es necesario.",
-          "whatToWriteOrSelect": "Haz clic en el botón con tu inicial para abrir la ficha de perfil.",
-          "example": "La secretaria en Agencia Central Punata consulta su perfil oficial y verifica su estado activo en Expreso Punata.",
-          "whatHappensAfter": "Se abre una ventana modal con el detalle completo de tus permisos y opciones de seguridad.",
-          "importantTip": "Si sospechas que alguien conoce tu contraseña, solicita inmediatamente un restablecimiento a la Administración general.",
-          "audioScript": "Al pulsar sobre tu perfil podrás revisar tus datos registrados y confirmar que tu cuenta se encuentra debidamente protegida."
-        }
-      ]
-    },
-    {
-      "id": "panel_navigation",
-      "moduleId": "navigation",
-      "title": "2. Panel Principal y Navegación Operativa",
-      "shortTitle": "Panel y Menú",
-      "description": "Conoce la barra superior, la navegación de pestañas y los indicadores en tiempo real de Expreso Punata.",
-      "estimatedMinutes": 3,
-      "allowedRoles": [
-        "secretaria",
-        "conductor",
-        "tesoreria",
-        "encargado_agencia",
-        "directiva_admin"
-      ],
-      "steps": [
-        {
-          "id": "nav_brand_bar",
-          "sectionId": "panel_navigation",
-          "order": 1,
-          "target": "[data-tutorial-target=\"header-brand\"]",
-          "fallbackTarget": "header",
-          "placement": "bottom",
-          "title": "Identidad Institucional de Expreso Punata",
-          "whatIsIt": "La cabecera oficial con los colores verde y amarillo representativos de la empresa interprovincial Punata - Cochabamba.",
-          "whatIsItFor": "Identifica la plataforma oficial de trabajo y el entorno en el cual estás operando.",
-          "whatToWriteOrSelect": "No requiere seleccionar nada; es un componente institucional siempre visible en computadoras y celulares.",
-          "example": "Muestra \"EXPRESO PUNATA\" con el lema del servicio interprovincial entre Punata y Cochabamba.",
-          "whatHappensAfter": "Proporciona consistencia visual en todas las pantallas del sistema.",
-          "importantTip": "Verifica siempre que la dirección en tu navegador comience con https para garantizar una conexión cifrada y segura.",
-          "audioScript": "La barra institucional te acompaña en todo momento, confirmando que te encuentras en el sistema web oficial de Expreso Punata."
-        },
-        {
-          "id": "nav_tabs_menu",
-          "sectionId": "panel_navigation",
-          "order": 2,
-          "target": "[data-tutorial-target=\"nav-tabs-bar\"]",
-          "fallbackTarget": "header",
-          "placement": "bottom",
-          "title": "Barra de Pestañas y Módulos Autorizados",
-          "whatIsIt": "El menú principal de navegación con desplazamiento táctil horizontal en celulares y acceso directo en computadoras.",
-          "whatIsItFor": "Te permite cambiar instantáneamente entre Encomiendas, Almacén, Manifiestos, Caja, Socios, Personal y Reportes.",
-          "whatToWriteOrSelect": "Haz clic o toca la pestaña del módulo al que deseas ingresar.",
-          "example": "Si necesitas cobrar un envío, pulsa en \"Caja del Turno\". Si vas a recibir paquetes del Móvil 14, pulsa en \"Módulos de Almacén\".",
-          "whatHappensAfter": "La vista principal cambia de inmediato sin recargar toda la página web.",
-          "importantTip": "Solo verás las pestañas correspondientes a tu rol de trabajo. Por ejemplo, un conductor solo ve Despachos y Reportes.",
-          "audioScript": "En la barra de pestañas encontrarás los módulos disponibles para tu labor diaria. Puedes desplazarte horizontalmente tanto en PC como en tu celular."
-        },
-        {
-          "id": "nav_tutorial_btn",
-          "sectionId": "panel_navigation",
-          "order": 3,
-          "target": "[data-tutorial-target=\"header-tutorial-btn\"]",
-          "fallbackTarget": "header",
-          "placement": "bottom",
-          "title": "Centro de Tutoriales Siempre Accesible",
-          "whatIsIt": "El botón destacado \"Tutorial\" que te permite abrir este Centro de Aprendizaje en cualquier momento.",
-          "whatIsItFor": "Permite repasar cualquier función, consultar pasos específicos o reanudar tu capacitación donde la dejaste.",
-          "whatToWriteOrSelect": "Haz clic en \"Tutorial\" cuando tengas dudas sobre cómo completar un trámite en ventanilla.",
-          "example": "En ventanilla de Punata, una secretaria repasa cómo registrar un envío especial hacia Cochabamba abriendo el tutorial.",
-          "whatHappensAfter": "Se abre el diálogo interactivo con las opciones de recorrido guiado, sin afectar los datos que tengas en pantalla.",
-          "importantTip": "El tutorial nunca registra cobros ni envíos reales por accidente; puedes practicar con total confianza.",
-          "audioScript": "Siempre que tengas una duda, puedes hacer clic en el botón Tutorial para acceder a explicaciones detalladas con ejemplos de la vida real."
-        }
-      ]
-    },
-    {
       "id": "shipments_window",
       "moduleId": "shipments",
-      "title": "3. Ventanilla de Encomiendas: Registro y Formulario 50/50",
+      "title": "1. Ventanilla de Encomiendas: Registro y Formulario 50/50",
       "shortTitle": "Nueva Encomienda",
       "description": "Aprende a emitir encomiendas, registrar remitente y destinatario con datos bolivianos y detallar la carga.",
       "estimatedMinutes": 5,
@@ -243,12 +113,14 @@
             "tab": "shipments"
           }
         }
-      ]
+      ],
+      "category": "operational",
+      "isOptional": false
     },
     {
       "id": "shipments_pricing",
       "moduleId": "shipments",
-      "title": "4. Tarifas, Precio Acordado Editable y Cobro",
+      "title": "2. Tarifas, Precio Acordado Editable y Cobro",
       "shortTitle": "Tarifas y Cobro",
       "description": "Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y seleccionar pagos en origen o contraentrega (COD).",
       "estimatedMinutes": 4,
@@ -326,7 +198,7 @@
           "whatIsIt": "El botón final para confirmar el registro, generar el número correlativo alfanumérico e imprimir los comprobantes térmicos.",
           "whatIsItFor": "Cierra el registro en el sistema, asienta el movimiento en caja y genera el ticket para entregar al cliente y pegar en el bulto.",
           "whatToWriteOrSelect": "Revisa el resumen final en pantalla y pulsa \"Registrar Encomienda\". Luego selecciona imprimir ticket de 80mm.",
-          "example": "El sistema genera la guía \"PNT-2026-0042\". Se imprimen 2 tickets térmicos: copia remitente y etiqueta de paquete con código QR.",
+          "example": "El sistema genera la guía \"PNT-2026-0042\" en Punata. Se imprimen 2 tickets térmicos: copia remitente y etiqueta de paquete con código QR.",
           "whatHappensAfter": "La encomienda aparece en la lista con estado \"Recibida en Origen\", lista para ser despachada al camión.",
           "importantTip": "Pega siempre la etiqueta con cinta transparente sobre una superficie visible del paquete para agilizar su escaneo en ruta.",
           "audioScript": "Al hacer clic en Registrar Encomienda, se genera la guía oficial con su código único y podrás imprimir los comprobantes para el cliente.",
@@ -334,12 +206,14 @@
             "tab": "shipments"
           }
         }
-      ]
+      ],
+      "category": "operational",
+      "isOptional": false
     },
     {
       "id": "shipments_lifecycle",
       "moduleId": "shipments",
-      "title": "5. Seguimiento, Búsqueda, Edición Auditada y Entrega con Firma",
+      "title": "3. Seguimiento, Búsqueda, Edición Auditada y Entrega con Firma",
       "shortTitle": "Búsqueda y Entrega",
       "description": "Aprende a buscar encomiendas por guía o cliente, gestionar incidencias y efectuar la entrega formal con firma digital.",
       "estimatedMinutes": 4,
@@ -406,12 +280,14 @@
             "tab": "shipments"
           }
         }
-      ]
+      ],
+      "category": "operational",
+      "isOptional": false
     },
     {
       "id": "cash_management",
       "moduleId": "cash",
-      "title": "6. Caja del Turno, Cobros, Egresos y Arqueo Físico",
+      "title": "4. Caja del Turno, Cobros, Egresos y Arqueo Físico",
       "shortTitle": "Caja del Turno",
       "description": "Aprende a abrir tu turno de caja, controlar cobros de encomiendas, registrar egresos menores y realizar el arqueo de billetes y monedas.",
       "estimatedMinutes": 5,
@@ -498,12 +374,69 @@
             "tab": "cash"
           }
         }
-      ]
+      ],
+      "category": "operational",
+      "isOptional": false
+    },
+    {
+      "id": "storage_management",
+      "moduleId": "storage",
+      "title": "5. Módulos de Almacén: Estantes y Ubicación Física",
+      "shortTitle": "Almacén y Estantes",
+      "description": "Aprende a recepcionar carga que llega de viaje, ubicarla en estantes codificados y localizarla para entrega rápida.",
+      "estimatedMinutes": 4,
+      "allowedRoles": [
+        "secretaria",
+        "encargado_agencia",
+        "directiva_admin"
+      ],
+      "steps": [
+        {
+          "id": "storage_reception_tab",
+          "sectionId": "storage_management",
+          "order": 1,
+          "target": "[data-tutorial-target=\"storage-reception-list\"]",
+          "fallbackTarget": "main",
+          "placement": "bottom",
+          "title": "Recepción de Encomiendas Llegadas de Viaje",
+          "whatIsIt": "La lista de paquetes que acaban de llegar en un manifiesto interprovincial y esperan ser guardados en almacén.",
+          "whatIsItFor": "Permite cotejar que los bultos descargados del minibús coincidan exactamente con lo que el chofer transportó.",
+          "whatToWriteOrSelect": "Revisa la carga descargada y pulsa \"Recepcionar en Almacén\" para cada guía confirmada.",
+          "example": "Llega el Móvil 14 a Cochabamba con 14 bultos. La encargada verifica cada caja y marca su ingreso al almacén local.",
+          "whatHappensAfter": "La encomienda cambia su estado a \"Recibida en Destino (Almacén)\" y el sistema envía aviso de retiro al destinatario.",
+          "importantTip": "Si falta algún bulto de la lista, regístralo inmediatamente como incidencia antes de liberar al conductor.",
+          "audioScript": "Al llegar el vehículo a la sucursal, coteja los bultos descargados y marca su recepción en almacén para habilitar su retiro.",
+          "requiredContext": {
+            "tab": "storage"
+          }
+        },
+        {
+          "id": "storage_rack_assignment",
+          "sectionId": "storage_management",
+          "order": 2,
+          "target": "[data-tutorial-target=\"storage-racks-grid\"]",
+          "fallbackTarget": "[data-tutorial-target=\"storage-reception-list\"]",
+          "placement": "top",
+          "title": "Asignación de Estante y Módulo Físico",
+          "whatIsIt": "El mapa interactivo de estanterías de la agencia (ej. Estante A - Nivel 2, Estante B - Paquetes Grandes).",
+          "whatIsItFor": "Permite saber exactamente en qué rincón de la oficina se guardó cada caja para no perder tiempo buscándola.",
+          "whatToWriteOrSelect": "Selecciona la encomienda y asígnale un estante disponible (ej. \"Estante A-3\"). Coloca físicamente el bulto en ese lugar.",
+          "example": "En almacén Cochabamba, el sobre PNT-0042 se guarda en \"Estante A - Módulo 2\" para entrega inmediata.",
+          "whatHappensAfter": "La ubicación queda registrada en la ficha de la encomienda y se muestra en la pantalla de entrega.",
+          "importantTip": "Coloca siempre los paquetes más pesados en los niveles inferiores de las estanterías para evitar accidentes de trabajo.",
+          "audioScript": "Asigna a cada bulto un estante y módulo físico. De este modo, cualquier secretaria sabrá de inmediato dónde encontrarlo.",
+          "requiredContext": {
+            "tab": "storage"
+          }
+        }
+      ],
+      "category": "operational",
+      "isOptional": false
     },
     {
       "id": "dispatch_manifests",
       "moduleId": "manifests",
-      "title": "7. Despachos, Manifiestos de Carga y Ruta Interprovincial",
+      "title": "6. Despachos, Manifiestos de Carga y Ruta Interprovincial",
       "shortTitle": "Despachos y Ruta",
       "description": "Aprende a agrupar encomiendas en un manifiesto oficial, asignar conductor y vehículo, registrar la salida y recibir la carga en destino.",
       "estimatedMinutes": 5,
@@ -594,13 +527,15 @@
             "subTab": "manifests"
           }
         }
-      ]
+      ],
+      "category": "operational",
+      "isOptional": false
     },
     {
       "id": "driver_commissions",
       "moduleId": "manifests",
       "subModuleId": "commisiones",
-      "title": "8. Comisiones de Conductores y Rendición de Ruta",
+      "title": "7. Comisiones de Conductores y Rendición de Ruta",
       "shortTitle": "Comisiones Choferes",
       "description": "Aprende cómo se calculan las comisiones por fletes, la diferencia con el dinero COD custodiado y cómo liquidar saldos.",
       "estimatedMinutes": 4,
@@ -671,65 +606,14 @@
             "subTab": "commisiones"
           }
         }
-      ]
-    },
-    {
-      "id": "storage_management",
-      "moduleId": "storage",
-      "title": "9. Módulos de Almacén: Estantes y Ubicación Física",
-      "shortTitle": "Almacén y Estantes",
-      "description": "Aprende a recepcionar carga que llega de viaje, ubicarla en estantes codificados y localizarla para entrega rápida.",
-      "estimatedMinutes": 4,
-      "allowedRoles": [
-        "secretaria",
-        "encargado_agencia",
-        "directiva_admin"
       ],
-      "steps": [
-        {
-          "id": "storage_reception_tab",
-          "sectionId": "storage_management",
-          "order": 1,
-          "target": "[data-tutorial-target=\"storage-reception-list\"]",
-          "fallbackTarget": "main",
-          "placement": "bottom",
-          "title": "Recepción de Encomiendas Llegadas de Viaje",
-          "whatIsIt": "La lista de paquetes que acaban de llegar en un manifiesto interprovincial y esperan ser guardados en almacén.",
-          "whatIsItFor": "Permite cotejar que los bultos descargados del minibús coincidan exactamente con lo que el chofer transportó.",
-          "whatToWriteOrSelect": "Revisa la carga descargada y pulsa \"Recepcionar en Almacén\" para cada guía confirmada.",
-          "example": "Llega el Móvil 14 a Cochabamba con 14 bultos. La encargada verifica cada caja y marca su ingreso al almacén local.",
-          "whatHappensAfter": "La encomienda cambia su estado a \"Recibida en Destino (Almacén)\" y el sistema envía aviso de retiro al destinatario.",
-          "importantTip": "Si falta algún bulto de la lista, regístralo inmediatamente como incidencia antes de liberar al conductor.",
-          "audioScript": "Al llegar el vehículo a la sucursal, coteja los bultos descargados y marca su recepción en almacén para habilitar su retiro.",
-          "requiredContext": {
-            "tab": "storage"
-          }
-        },
-        {
-          "id": "storage_rack_assignment",
-          "sectionId": "storage_management",
-          "order": 2,
-          "target": "[data-tutorial-target=\"storage-racks-grid\"]",
-          "fallbackTarget": "[data-tutorial-target=\"storage-reception-list\"]",
-          "placement": "top",
-          "title": "Asignación de Estante y Módulo Físico",
-          "whatIsIt": "El mapa interactivo de estanterías de la agencia (ej. Estante A - Nivel 2, Estante B - Paquetes Grandes).",
-          "whatIsItFor": "Permite saber exactamente en qué rincón de la oficina se guardó cada caja para no perder tiempo buscándola.",
-          "whatToWriteOrSelect": "Selecciona la encomienda y asígnale un estante disponible (ej. \"Estante A-3\"). Coloca físicamente el bulto en ese lugar.",
-          "example": "En almacén Cochabamba, el sobre PNT-0042 se guarda en \"Estante A - Módulo 2\" para entrega inmediata.",
-          "whatHappensAfter": "La ubicación queda registrada en la ficha de la encomienda y se muestra en la pantalla de entrega.",
-          "importantTip": "Coloca siempre los paquetes más pesados en los niveles inferiores de las estanterías para evitar accidentes de trabajo.",
-          "audioScript": "Asigna a cada bulto un estante y módulo físico. De este modo, cualquier secretaria sabrá de inmediato dónde encontrarlo.",
-          "requiredContext": {
-            "tab": "storage"
-          }
-        }
-      ]
+      "category": "operational",
+      "isOptional": false
     },
     {
       "id": "union_members",
       "moduleId": "dues",
-      "title": "10. Socios y Mensualidades de Mantenimiento",
+      "title": "8. Socios y Mensualidades de Mantenimiento",
       "shortTitle": "Socios y Aportes",
       "description": "Aprende a administrar el padrón de socios afiliados, emitir cuotas mensuales de sostenimiento y recaudar aportes en caja.",
       "estimatedMinutes": 4,
@@ -776,12 +660,14 @@
             "tab": "dues"
           }
         }
-      ]
+      ],
+      "category": "operational",
+      "isOptional": false
     },
     {
       "id": "workers_expenses",
       "moduleId": "workers",
-      "title": "11. Personal de Agencia y Gastos Operativos",
+      "title": "9. Personal de Agencia y Gastos Operativos",
       "shortTitle": "Personal y Gastos",
       "description": "Aprende a registrar al personal de ventanilla y cargadores, emitir anticipos de sueldo y asentar gastos de alquiler, luz y agua.",
       "estimatedMinutes": 4,
@@ -829,13 +715,15 @@
             "tab": "workers"
           }
         }
-      ]
+      ],
+      "category": "operational",
+      "isOptional": false
     },
     {
       "id": "fixed_assets",
       "moduleId": "assets",
       "subModuleId": "fixed",
-      "title": "12. Inventario de Bienes Fijos y Equipamiento",
+      "title": "10. Inventario de Bienes Fijos y Equipamiento",
       "shortTitle": "Bienes Fijos",
       "description": "Aprende a catalogar los activos de la empresa (balanzas, escritorios, computadoras) y controlar traslados y mantenimientos.",
       "estimatedMinutes": 3,
@@ -865,13 +753,15 @@
             "subTab": "fixed"
           }
         }
-      ]
+      ],
+      "category": "operational",
+      "isOptional": false
     },
     {
       "id": "consumables_inventory",
       "moduleId": "assets",
       "subModuleId": "consumables",
-      "title": "13. Control de Consumibles e Insumos Operativos",
+      "title": "11. Control de Consumibles e Insumos Operativos",
       "shortTitle": "Insumos de Agencia",
       "description": "Aprende a controlar las existencias de rollos térmicos de 80mm/58mm, guías de envío y cinta de embalaje con alertas de stock mínimo.",
       "estimatedMinutes": 3,
@@ -901,12 +791,14 @@
             "subTab": "consumables"
           }
         }
-      ]
+      ],
+      "category": "operational",
+      "isOptional": false
     },
     {
       "id": "reports_analytics",
       "moduleId": "reports",
-      "title": "14. Reportes, Estadísticas y Exportación Excel / PDF",
+      "title": "12. Reportes, Estadísticas y Exportación Excel / PDF",
       "shortTitle": "Reportes y Cifras",
       "description": "Aprende a generar informes de fletes, arqueos, comisiones y utilidades, filtrando por sucursal y exportando a planillas Excel.",
       "estimatedMinutes": 4,
@@ -956,13 +848,185 @@
             "tab": "reports"
           }
         }
-      ]
+      ],
+      "category": "operational",
+      "isOptional": false
+    },
+    {
+      "id": "printers_tickets",
+      "moduleId": "config",
+      "subModuleId": "printers",
+      "title": "13. Impresoras Térmicas, Formatos y Protocolo RawBT",
+      "shortTitle": "Impresoras y Tickets",
+      "description": "Aprende cómo funciona el motor de impresión PACHAX Printing Core, formatos térmicos de 80mm y 58mm y opciones en PC y celular.",
+      "estimatedMinutes": 3,
+      "allowedRoles": [
+        "directiva_admin"
+      ],
+      "steps": [
+        {
+          "id": "printers_profiles_setup",
+          "sectionId": "printers_tickets",
+          "order": 1,
+          "target": "[data-tutorial-target=\"printers-config-panel\"]",
+          "fallbackTarget": "main",
+          "placement": "bottom",
+          "title": "Perfiles de Impresión y Formato Térmico (80mm / 58mm)",
+          "whatIsIt": "El panel de configuración del motor de impresión para tickets de ventanilla, comprobantes de caja y etiquetas adhesivas.",
+          "whatIsItFor": "Permite adaptar la salida de impresión al ancho de rollo de la impresora térmica instalada en la computadora o celular.",
+          "whatToWriteOrSelect": "Selecciona el formato predeterminado para tu agencia: \"Térmico 80mm\" (estándar de ventanilla) o \"Térmico 58mm\" (móvil).",
+          "example": "En ventanilla de Punata se utiliza una impresora térmica Xprinter de 80mm con corte automático de papel.",
+          "whatHappensAfter": "Todos los tickets generados se renderizan exactamente en el ancho del rollo sin márgenes desperdiciados.",
+          "importantTip": "Si imprimes desde un teléfono Android, el sistema soporta la apertura directa mediante la aplicación gratuita RawBT.",
+          "audioScript": "Configura tus impresoras térmicas eligiendo el ancho de 80 o 58 milímetros para imprimir tickets y etiquetas con código QR nítido.",
+          "requiredContext": {
+            "tab": "config",
+            "subTab": "printers"
+          }
+        }
+      ],
+      "category": "operational",
+      "isOptional": false
+    },
+    {
+      "id": "login_profile",
+      "moduleId": "auth",
+      "title": "14. Acceso Seguro, Perfil Operativo y Sucursales (Opcional)",
+      "shortTitle": "Acceso y Perfil",
+      "description": "Aprende a identificarte en el sistema, reconocer tu agencia asignada y proteger tus credenciales de trabajo.",
+      "estimatedMinutes": 3,
+      "allowedRoles": [
+        "secretaria",
+        "conductor",
+        "tesoreria",
+        "encargado_agencia",
+        "directiva_admin"
+      ],
+      "steps": [
+        {
+          "id": "login_credentials",
+          "sectionId": "login_profile",
+          "order": 1,
+          "target": "[data-tutorial-target=\"header-user-badge\"]",
+          "fallbackTarget": "header",
+          "placement": "bottom",
+          "title": "Tu Identidad y Rol en Expreso Punata",
+          "whatIsIt": "Es el indicador oficial en la barra superior que muestra tu nombre completo y el rol asignado en el sistema.",
+          "whatIsItFor": "Permite confirmar que estás trabajando con tu propia cuenta y que tienes los permisos correctos para tu puesto de trabajo.",
+          "whatToWriteOrSelect": "Al iniciar sesión, introduce tu correo corporativo y tu contraseña privada. Nunca compartas tu clave con terceras personas.",
+          "example": "Si eres Secretaria en Punata, el sistema mostrará tu nombre (ej. Nelson Claros) y la insignia \"SECRETARIA\".",
+          "whatHappensAfter": "El sistema carga automáticamente tus módulos autorizados y aplica los permisos de seguridad de Expreso Punata.",
+          "importantTip": "Si necesitas ausentarte de tu ventanilla, utiliza el botón de Cerrar Sesión para evitar registros no autorizados a tu nombre.",
+          "audioScript": "Bienvenido a Expreso Punata. En la esquina superior derecha puedes verificar tu nombre de usuario y el rol operativo que tienes asignado en el sistema."
+        },
+        {
+          "id": "login_branch_indicator",
+          "sectionId": "login_profile",
+          "order": 2,
+          "target": "[data-tutorial-target=\"header-branch-badge\"]",
+          "fallbackTarget": "header",
+          "placement": "bottom",
+          "title": "Agencia Asignada y Conmutación de Sucursal",
+          "whatIsIt": "Es la insignia o selector que identifica la sucursal física en la cual estás operando en este momento.",
+          "whatIsItFor": "Garantiza que todas las encomiendas, cobranzas de caja y despachos queden vinculados estrictamente a la agencia correcta.",
+          "whatToWriteOrSelect": "Para secretarias y encargados, la agencia es fija según su contrato (Agencia Central Punata o Cochabamba). Los administradores pueden alternar libremente.",
+          "example": "Si trabajas en la Calle Sucre de Punata, verás \"Agencia Central Punata\". Si la directiva inspecciona la agencia Cochabamba en Av. República, seleccionará esa sucursal.",
+          "whatHappensAfter": "La caja activa, el catálogo de almacén y las tarifas se configuran automáticamente para la sucursal seleccionada.",
+          "importantTip": "Las secretarias nunca deben cambiar de agencia sin autorización administrativa previa desde el módulo de usuarios.",
+          "audioScript": "Observa la agencia activa en la barra superior. Todos los cobros y guías que registres quedarán asentados en la caja de esta sucursal."
+        },
+        {
+          "id": "login_profile_options",
+          "sectionId": "login_profile",
+          "order": 3,
+          "target": "[data-tutorial-target=\"header-profile-btn\"]",
+          "fallbackTarget": "header",
+          "placement": "bottom",
+          "title": "Mi Perfil y Medidas de Seguridad",
+          "whatIsIt": "Un botón de acceso rápido para consultar tus datos de usuario, tu fecha de creación y el estado de tu cuenta.",
+          "whatIsItFor": "Sirve para comprobar la seguridad de tu sesión y solicitar restablecimientos de clave autorizados si es necesario.",
+          "whatToWriteOrSelect": "Haz clic en el botón con tu inicial para abrir la ficha de perfil.",
+          "example": "La secretaria en Agencia Central Punata consulta su perfil oficial y verifica su estado activo en Expreso Punata.",
+          "whatHappensAfter": "Se abre una ventana modal con el detalle completo de tus permisos y opciones de seguridad.",
+          "importantTip": "Si sospechas que alguien conoce tu contraseña, solicita inmediatamente un restablecimiento a la Administración general.",
+          "audioScript": "Al pulsar sobre tu perfil podrás revisar tus datos registrados y confirmar que tu cuenta se encuentra debidamente protegida."
+        }
+      ],
+      "category": "configuration",
+      "isOptional": true
+    },
+    {
+      "id": "panel_navigation",
+      "moduleId": "navigation",
+      "title": "15. Panel Principal y Navegación Operativa (Opcional)",
+      "shortTitle": "Panel y Menú",
+      "description": "Conoce la barra superior, la navegación de pestañas y los indicadores en tiempo real de Expreso Punata.",
+      "estimatedMinutes": 3,
+      "allowedRoles": [
+        "secretaria",
+        "conductor",
+        "tesoreria",
+        "encargado_agencia",
+        "directiva_admin"
+      ],
+      "steps": [
+        {
+          "id": "nav_brand_bar",
+          "sectionId": "panel_navigation",
+          "order": 1,
+          "target": "[data-tutorial-target=\"header-brand\"]",
+          "fallbackTarget": "header",
+          "placement": "bottom",
+          "title": "Identidad Institucional de Expreso Punata",
+          "whatIsIt": "La cabecera oficial con los colores verde y amarillo representativos de la empresa interprovincial Punata - Cochabamba.",
+          "whatIsItFor": "Identifica la plataforma oficial de trabajo y el entorno en el cual estás operando.",
+          "whatToWriteOrSelect": "No requiere seleccionar nada; es un componente institucional siempre visible en computadoras y celulares.",
+          "example": "Muestra \"EXPRESO PUNATA\" con el lema del servicio interprovincial entre Punata y Cochabamba.",
+          "whatHappensAfter": "Proporciona consistencia visual en todas las pantallas del sistema.",
+          "importantTip": "Verifica siempre que la dirección en tu navegador comience con https para garantizar una conexión cifrada y segura.",
+          "audioScript": "La barra institucional te acompaña en todo momento, confirmando que te encuentras en el sistema web oficial de Expreso Punata."
+        },
+        {
+          "id": "nav_tabs_menu",
+          "sectionId": "panel_navigation",
+          "order": 2,
+          "target": "[data-tutorial-target=\"nav-tabs-bar\"]",
+          "fallbackTarget": "header",
+          "placement": "bottom",
+          "title": "Barra de Pestañas y Módulos Autorizados",
+          "whatIsIt": "El menú principal de navegación con desplazamiento táctil horizontal en celulares y acceso directo en computadoras.",
+          "whatIsItFor": "Te permite cambiar instantáneamente entre Encomiendas, Almacén, Manifiestos, Caja, Socios, Personal y Reportes.",
+          "whatToWriteOrSelect": "Haz clic o toca la pestaña del módulo al que deseas ingresar.",
+          "example": "Si necesitas cobrar un envío, pulsa en \"Caja del Turno\". Si vas a recibir paquetes del Móvil 14, pulsa en \"Módulos de Almacén\".",
+          "whatHappensAfter": "La vista principal cambia de inmediato sin recargar toda la página web.",
+          "importantTip": "Solo verás las pestañas correspondientes a tu rol de trabajo. Por ejemplo, un conductor solo ve Despachos y Reportes.",
+          "audioScript": "En la barra de pestañas encontrarás los módulos disponibles para tu labor diaria. Puedes desplazarte horizontalmente tanto en PC como en tu celular."
+        },
+        {
+          "id": "nav_tutorial_btn",
+          "sectionId": "panel_navigation",
+          "order": 3,
+          "target": "[data-tutorial-target=\"header-tutorial-btn\"]",
+          "fallbackTarget": "header",
+          "placement": "bottom",
+          "title": "Centro de Tutoriales Siempre Accesible",
+          "whatIsIt": "El botón destacado \"Tutorial\" que te permite abrir este Centro de Aprendizaje en cualquier momento.",
+          "whatIsItFor": "Permite repasar cualquier función, consultar pasos específicos o reanudar tu capacitación donde la dejaste.",
+          "whatToWriteOrSelect": "Haz clic en \"Tutorial\" cuando tengas dudas sobre cómo completar un trámite en ventanilla.",
+          "example": "En ventanilla de Punata, una secretaria repasa cómo registrar un envío especial hacia Cochabamba abriendo el tutorial.",
+          "whatHappensAfter": "Se abre el diálogo interactivo con las opciones de recorrido guiado, sin afectar los datos que tengas en pantalla.",
+          "importantTip": "El tutorial nunca registra cobros ni envíos reales por accidente; puedes practicar con total confianza.",
+          "audioScript": "Siempre que tengas una duda, puedes hacer clic en el botón Tutorial para acceder a explicaciones detalladas con ejemplos de la vida real."
+        }
+      ],
+      "category": "configuration",
+      "isOptional": true
     },
     {
       "id": "admin_users",
       "moduleId": "config",
       "subModuleId": "users",
-      "title": "15. Administración de Usuarios, Roles y Permisos RBAC",
+      "title": "16. Administración de Usuarios, Roles y Permisos RBAC (Opcional)",
       "shortTitle": "Usuarios y Permisos",
       "description": "Aprende a dar de alta operadores, asignarles sucursal obligatoria, gestionar permisos de directiva y restablecer claves con seguridad.",
       "estimatedMinutes": 4,
@@ -1010,13 +1074,15 @@
             "subTab": "users"
           }
         }
-      ]
+      ],
+      "category": "configuration",
+      "isOptional": true
     },
     {
       "id": "system_config",
       "moduleId": "config",
       "subModuleId": "general",
-      "title": "16. Configuración Empresarial, Tarifas y Parámetros Oficiales",
+      "title": "17. Configuración Empresarial, Tarifas y Parámetros Oficiales (Opcional)",
       "shortTitle": "Configuración Oficial",
       "description": "Aprende a configurar la identidad de la empresa, actualizar las tarifas base sugeridas y gobernar los parámetros del sistema.",
       "estimatedMinutes": 4,
@@ -1064,41 +1130,9 @@
             "subTab": "tariffs"
           }
         }
-      ]
-    },
-    {
-      "id": "printers_tickets",
-      "moduleId": "config",
-      "subModuleId": "printers",
-      "title": "17. Impresoras Térmicas, Formatos y Protocolo RawBT",
-      "shortTitle": "Impresoras y Tickets",
-      "description": "Aprende cómo funciona el motor de impresión PACHAX Printing Core, formatos térmicos de 80mm y 58mm y opciones en PC y celular.",
-      "estimatedMinutes": 3,
-      "allowedRoles": [
-        "directiva_admin"
       ],
-      "steps": [
-        {
-          "id": "printers_profiles_setup",
-          "sectionId": "printers_tickets",
-          "order": 1,
-          "target": "[data-tutorial-target=\"printers-config-panel\"]",
-          "fallbackTarget": "main",
-          "placement": "bottom",
-          "title": "Perfiles de Impresión y Formato Térmico (80mm / 58mm)",
-          "whatIsIt": "El panel de configuración del motor de impresión para tickets de ventanilla, comprobantes de caja y etiquetas adhesivas.",
-          "whatIsItFor": "Permite adaptar la salida de impresión al ancho de rollo de la impresora térmica instalada en la computadora o celular.",
-          "whatToWriteOrSelect": "Selecciona el formato predeterminado para tu agencia: \"Térmico 80mm\" (estándar de ventanilla) o \"Térmico 58mm\" (móvil).",
-          "example": "En ventanilla de Punata se utiliza una impresora térmica Xprinter de 80mm con corte automático de papel.",
-          "whatHappensAfter": "Todos los tickets generados se renderizan exactamente en el ancho del rollo sin márgenes desperdiciados.",
-          "importantTip": "Si imprimes desde un teléfono Android, el sistema soporta la apertura directa mediante la aplicación gratuita RawBT.",
-          "audioScript": "Configura tus impresoras térmicas eligiendo el ancho de 80 o 58 milímetros para imprimir tickets y etiquetas con código QR nítido.",
-          "requiredContext": {
-            "tab": "config",
-            "subTab": "printers"
-          }
-        }
-      ]
+      "category": "configuration",
+      "isOptional": true
     }
   ]
 }
