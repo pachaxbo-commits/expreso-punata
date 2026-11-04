@@ -146,8 +146,8 @@ export const LoginView: React.FC = () => {
               <ShieldCheck className="w-3.5 h-3.5 text-[#facc15]" />
               <span>Sistema Seguro de Encomiendas & Ventanilla</span>
             </div>
-            <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-amber-400 text-amber-950 shadow-xs">
-              Entorno Oficial de Demostración
+            <span className="text-[10px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full bg-emerald-900/80 text-emerald-300 border border-emerald-700/60 shadow-xs">
+              Sistema Operativo Oficial • Producción Web 1.0
             </span>
           </div>
         </div>
