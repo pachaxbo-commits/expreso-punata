@@ -2780,6 +2780,11 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
     photo = null,
   } = request.data || {}
 
+  const storagePhotosEnabled = process.env.STORAGE_PHOTOS_ENABLED === 'true'
+  if (photo && !storagePhotosEnabled) {
+    throw new HttpsError('failed-precondition', 'Las fotografías de almacenamiento no están habilitadas para la versión básica.')
+  }
+
   if (!shipmentId || typeof shipmentId !== 'string') {
     throw new HttpsError('invalid-argument', 'Debe especificar el ID de la encomienda.')
   }

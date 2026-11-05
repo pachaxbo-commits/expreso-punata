@@ -7,12 +7,12 @@ import {
   Clock,
   AlertCircle,
   Move,
-  Camera,
 } from 'lucide-react'
 import type { Shipment, Branch, UserProfile } from '../../types/index.ts'
 import { assignShipmentStorageThroughBackend, getShipmentStoragePhotoUrl, uploadShipmentStoragePhoto, manageShelfThroughBackend } from '../../services/dispatchService.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import { printShipmentStorageLabelPdf } from '../../services/pdfService.ts'
+import { storagePhotosEnabled } from '../../config/features.ts'
 
 interface StorageManagementViewProps {
   currentUser: UserProfile
@@ -198,6 +198,7 @@ export const StorageManagementView: React.FC<StorageManagementViewProps> = ({
 
   useEffect(() => {
     let cancelled = false
+    if (!storagePhotosEnabled) return () => { cancelled = true }
     storedShipments.forEach((shipment) => {
       const path = shipment.storagePhoto?.storagePath
       if (path && !photoUrls[shipment.id]) {
@@ -595,7 +596,7 @@ export const StorageManagementView: React.FC<StorageManagementViewProps> = ({
                       {s.storageLocation?.floorNumber && <span> / Piso {s.storageLocation.floorNumber}</span>}
                       {s.storageLocation?.spaceNumber && <span> / Espacio {s.storageLocation.spaceNumber}</span>}
                     </div>
-                    {photoUrls[s.id] && <img src={photoUrls[s.id]} alt={`Evidencia ${s.trackingCode}`} className="mt-2 h-16 w-16 rounded-lg object-cover border border-slate-200" />}
+                    {storagePhotosEnabled && photoUrls[s.id] && <img src={photoUrls[s.id]} alt={`Evidencia ${s.trackingCode}`} className="mt-2 h-16 w-16 rounded-lg object-cover border border-slate-200" />}
                   </div>
 
                   <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end shrink-0">
@@ -728,12 +729,12 @@ export const StorageManagementView: React.FC<StorageManagementViewProps> = ({
                 </label>
               </div>
 
-              <div className="rounded-lg border border-dashed border-slate-300 p-3">
-                <label className="flex items-center gap-2 font-bold text-slate-700 mb-2"><Camera className="w-4 h-4 text-[#064e3b]" /> Fotografía de evidencia (opcional)</label>
+              {storagePhotosEnabled && <div className="rounded-lg border border-dashed border-slate-300 p-3">
+                <label className="block font-bold text-slate-700 mb-2">Fotografía de evidencia (opcional)</label>
                 <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(e) => handlePhotoSelected(e.target.files?.[0])} className="w-full text-xs" />
                 <p className="mt-1 text-[10px] text-slate-500">JPG, PNG o WebP, máximo 2 MB. Se guarda en Firebase Storage.</p>
                 {photoPreviewUrl && <img src={photoPreviewUrl} alt="Vista previa de la encomienda" className="mt-2 h-24 w-24 rounded-lg object-cover border border-slate-200" />}
-              </div>
+              </div>}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
                 <button
