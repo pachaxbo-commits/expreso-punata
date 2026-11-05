@@ -281,6 +281,9 @@ export interface Shipment {
     operatorName: string
     operatorRole: string
     reason: string
+    branchId?: string
+    previousStatus?: string
+    newStatus?: string
     previousValues: Record<string, any>
     newValues: Record<string, any>
   }>

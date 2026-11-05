@@ -782,6 +782,51 @@ export const updateShipment = onCall({ cors: true }, async (request) => {
   })
 })
 
+/** Anulación lógica de encomiendas antes de despacho y sin movimientos financieros. */
+export const cancelShipment = onCall({ cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión para anular encomiendas.')
+  const callerUid = request.auth.uid
+  const callerSnap = await db.collection('users').doc(callerUid).get()
+  const caller = callerSnap.data() || {}
+  if (!callerSnap.exists || caller.isActive === false || !['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para anular encomiendas.')
+  }
+  const { trackingCode, reason } = request.data || {}
+  if (typeof trackingCode !== 'string' || trackingCode.trim().length < 6) throw new HttpsError('invalid-argument', 'Código de guía requerido.')
+  if (typeof reason !== 'string' || reason.trim().length < 5) throw new HttpsError('invalid-argument', 'El motivo de anulación es obligatorio (mínimo 5 caracteres).')
+  const shipmentRef = db.collection('shipments').doc(trackingCode.trim())
+  const nowIso = new Date().toISOString()
+  return db.runTransaction(async (transaction) => {
+    const shipmentSnap = await transaction.get(shipmentRef)
+    if (!shipmentSnap.exists) throw new HttpsError('not-found', 'No existe la encomienda indicada.')
+    const current = shipmentSnap.data() || {}
+    const allowedBranches = caller.allowedBranchIds || [caller.primaryBranchId]
+    if (caller.role !== 'directiva_admin' && !allowedBranches.includes(current.originBranchId) && !allowedBranches.includes(current.destinationBranchId)) {
+      throw new HttpsError('permission-denied', 'No tiene permisos sobre la sucursal de esta encomienda.')
+    }
+    if (current.status === 'cancelled') throw new HttpsError('already-exists', 'La encomienda ya está anulada.')
+    if (current.paymentStatus === 'paid' || current.cashShiftId || current.manifestId || current.deliveryRecord || !['received', 'pending_dispatch'].includes(current.status)) {
+      throw new HttpsError('failed-precondition', 'Solo pueden anularse encomiendas sin pagos, despacho, custodia ni entrega y antes de salir de origen.')
+    }
+    const auditEntry = {
+      action: 'cancel_shipment', trackingCode: trackingCode.trim(), reason: reason.trim(),
+      operatorUid: callerUid, operatorName: caller.fullName || 'Operador', operatorRole: caller.role,
+      branchId: caller.primaryBranchId || current.originBranchId, changedAt: nowIso,
+      previousStatus: current.status, newStatus: 'cancelled', financialReferences: [],
+    }
+    const auditHistory = Array.isArray(current.auditHistory) ? current.auditHistory : []
+    transaction.update(shipmentRef, {
+      status: 'cancelled', cancelledAtIso: nowIso, cancelledByUid: callerUid,
+      cancelledByName: caller.fullName || 'Operador', cancellationReason: reason.trim(),
+      previousStatus: current.status, updatedAt: FieldValue.serverTimestamp(), updatedAtIso: nowIso,
+      auditHistory: [...auditHistory, auditEntry],
+    })
+    transaction.set(db.collection('audit_logs').doc(), { ...auditEntry, createdAt: FieldValue.serverTimestamp(), entityType: 'shipment' })
+    transaction.set(shipmentRef.collection('audit_logs').doc(), { ...auditEntry, createdAt: FieldValue.serverTimestamp() })
+    return { success: true, trackingCode: trackingCode.trim(), status: 'cancelled', auditEntry }
+  })
+})
+
 /**
  * Cloud Function Callable para aprovisionamiento seguro de perfiles de usuario.
  * Solo puede ser ejecutada por usuarios con rol 'directiva_admin' activo.

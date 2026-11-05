@@ -51,6 +51,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   const [step, setStep] = useState<number>(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
   const [createdShipment, setCreatedShipment] = useState<Shipment | null>(null)
   const [copiedCode, setCopiedCode] = useState(false)
 
@@ -172,6 +173,38 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
     effectiveFinalAmountCents >= 0 &&
     (!isZeroPrice || priceAdjustmentReason.trim().length >= 3)
 
+  const validateStep = (targetStep: number) => {
+    const errors: Record<string, string> = {}
+    if (targetStep === 1) {
+      if (originBranchId === destinationBranchId) errors.route = 'Selecciona sucursales de origen y destino diferentes.'
+      if (deliveryType === 'home' && deliveryAddress.trim().length < 4) errors.deliveryAddress = 'Ingresa la dirección de entrega.'
+    }
+    if (targetStep === 2) {
+      if (sender.name.trim().length < 2) errors.senderName = 'Ingresa el nombre del remitente.'
+      if (sender.phone.trim().length < 5) errors.senderPhone = 'Ingresa el teléfono del remitente.'
+      if (recipient.name.trim().length < 2) errors.recipientName = 'Ingresa el nombre del destinatario.'
+      if (recipient.phone.trim().length < 5) errors.recipientPhone = 'Ingresa el teléfono del destinatario.'
+    }
+    if (targetStep === 3) {
+      items.forEach((item, index) => { if (item.description.trim().length < 2) errors[`item-${index}`] = 'Ingresa la descripción del bulto.' })
+      if (!prohibitedNoticeAccepted) errors.prohibited = 'Debes aceptar la declaración de contenido.'
+      if (customPriceError) errors.price = customPriceError
+    }
+    if (targetStep === 4 && !canProceedStep4) errors.payment = 'Completa y revisa los datos antes de emitir la guía.'
+    setValidationErrors(errors)
+    const first = Object.keys(errors)[0]
+    if (first) document.getElementById(`shipment-${first}`)?.focus()
+    return Object.keys(errors).length === 0
+  }
+
+  const handleNextStep = () => {
+    if (validateStep(step)) setStep(s => s + 1)
+  }
+
+  const clearValidationError = (field: string) => {
+    if (validationErrors[field]) setValidationErrors(prev => { const next = { ...prev }; delete next[field]; return next })
+  }
+
   const handleAddItem = () => {
     setItems(prev => [
       ...prev,
@@ -223,6 +256,10 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   // Envío final transaccional al backend con protección de concurrencia y validación estricta
   const handleSubmitShipment = async () => {
     if (isSubmitting) return
+    if (!validateStep(1) || !validateStep(2) || !validateStep(3) || !validateStep(4)) {
+      setErrorMessage('Corrige los campos marcados antes de emitir la guía.')
+      return
+    }
     if (!canProceedStep4) {
       setErrorMessage(customPriceError || 'Por favor verifique los datos del envío antes de continuar.')
       return
@@ -474,10 +511,12 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                     <input
                       type="text"
                       value={deliveryAddress}
-                      onChange={e => setDeliveryAddress(e.target.value)}
+                      onChange={e => { setDeliveryAddress(e.target.value); clearValidationError('deliveryAddress') }}
                       placeholder="Calle, número, zona o referencias..."
-                      className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-[#064e3b]"
+                      id="shipment-deliveryAddress"
+                      className={`w-full text-xs rounded-lg p-2.5 focus:ring-2 focus:ring-[#064e3b] ${validationErrors.deliveryAddress ? 'border-rose-500 ring-1 ring-rose-300' : 'border border-slate-300'}`}
                     />
+                    {validationErrors.deliveryAddress && <p className="text-[11px] text-rose-700 mt-1">{validationErrors.deliveryAddress}</p>}
                   </div>
                 )}
               </div>
@@ -536,10 +575,12 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                     <input
                       type="text"
                       value={sender.name}
-                      onChange={e => setSender({ ...sender, name: e.target.value })}
+                      onChange={e => { setSender({ ...sender, name: e.target.value }); clearValidationError('senderName') }}
                       placeholder="Ej. Juan Pérez"
-                      className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-[#064e3b]"
+                      id="shipment-senderName"
+                      className={`w-full text-xs rounded-lg p-2.5 focus:ring-2 focus:ring-[#064e3b] ${validationErrors.senderName ? 'border-rose-500 ring-1 ring-rose-300' : 'border border-slate-300'}`}
                     />
+                    {validationErrors.senderName && <p className="text-[11px] text-rose-700 mt-1">{validationErrors.senderName}</p>}
                   </div>
 
                   <div>
@@ -549,10 +590,12 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                     <input
                       type="tel"
                       value={sender.phone}
-                      onChange={e => setSender({ ...sender, phone: e.target.value })}
+                      onChange={e => { setSender({ ...sender, phone: e.target.value }); clearValidationError('senderPhone') }}
                       placeholder="Ej. 71712345"
-                      className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-[#064e3b]"
+                      id="shipment-senderPhone"
+                      className={`w-full text-xs rounded-lg p-2.5 focus:ring-2 focus:ring-[#064e3b] ${validationErrors.senderPhone ? 'border-rose-500 ring-1 ring-rose-300' : 'border border-slate-300'}`}
                     />
+                    {validationErrors.senderPhone && <p className="text-[11px] text-rose-700 mt-1">{validationErrors.senderPhone}</p>}
                   </div>
                 </div>
 
@@ -628,10 +671,12 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                     <input
                       type="text"
                       value={recipient.name}
-                      onChange={e => setRecipient({ ...recipient, name: e.target.value })}
+                      onChange={e => { setRecipient({ ...recipient, name: e.target.value }); clearValidationError('recipientName') }}
                       placeholder="Ej. María López"
-                      className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-[#064e3b]"
+                      id="shipment-recipientName"
+                      className={`w-full text-xs rounded-lg p-2.5 focus:ring-2 focus:ring-[#064e3b] ${validationErrors.recipientName ? 'border-rose-500 ring-1 ring-rose-300' : 'border border-slate-300'}`}
                     />
+                    {validationErrors.recipientName && <p className="text-[11px] text-rose-700 mt-1">{validationErrors.recipientName}</p>}
                   </div>
 
                   <div>
@@ -641,10 +686,12 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                     <input
                       type="tel"
                       value={recipient.phone}
-                      onChange={e => setRecipient({ ...recipient, phone: e.target.value })}
+                      onChange={e => { setRecipient({ ...recipient, phone: e.target.value }); clearValidationError('recipientPhone') }}
                       placeholder="Ej. 72234567"
-                      className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-[#064e3b]"
+                      id="shipment-recipientPhone"
+                      className={`w-full text-xs rounded-lg p-2.5 focus:ring-2 focus:ring-[#064e3b] ${validationErrors.recipientPhone ? 'border-rose-500 ring-1 ring-rose-300' : 'border border-slate-300'}`}
                     />
+                    {validationErrors.recipientPhone && <p className="text-[11px] text-rose-700 mt-1">{validationErrors.recipientPhone}</p>}
                   </div>
                 </div>
 
@@ -1156,13 +1203,8 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
             {step < 4 ? (
               <button
                 type="button"
-                disabled={
-                  (step === 1 && !canProceedStep1) ||
-                  (step === 2 && !canProceedStep2) ||
-                  (step === 3 && !canProceedStep3)
-                }
-                onClick={() => setStep(s => s + 1)}
-                className="px-5 py-2 bg-[#064e3b] hover:bg-[#065f46] disabled:bg-slate-300 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5 transition-all"
+                onClick={handleNextStep}
+                className="px-5 py-2 bg-[#064e3b] hover:bg-[#065f46] text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1.5 transition-all"
               >
                 <span>Siguiente</span>
                 <ArrowRight className="w-4 h-4" />
