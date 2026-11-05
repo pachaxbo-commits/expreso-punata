@@ -64,18 +64,18 @@ No se detectaron conflictos activos. El conflicto anterior en `src/app/App.tsx` 
 | Typecheck | Aprobada | `npm run typecheck` |
 | Unitarias | Aprobada, 50/50 | `npm test -- --run` |
 | Build | Aprobada | `npm run build` |
-| Revisión de reglas | Revisada estáticamente; ejecución aislada pendiente en esta sesión | `firestore.rules`, `storage.rules` |
-| Functions Emulator | Pendiente de nueva ejecución aislada | El emulador no pudo iniciar de forma estable en esta sesión |
-| Flujo UI completo | Pendiente | Requiere emuladores activos y validación manual en navegador |
-| Flujo de almacenamiento/fotografía/traslado/impresión | Evidencia previa existente en `scripts/verify-storage-print.mjs`; no se marca como nueva ejecución de esta sesión | Script aislado del repositorio |
+| Firestore Rules | Aprobada, 17/17 | Ejecución aislada con `firebase-tools` y Emulator |
+| Functions Emulator | Aprobada, 111/111 | Auth, Firestore y Storage Emulator |
+| Storage Rules | Aplicadas durante el flujo de Storage y revisadas estáticamente; no existe suite independiente | `storage.rules` |
+| Flujo UI completo | Pendiente | Requiere validación manual en navegador |
+| Flujo de almacenamiento/fotografía/traslado/impresión | Aprobado | `verify-storage-print.mjs`: foto, 2 movimientos, historial y duplicado rechazado |
 
 ## Riesgos y pendientes antes de publicar
 
-1. Repetir Functions, Firestore Rules y Storage Rules con emuladores aislados y puertos libres.
-2. Ejecutar desde la interfaz el flujo de buscar, ubicar, fotografiar, trasladar, imprimir y entregar.
-3. Investigar el timeout de metadata observado al ejecutar `scripts/verify-storage-print.mjs` sin una instancia de emuladores disponible.
-4. Revisar la advertencia de bundle grande de Vite; no bloquea el build, pero conviene evaluar code-splitting posteriormente.
-5. No considerar esta revisión como aprobación de publicación hasta recibir la respuesta explícita de ChatGPT/equipo.
+1. Ejecutar desde la interfaz el flujo de buscar, ubicar, fotografiar, trasladar, imprimir y entregar.
+2. El timeout de metadata queda como advertencia no bloqueante del SDK; las pruebas usaron Emulator y terminaron correctamente.
+3. Revisar la advertencia de bundle grande de Vite; no bloquea el build, pero conviene evaluar code-splitting posteriormente.
+4. No considerar esta revisión como aprobación de publicación hasta recibir la respuesta explícita de ChatGPT/equipo.
 
 ## Recomendación
 
