@@ -21,7 +21,7 @@ import type { Shipment, UserProfile } from '../../types'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { printShipmentGuidePdf, printDeliveryProofPdf } from '../../services/pdfService'
 import { printEngine } from '../../services/printing/printEngineService'
-import { updateShipmentThroughBackend } from '../../services/shipmentService'
+import { cancelShipmentThroughBackend, updateShipmentThroughBackend } from '../../services/shipmentService'
 import { reportShipmentIncident } from '../../services/incidentService'
 
 interface ShipmentDetailModalProps {
@@ -50,6 +50,10 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   const [incidentEvidenceUrl, setIncidentEvidenceUrl] = useState('')
   const [isSubmittingIncident, setIsSubmittingIncident] = useState(false)
   const [incidentSuccess, setIncidentSuccess] = useState<string | null>(null)
+  const [showCancelDialog, setShowCancelDialog] = useState(false)
+  const [cancellationReason, setCancellationReason] = useState('')
+  const [cancellationError, setCancellationError] = useState<string | null>(null)
+  const [isCancelling, setIsCancelling] = useState(false)
 
 
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false)
@@ -122,6 +126,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   const isDelivered = shipment.status === 'delivered'
   const canEdit = currentUser.role === 'directiva_admin' || currentUser.role === 'encargado_agencia' || (!isDelivered && currentUser.role === 'secretaria' && (isOriginBranch || isDestBranch))
   const canDeliver = !isDelivered && ['received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery'].includes(shipment.status) && (currentBranchId === shipment.destinationBranchId || currentUser.role === 'directiva_admin')
+  const canCancel = !isPaid && ['received', 'pending_dispatch'].includes(shipment.status) && (currentUser.role === 'directiva_admin' || isOriginBranch)
 
   const dateFormatted = shipment.createdAtIso
     ? new Date(shipment.createdAtIso).toLocaleString('es-BO', {
@@ -229,8 +234,42 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
     }
   }
 
+  const handleCancelShipment = async () => {
+    if (!shipment) return
+    if (cancellationReason.trim().length < 5) {
+      setCancellationError('Ingresa un motivo de al menos 5 caracteres.')
+      return
+    }
+    setIsCancelling(true)
+    setCancellationError(null)
+    try {
+      await cancelShipmentThroughBackend({ trackingCode: shipment.trackingCode, reason: cancellationReason.trim() })
+      onShipmentUpdated?.({ ...shipment, status: 'cancelled' as Shipment['status'], cancellationReason: cancellationReason.trim() } as Shipment)
+      setShowCancelDialog(false)
+      setCancellationReason('')
+    } catch (err) {
+      setCancellationError(err instanceof Error ? err.message : 'No se pudo anular la encomienda.')
+    } finally {
+      setIsCancelling(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+      {showCancelDialog && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4">
+            <h3 className="font-black text-slate-900">Anular encomienda {shipment.trackingCode}</h3>
+            <p className="text-xs text-slate-600">Estado actual: <strong>{shipment.status}</strong>. La operación será lógica y quedará registrada para administración.</p>
+            <textarea autoFocus value={cancellationReason} onChange={e => { setCancellationReason(e.target.value); setCancellationError(null) }} placeholder="Motivo obligatorio de la anulación" className={`w-full min-h-24 p-3 text-sm rounded-lg border ${cancellationError ? 'border-rose-500' : 'border-slate-300'}`} />
+            {cancellationError && <p className="text-xs text-rose-700 font-semibold">{cancellationError}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowCancelDialog(false)} className="px-3 py-2 border rounded-lg text-xs font-bold">Cancelar</button>
+              <button type="button" disabled={isCancelling} onClick={handleCancelShipment} className="px-3 py-2 bg-rose-700 text-white rounded-lg text-xs font-bold">{isCancelling ? 'Anulando...' : 'Confirmar anulación'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Encabezado Institucional */}
         <div className="bg-[#064e3b] text-white px-5 py-4 flex items-center justify-between shrink-0">
@@ -549,6 +588,17 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
                       <p className="text-[11px] text-amber-900 bg-amber-50 px-2 py-0.5 rounded font-medium">
                         Motivo: {item.reason}
                       </p>
+                      {(item.branchId || item.previousStatus || item.newStatus) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 text-[11px] text-slate-600 bg-slate-50 p-2 rounded">
+                          <span>Sucursal: <strong>{(item.branchId || shipment.originBranchId || '').toUpperCase()}</strong></span>
+                          {item.previousStatus && (
+                            <span>Estado anterior: <strong>{item.previousStatus}</strong></span>
+                          )}
+                          {item.newStatus && (
+                            <span>Estado nuevo: <strong>{item.newStatus}</strong></span>
+                          )}
+                        </div>
+                      )}
                       <div className="text-[10px] text-slate-500 font-mono bg-slate-50 p-2 rounded overflow-x-auto">
                         <span className="font-bold text-slate-600">Cambios:</span> {JSON.stringify(item.newValues)}
                       </div>
@@ -888,6 +938,9 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {canCancel && (
+              <button type="button" onClick={() => { setCancellationError(null); setShowCancelDialog(true) }} className="px-3 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-xl font-bold text-xs">Anular encomienda</button>
+            )}
             {canDeliver && (
               <button
                 type="button"
