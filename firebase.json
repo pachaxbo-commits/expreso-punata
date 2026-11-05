@@ -32,7 +32,7 @@
       "port": 5001
     },
     "ui": {
-      "enabled": true,
+      "enabled": false,
       "port": 4000
     },
     "singleProjectMode": true

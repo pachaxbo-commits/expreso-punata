@@ -260,6 +260,39 @@ export async function printShipmentGuidePdf(shipment: Shipment): Promise<void> {
   window.open(url, '_blank')
 }
 
+/** Genera la etiqueta interna de almacén usando la ubicación persistida de la encomienda. */
+export async function printShipmentStorageLabelPdf(shipment: Shipment): Promise<void> {
+  const location = shipment.storageLocation
+  if (!location) throw new Error('La encomienda aún no tiene una ubicación de almacén asignada.')
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, 120] })
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(13)
+  doc.text('EXPRESO PUNATA', 40, 10, { align: 'center' })
+  doc.setFontSize(9)
+  doc.text('ETIQUETA INTERNA DE ALMACÉN', 40, 17, { align: 'center' })
+  doc.setDrawColor(6, 78, 59)
+  doc.line(6, 21, 74, 21)
+  doc.setFontSize(12)
+  doc.text(`GUÍA: ${shipment.trackingCode}`, 6, 30)
+  doc.setFontSize(9)
+  doc.text(`Contenido: ${shipment.items?.[0]?.description || 'Encomienda'}`, 6, 38, { maxWidth: 68 })
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.text('UBICACIÓN FÍSICA', 6, 51)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.text(`Almacén: ${location.warehouseName || location.warehouseId || 'Almacén 1'}`, 6, 59)
+  doc.text(`Módulo: ${location.moduleNumber || location.moduleId}`, 6, 66)
+  doc.text(`Piso: ${location.floorNumber || location.rowNumber || 'N/D'}`, 6, 73)
+  doc.text(`Fila/repisa: ${location.rowNumber || 'N/D'}`, 6, 80)
+  doc.text(`Espacio: ${location.spaceNumber || location.position || 'N/D'}`, 6, 87)
+  doc.setFontSize(7)
+  doc.text(`Guardado: ${new Date(location.storedAt).toLocaleString('es-BO', { timeZone: 'America/La_Paz' })}`, 6, 98)
+  doc.text(`Responsable: ${location.storedByName}`, 6, 104, { maxWidth: 68 })
+  const url = URL.createObjectURL(doc.output('blob'))
+  window.open(url, '_blank')
+}
+
 
 /**
  * Genera el Comprobante Oficial de Arqueo y Cierre de Caja en formato Ticket Térmico de 80 mm (o 58 mm).

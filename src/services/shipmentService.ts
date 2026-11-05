@@ -69,6 +69,13 @@ export interface UpdateShipmentResult {
   message?: string
 }
 
+export interface CancelShipmentResult {
+  success: boolean
+  trackingCode: string
+  status: 'cancelled'
+  auditEntry: Record<string, unknown>
+}
+
 /**
  * Invoca la Cloud Function transaccional `createShipment` utilizando Firebase Functions.
  * Garantiza validación de roles en backend, asignación segura de guía e idempotencia.
@@ -140,6 +147,18 @@ export async function updateShipmentThroughBackend(
     const errorObj = err as { code?: string; message?: string }
     const msg = errorObj.message || 'Error al actualizar la encomienda.'
     throw new Error(msg)
+  }
+}
+
+export async function cancelShipmentThroughBackend(input: { trackingCode: string; reason: string }): Promise<CancelShipmentResult> {
+  if (!auth.currentUser) throw new Error('Debe iniciar sesión para anular una encomienda.')
+  const callable = httpsCallable<typeof input, CancelShipmentResult>(functions, 'cancelShipment')
+  try {
+    const response = await callable(input)
+    return response.data
+  } catch (err: unknown) {
+    const errorObj = err as { message?: string }
+    throw new Error(errorObj.message || 'No se pudo anular la encomienda.')
   }
 }
 

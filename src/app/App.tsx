@@ -276,7 +276,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
                 {currentBranch.name} ({currentBranch.code})
               </h2>
               <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${backendConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                {backendConnected ? 'Operativa en tiempo real' : 'Modo local'}
+                {backendConnected ? 'Operativa en tiempo real' : 'Backend desconectado — sin datos demo'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
