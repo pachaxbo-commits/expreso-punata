@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
+import { storagePhotosEnabled } from '../config/features.ts'
 import { db, functions, storage } from '../firebase/config.ts'
 import type {
   DispatchManifest,
@@ -139,6 +140,9 @@ export async function assignShipmentStorageThroughBackend(input: AssignStorageIn
 }
 
 export async function uploadShipmentStoragePhoto(shipmentId: string, file: File) {
+  if (!storagePhotosEnabled) {
+    throw new Error('Las fotografías de almacenamiento no están habilitadas para la versión básica.')
+  }
   if (!file.type.startsWith('image/')) throw new Error('La evidencia debe ser una imagen.')
   if (file.size > 2 * 1024 * 1024) throw new Error('La fotografía no puede superar 2 MB.')
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')

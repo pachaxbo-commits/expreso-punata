@@ -696,3 +696,47 @@ test('17. FASE A: BLOQUEO ESTRICTO DE ESCRITURA DIRECTA A DOCUMENTOS FINANCIEROS
   await assertFails(deleteDoc(doc(adminDb, 'fixed_assets', 'asset-1')))
   await assertFails(setDoc(doc(adminDb, 'fixed_assets', 'asset-1', 'audit_logs', 'log-1'), { action: 'hacked' }))
 })
+
+test('18. FASE A: Alcance por sucursal y auditoría de encomiendas', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    await setDoc(doc(seed, 'users', 'sec-punata-scope'), {
+      role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true,
+    })
+    await setDoc(doc(seed, 'users', 'admin-scope'), {
+      role: 'directiva_admin', primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'], isActive: true,
+    })
+    await setDoc(doc(seed, 'users', 'sec-cbba-scope'), {
+      role: 'secretaria', primaryBranchId: 'cochabamba', allowedBranchIds: ['cochabamba'], isActive: true,
+    })
+    await setDoc(doc(seed, 'users', 'inactive-scope'), {
+      role: 'directiva_admin', primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'], isActive: false,
+    })
+    await setDoc(doc(seed, 'users', 'no-role-scope'), {
+      primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true,
+    })
+    await setDoc(doc(seed, 'fixed_assets', 'asset-punata-scope'), { branchId: 'punata', assetCode: 'ACT-PUN-SCOPE' })
+    await setDoc(doc(seed, 'fixed_assets', 'asset-cbba-scope'), { branchId: 'cochabamba', assetCode: 'ACT-CBB-SCOPE' })
+    await setDoc(doc(seed, 'branch_consumables', 'consumable-punata-scope'), { branchId: 'punata', name: 'Insumo Punata' })
+    await setDoc(doc(seed, 'branch_consumables', 'consumable-cbba-scope'), { branchId: 'cochabamba', name: 'Insumo Cbba' })
+    await setDoc(doc(seed, 'shipments', 'shipment-audit-scope'), { originBranchId: 'punata', destinationBranchId: 'cochabamba' })
+    await setDoc(doc(seed, 'shipments', 'shipment-audit-scope', 'audit_logs', 'cancel-1'), { action: 'cancel_shipment' })
+  })
+
+  const punataDb = testEnv.authenticatedContext('sec-punata-scope').firestore()
+  const cbbaDb = testEnv.authenticatedContext('sec-cbba-scope').firestore()
+  const inactiveDb = testEnv.authenticatedContext('inactive-scope').firestore()
+  const noRoleDb = testEnv.authenticatedContext('no-role-scope').firestore()
+  const adminDb = testEnv.authenticatedContext('admin-scope').firestore()
+
+  await assertSucceeds(getDoc(doc(punataDb, 'fixed_assets', 'asset-punata-scope')))
+  await assertFails(getDoc(doc(punataDb, 'fixed_assets', 'asset-cbba-scope')))
+  await assertSucceeds(getDoc(doc(cbbaDb, 'branch_consumables', 'consumable-cbba-scope')))
+  await assertFails(getDoc(doc(cbbaDb, 'branch_consumables', 'consumable-punata-scope')))
+  await assertFails(getDoc(doc(inactiveDb, 'fixed_assets', 'asset-punata-scope')))
+  await assertFails(getDoc(doc(noRoleDb, 'fixed_assets', 'asset-punata-scope')))
+  await assertSucceeds(getDoc(doc(adminDb, 'fixed_assets', 'asset-cbba-scope')))
+  await assertSucceeds(getDoc(doc(adminDb, 'branch_consumables', 'consumable-punata-scope')))
+  await assertSucceeds(getDoc(doc(adminDb, 'shipments', 'shipment-audit-scope', 'audit_logs', 'cancel-1')))
+  await assertFails(setDoc(doc(adminDb, 'shipments', 'shipment-audit-scope', 'audit_logs', 'hack'), { action: 'tampered' }))
+})

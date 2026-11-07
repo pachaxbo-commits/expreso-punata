@@ -23,7 +23,9 @@ service cloud.firestore {
     
     // Rol autoritativo desde Firestore
     function getUserRole() {
-      return ('role' in getUserData()) ? getUserData().role : ('role' in request.auth.token ? request.auth.token.role : null);
+      // El rol vigente debe existir en el perfil autoritativo de Firestore.
+      // No se aceptan claims antiguos como respaldo.
+      return ('role' in getUserData()) ? getUserData().role : null;
     }
     
     function isAdmin() {
@@ -143,6 +145,19 @@ service cloud.firestore {
 
       // Subcolección: storage_moves (Historial de traslados físicos entre módulos)
       match /storage_moves/{moveId} {
+        allow read: if isActive() && (
+          isAdmin() ||
+          isTreasury() ||
+          ((isCashier() || isAgencyManager()) && (
+            isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.originBranchId) ||
+            isBranchAllowed(get(/databases/$(database)/documents/shipments/$(shipmentId)).data.destinationBranchId)
+          ))
+        );
+        allow write: if false; // Solo backend append-only
+      }
+
+      // Subcolección: audit_logs (Historial inmutable de cambios de la encomienda)
+      match /audit_logs/{auditId} {
         allow read: if isActive() && (
           isAdmin() ||
           isTreasury() ||
@@ -279,20 +294,38 @@ service cloud.firestore {
     // COLECCIÓN: branch_consumables (Inventario de insumos y consumibles)
     // =========================================================================
     match /branch_consumables/{consumableId} {
-      allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury() || isCashier());
+      allow read: if isActive() && (
+        isAdmin() || isTreasury() ||
+        ((isAgencyManager() || isCashier()) && isBranchAllowed(resource.data.branchId))
+      );
       allow write: if false; // Exclusivo de Cloud Functions (manageConsumable)
 
       match /movements/{movementId} {
-        allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury() || isCashier());
+        allow read: if isActive() && (
+          isAdmin() || isTreasury() ||
+          ((isAgencyManager() || isCashier()) && isBranchAllowed(resource.data.branchId))
+        );
         allow write: if false;
       }
+    }
+
+    // Historial de movimientos de consumibles (colección usada por la interfaz)
+    match /consumable_movements/{movementId} {
+      allow read: if isActive() && (
+        isAdmin() || isTreasury() ||
+        ((isAgencyManager() || isCashier()) && isBranchAllowed(resource.data.branchId))
+      );
+      allow write: if false;
     }
 
     // =========================================================================
     // COLECCIÓN: fixed_assets (Inventario / Bienes Fijos de Expreso Punata)
     // =========================================================================
     match /fixed_assets/{assetId} {
-      allow read: if isActive() && (isAdmin() || isAgencyManager() || isTreasury() || isCashier());
+      allow read: if isActive() && (
+        isAdmin() || isTreasury() ||
+        ((isAgencyManager() || isCashier()) && isBranchAllowed(resource.data.branchId))
+      );
       allow write: if false; // Exclusivo de Cloud Functions (manageFixedAsset)
 
       match /audit_logs/{auditId} {

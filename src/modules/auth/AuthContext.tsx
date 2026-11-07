@@ -70,12 +70,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCurrentUser(user)
 
       if (user) {
-        // Si el perfil ya coincide con el usuario autenticado (por ejemplo, cargado por signIn), no recargar
-        if (userProfile && userProfile.uid === user.uid) {
-          setIsInitializing(false)
-          return
-        }
-
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid))
           if (userDoc.exists()) {
@@ -135,7 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })
 
     return () => unsubscribe()
-  }, [userProfile])
+  }, [])
 
   /**
    * Inicio de sesión determinístico y seguro:

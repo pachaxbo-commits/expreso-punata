@@ -2825,7 +2825,9 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
     photo = null,
   } = request.data || {}
 
-  const storagePhotosEnabled = process.env.STORAGE_PHOTOS_ENABLED === 'true'
+  const featureConfig = await db.collection('system_config').doc('expreso_punata').get()
+  const storagePhotosEnabled = process.env.STORAGE_PHOTOS_ENABLED === 'true' &&
+    featureConfig.data()?.storagePhotosEnabled === true
   if (photo && !storagePhotosEnabled) {
     throw new HttpsError('failed-precondition', 'Las fotografías de almacenamiento no están habilitadas para la versión básica.')
   }

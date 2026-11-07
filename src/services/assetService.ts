@@ -3,6 +3,7 @@ import {
   collection,
   query,
   orderBy,
+  where,
   onSnapshot,
 } from 'firebase/firestore'
 import { functions, db } from '../firebase/config.ts'
@@ -43,9 +44,12 @@ export async function manageFixedAsset(input: ManageFixedAssetInput): Promise<Ma
 
 export function subscribeFixedAssets(
   onUpdate: (assets: FixedAsset[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  branchId?: 'punata' | 'cochabamba'
 ): () => void {
-  const q = query(collection(db, 'fixed_assets'), orderBy('assetCode', 'asc'))
+  const q = branchId
+    ? query(collection(db, 'fixed_assets'), where('branchId', '==', branchId), orderBy('assetCode', 'asc'))
+    : query(collection(db, 'fixed_assets'), orderBy('assetCode', 'asc'))
   return onSnapshot(
     q,
     (snap) => {

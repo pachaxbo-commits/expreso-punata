@@ -120,23 +120,29 @@ export const functions = getFunctions(app, 'us-central1')
 
 if (shouldConnectEmulators) {
   const emulatorHost = '127.0.0.1'
+  const emulatorPorts = {
+    auth: Number(import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_PORT || 9099),
+    firestore: Number(import.meta.env.VITE_FIREBASE_FIRESTORE_EMULATOR_PORT || 8080),
+    storage: Number(import.meta.env.VITE_FIREBASE_STORAGE_EMULATOR_PORT || 9199),
+    functions: Number(import.meta.env.VITE_FIREBASE_FUNCTIONS_EMULATOR_PORT || 5001),
+  }
   try {
     // Solo conectar si no han sido conectados previamente
     // @ts-expect-error internal flag
     if (!auth._emulator) {
-      connectAuthEmulator(auth, `http://${emulatorHost}:9099`, { disableWarnings: true })
+      connectAuthEmulator(auth, `http://${emulatorHost}:${emulatorPorts.auth}`, { disableWarnings: true })
     }
     // @ts-expect-error internal flag
     if (!db._settingsFrozen) {
-      connectFirestoreEmulator(db, emulatorHost, 8080)
+      connectFirestoreEmulator(db, emulatorHost, emulatorPorts.firestore)
     }
     // @ts-expect-error internal flag
     if (!storage._emulator) {
-      connectStorageEmulator(storage, emulatorHost, 9199)
+      connectStorageEmulator(storage, emulatorHost, emulatorPorts.storage)
     }
     // @ts-expect-error internal flag
     if (!functions.emulatorOrigin) {
-      connectFunctionsEmulator(functions, emulatorHost, 5001)
+      connectFunctionsEmulator(functions, emulatorHost, emulatorPorts.functions)
     }
     console.log('[Expreso Punata] Conectado a Emuladores Locales de Firebase (Auth: 9099, Firestore: 8080, Storage: 9199, Functions: 5001)')
   } catch (err) {

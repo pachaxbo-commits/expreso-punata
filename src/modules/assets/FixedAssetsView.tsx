@@ -104,6 +104,8 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
 
   // Permisos
   const canManage = ['directiva_admin', 'encargado_agencia', 'tesoreria'].includes(userProfile.role)
+  const canReadAllBranches = ['directiva_admin', 'tesoreria'].includes(userProfile.role)
+  const assetBranchScope = canReadAllBranches ? undefined : (currentBranchId === 'cochabamba' ? 'cochabamba' : 'punata')
 
   // Suscripción a Firestore en tiempo real
   useEffect(() => {
@@ -117,10 +119,11 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
         console.error('Error cargando activos fijos:', err)
         setErrorMsg('Error de conexión al cargar bienes fijos.')
         setLoading(false)
-      }
+      },
+      assetBranchScope
     )
     return () => unsubscribe()
-  }, [])
+  }, [assetBranchScope])
 
   // Suscripción a logs de auditoría cuando se abre el modal
   useEffect(() => {

@@ -41,10 +41,11 @@ const CATEGORY_LABELS: Record<ConsumableCategory, string> = {
 }
 
 export const ConsumablesManagementView: React.FC<ConsumablesManagementViewProps> = ({
-  currentUser: _currentUser,
+  currentUser,
   currentBranch,
 }) => {
-  const [selectedBranchId, setSelectedBranchId] = useState<string>(currentBranch.id)
+  const canReadAllBranches = ['directiva_admin', 'tesoreria'].includes(currentUser.role)
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(canReadAllBranches ? 'all' : currentBranch.id)
   const [items, setItems] = useState<ConsumableItem[]>([])
   const [movements, setMovements] = useState<ConsumableMovement[]>([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -250,8 +251,8 @@ export const ConsumablesManagementView: React.FC<ConsumablesManagementViewProps>
             onChange={(e) => setSelectedBranchId(e.target.value)}
             className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 outline-none"
           >
-            <option value="all">Todas las Sucursales</option>
-            {INITIAL_BRANCHES.map((b) => (
+            {canReadAllBranches && <option value="all">Todas las Sucursales</option>}
+            {(canReadAllBranches ? INITIAL_BRANCHES : INITIAL_BRANCHES.filter((b) => b.id === currentBranch.id)).map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
               </option>

@@ -236,6 +236,9 @@ async function runDeliveryLifecycle() {
 
   // 6. Almacenamiento dinámico de encomiendas recibidas en ventanilla
   console.log('6. Ubicando encomiendas físicamente en almacén dinámico...')
+  // Coordenadas temporales aisladas para evitar colisiones entre ejecuciones.
+  const isolatedLocationA = { rowNumber: 99, floorNumber: 99, spaceNumber: 99 }
+  const isolatedLocationB = { rowNumber: 98, floorNumber: 98, spaceNumber: 98 }
   const st1 = await assignShipmentStorage.run({
     auth: { uid: 'sec-cbba-deliv' },
     data: {
@@ -244,6 +247,7 @@ async function runDeliveryLifecycle() {
       shelfName: 'Estante A',
       moduleId: 'MOD-3',
       moduleNumber: 3,
+      ...isolatedLocationA,
     },
   })
   assert.equal(st1.success, true)
@@ -256,6 +260,7 @@ async function runDeliveryLifecycle() {
       shelfName: 'Estante C',
       moduleId: 'MOD-1',
       moduleNumber: 1,
+      ...isolatedLocationB,
     },
   })
   assert.equal(st2.success, true)

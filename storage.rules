@@ -39,7 +39,9 @@ service firebase.storage {
     }
 
     function canAccessShipment(shipmentId) {
-      return isAuthoritativeActiveUser() && firestore.exists(/databases/(default)/documents/shipments/$(shipmentId)) && (
+      return isAuthoritativeActiveUser() &&
+        getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria', 'conductor'] &&
+        firestore.exists(/databases/(default)/documents/shipments/$(shipmentId)) && (
         isAdmin() ||
         isTreasury() ||
         (getUserBranch() != null && (
@@ -62,7 +64,8 @@ service firebase.storage {
         getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'] ||
         (getUserRole() == 'conductor')
       ) && request.resource.size < 2 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && request.resource.contentType.matches('image/.*')
+        && firestore.get(/databases/(default)/documents/system_config/expreso_punata).data.storagePhotosEnabled == true;
       allow update, delete: if false;
     }
 
