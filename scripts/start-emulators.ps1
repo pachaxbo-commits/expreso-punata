@@ -18,6 +18,10 @@ if (!(Test-Path -LiteralPath $accountsFile) -or ((Get-Content -LiteralPath $acco
 New-Item -ItemType Directory -Force -Path $localProfile | Out-Null
 # Firebase CLI intenta usar carpetas protegidas del perfil de Windows en este entorno.
 $env:USERPROFILE = $localProfile
+$env:APPDATA = Join-Path $localProfile 'AppData'
+$env:LOCALAPPDATA = Join-Path $localProfile 'LocalAppData'
+$env:NPM_CONFIG_UPDATE_NOTIFIER = 'false'
+New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
 $env:CI = '1'
 
 Push-Location $repoRoot

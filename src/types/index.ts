@@ -245,6 +245,9 @@ export interface Shipment {
   paidCashierUid?: string
   paidCashierName?: string
   paidShiftId?: string
+  cashShiftId?: string | null
+  financialMovementId?: string | null
+  manifestId?: string | null
 
   // Asignación de conductor/vehículo
   assignedVehicle?: {
@@ -281,6 +284,9 @@ export interface Shipment {
     operatorName: string
     operatorRole: string
     reason: string
+    branchId?: string
+    previousStatus?: string
+    newStatus?: string
     previousValues: Record<string, any>
     newValues: Record<string, any>
   }>
