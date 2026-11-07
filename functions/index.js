@@ -8019,6 +8019,48 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
   throw new HttpsError('invalid-argument', `Acción '${action}' no reconocida en registerShipmentIncident.`)
 })
 
+// Registro informativo e inmutable de gestiones de contacto con destinatarios.
+export const registerShipmentContact = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (!caller || !caller.isActive) throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
+  if (!['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para registrar seguimientos.')
+  }
+  const { shipmentId, method, result, notes = '', idempotencyKey } = request.data || {}
+  const validMethods = ['phone', 'whatsapp', 'sms', 'other']
+  const validResults = ['answered', 'no_answer', 'wrong_number', 'pickup_commitment']
+  if (!shipmentId || typeof shipmentId !== 'string') throw new HttpsError('invalid-argument', 'El shipmentId es obligatorio.')
+  if (!validMethods.includes(method)) throw new HttpsError('invalid-argument', 'Medio de contacto inválido.')
+  if (!validResults.includes(result)) throw new HttpsError('invalid-argument', 'Resultado de contacto inválido.')
+  if (typeof notes !== 'string' || notes.trim().length > 500) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 500 caracteres.')
+  if (!idempotencyKey || typeof idempotencyKey !== 'string' || idempotencyKey.length < 8 || idempotencyKey.length > 100) {
+    throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
+  }
+  const shipmentRef = db.collection('shipments').doc(shipmentId)
+  const contactRef = db.collection('shipment_contacts').doc(`${caller.uid}_${idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`)
+  const nowIso = new Date().toISOString()
+  const callerBranches = Array.isArray(caller.allowedBranchIds) && caller.allowedBranchIds.length ? caller.allowedBranchIds : [caller.primaryBranchId].filter(Boolean)
+  const resultData = await db.runTransaction(async (t) => {
+    const [shipmentSnap, existingSnap] = await Promise.all([t.get(shipmentRef), t.get(contactRef)])
+    if (existingSnap.exists) return existingSnap.data()
+    if (!shipmentSnap.exists) throw new HttpsError('not-found', 'La encomienda no existe.')
+    const shipment = shipmentSnap.data() || {}
+    const shipmentBranches = [shipment.originBranchId, shipment.destinationBranchId].filter(Boolean)
+    if (caller.role !== 'directiva_admin' && !shipmentBranches.some((branch) => callerBranches.includes(branch))) {
+      throw new HttpsError('permission-denied', 'No puede registrar seguimientos de otra sucursal.')
+    }
+    const branchId = shipment.destinationBranchId || shipment.originBranchId || caller.primaryBranchId
+    const data = {
+      id: contactRef.id, shipmentId, trackingCode: shipment.trackingCode || shipmentId,
+      contactedAtIso: nowIso, method, result, notes: notes.trim(), performedByUid: caller.uid,
+      performedByName: caller.fullName || 'Operador', branchId, createdAtIso: nowIso,
+    }
+    t.create(contactRef, data)
+    return data
+  })
+  return { success: true, contact: resultData }
+})
+
 // =========================================================================
 // FASE 7: CONFIGURACIÓN OFICIAL PERSISTENTE
 // =========================================================================

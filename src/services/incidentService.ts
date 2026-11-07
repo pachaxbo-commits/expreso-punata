@@ -11,6 +11,9 @@ import { functions, db } from '../firebase/config.ts'
 import type {
   ShipmentIncident,
   ShipmentIncidentType,
+  ShipmentContact,
+  ShipmentContactMethod,
+  ShipmentContactResult,
 } from '../types/index.ts'
 
 export async function fetchShipmentIncidents(
@@ -32,6 +35,24 @@ export async function fetchShipmentIncidents(
   }
   const snap = await getDocs(q)
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ShipmentIncident))
+}
+
+export async function fetchShipmentContacts(shipmentId: string, maxRecords = 50): Promise<ShipmentContact[]> {
+  const q = query(collection(db, 'shipment_contacts'), where('shipmentId', '==', shipmentId), limit(maxRecords))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ShipmentContact)).sort((a, b) => b.contactedAtIso.localeCompare(a.contactedAtIso))
+}
+
+export async function registerShipmentContact(params: {
+  shipmentId: string
+  method: ShipmentContactMethod
+  result: ShipmentContactResult
+  notes: string
+  idempotencyKey: string
+}): Promise<{ success: boolean; contact: ShipmentContact }> {
+  const fn = httpsCallable(functions, 'registerShipmentContact')
+  const res = await fn(params)
+  return res.data as { success: boolean; contact: ShipmentContact }
 }
 
 export async function reportShipmentIncident(params: {

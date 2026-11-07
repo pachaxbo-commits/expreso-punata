@@ -187,6 +187,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /shipment_contacts/{contactId} {
+      allow read: if isActive() && (
+        isAdmin() || isTreasury() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) && isBranchAllowed(resource.data.branchId))
+      );
+      allow write: if false;
+    }
+
     // =========================================================================
     // COLECCIÓN: driver_directory (Directorio operativo público de conductores)
     // =========================================================================

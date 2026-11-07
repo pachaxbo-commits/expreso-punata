@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   X,
   Package,
@@ -23,7 +23,8 @@ import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { printShipmentGuidePdf, printDeliveryProofPdf } from '../../services/pdfService'
 import { printEngine } from '../../services/printing/printEngineService'
 import { cancelShipmentThroughBackend, updateShipmentThroughBackend } from '../../services/shipmentService'
-import { reportShipmentIncident } from '../../services/incidentService'
+import { fetchShipmentContacts, registerShipmentContact, reportShipmentIncident } from '../../services/incidentService'
+import type { ShipmentContact, ShipmentContactMethod, ShipmentContactResult } from '../../types'
 
 interface ShipmentDetailModalProps {
   shipment: Shipment | null
@@ -44,7 +45,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   onShipmentUpdated,
   onDeliverShipment,
 }) => {
-  const [activeTab, setActiveTab] = useState<'info' | 'history' | 'edit' | 'incidents'>('info')
+  const [activeTab, setActiveTab] = useState<'info' | 'history' | 'edit' | 'incidents' | 'contacts'>('info')
   const [incidentType, setIncidentType] = useState<'uncollected' | 'returned' | 'lost' | 'damaged' | 'exceptional_delivery'>('damaged')
   const [incidentDesc, setIncidentDesc] = useState('')
   const [incidentResponsible, setIncidentResponsible] = useState('')
@@ -55,6 +56,12 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   const [cancellationReason, setCancellationReason] = useState('')
   const [cancellationError, setCancellationError] = useState<string | null>(null)
   const [isCancelling, setIsCancelling] = useState(false)
+  const [contacts, setContacts] = useState<ShipmentContact[]>([])
+  const [contactMethod, setContactMethod] = useState<ShipmentContactMethod>('phone')
+  const [contactResult, setContactResult] = useState<ShipmentContactResult>('no_answer')
+  const [contactNotes, setContactNotes] = useState('')
+  const [contactLoading, setContactLoading] = useState(false)
+  const [contactMessage, setContactMessage] = useState<string | null>(null)
 
 
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false)
@@ -73,6 +80,27 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   const [editPriceBob, setEditPriceBob] = useState('')
   const [priceReason, setPriceReason] = useState('')
   const [rectificationReason, setRectificationReason] = useState('')
+
+  useEffect(() => {
+    if (!shipment?.id) return
+    fetchShipmentContacts(shipment.id).then(setContacts).catch(() => setContacts([]))
+  }, [shipment?.id])
+
+  const handleRegisterContact = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!shipment) return
+    if (contactNotes.trim().length > 500) { setContactMessage('Las observaciones no pueden superar 500 caracteres.'); return }
+    try {
+      setContactLoading(true)
+      const key = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+      const response = await registerShipmentContact({ shipmentId: shipment.id, method: contactMethod, result: contactResult, notes: contactNotes, idempotencyKey: key })
+      setContacts((current) => [response.contact, ...current])
+      setContactNotes('')
+      setContactMessage('Gestión de contacto registrada correctamente.')
+    } catch (err: any) {
+      setContactMessage(err.message || 'No se pudo registrar la gestión de contacto.')
+    } finally { setContactLoading(false) }
+  }
 
 
   const handleReportIncident = async (e: React.FormEvent) => {
@@ -321,6 +349,14 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
             >
               <FileText className="w-3.5 h-3.5" />
               <span>Detalles del Envío</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('contacts')}
+              className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-1.5 ${activeTab === 'contacts' ? 'border-[#064e3b] text-[#064e3b] bg-white' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+            >
+              <Phone className="w-3.5 h-3.5" />
+              <span>Seguimiento del destinatario ({contacts.length})</span>
             </button>
             <button
               type="button"
@@ -902,6 +938,42 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
                     <span>{isSubmittingIncident ? 'Registrando...' : 'Confirmar y Actualizar Estado'}</span>
                   </button>
                 </div>
+              </form>
+            </div>
+          )}
+
+          {activeTab === 'contacts' && (
+            <div className="space-y-4">
+              {contactMessage && <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold">{contactMessage}</div>}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider">Historial de contactos</h4>
+                {contacts.length === 0 ? <p className="text-xs text-slate-500">Todavía no hay gestiones registradas.</p> : contacts.map((contact) => (
+                  <div key={contact.id} className="p-3 bg-white border border-slate-200 rounded-lg text-xs space-y-1">
+                    <div className="flex justify-between font-bold"><span>{({ phone: 'Llamada', whatsapp: 'WhatsApp', sms: 'SMS', other: 'Otro' } as any)[contact.method]}</span><span>{new Date(contact.contactedAtIso).toLocaleString('es-BO')}</span></div>
+                    <p>Resultado: <strong>{({ answered: 'Respondió', no_answer: 'No respondió', wrong_number: 'Número incorrecto', pickup_commitment: 'Compromiso de retiro' } as any)[contact.result]}</strong></p>
+                    {contact.notes && <p className="text-slate-600">{contact.notes}</p>}
+                    <p className="text-[10px] text-slate-400">Realizado por {contact.performedByName} · Sucursal {contact.branchId}</p>
+                  </div>
+                ))}
+              </div>
+              <form onSubmit={handleRegisterContact} className="p-4 bg-blue-50/50 border border-blue-200 rounded-xl space-y-3">
+                <h4 className="text-xs font-black uppercase text-blue-900 tracking-wider">Registrar intento de contacto</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="text-xs font-bold">Medio
+                    <select value={contactMethod} onChange={(e) => setContactMethod(e.target.value as ShipmentContactMethod)} className="w-full mt-1 p-2 border rounded-lg bg-white">
+                      <option value="phone">Llamada telefónica</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="other">Otro</option>
+                    </select>
+                  </label>
+                  <label className="text-xs font-bold">Resultado
+                    <select value={contactResult} onChange={(e) => setContactResult(e.target.value as ShipmentContactResult)} className="w-full mt-1 p-2 border rounded-lg bg-white">
+                      <option value="answered">Respondió</option><option value="no_answer">No respondió</option><option value="wrong_number">Número incorrecto</option><option value="pickup_commitment">Compromiso de retiro</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="text-xs font-bold">Observaciones
+                  <textarea value={contactNotes} onChange={(e) => setContactNotes(e.target.value)} maxLength={500} rows={2} className="w-full mt-1 p-2 border rounded-lg bg-white" placeholder="Detalle breve de la gestión (opcional)" />
+                </label>
+                <button type="submit" disabled={contactLoading} className="px-4 py-2 bg-[#064e3b] text-[#facc15] rounded-lg text-xs font-bold disabled:opacity-50">{contactLoading ? 'Guardando...' : 'Registrar gestión'}</button>
               </form>
             </div>
           )}

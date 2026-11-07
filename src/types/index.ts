@@ -874,6 +874,22 @@ export interface ShipmentIncident {
   updatedAtIso: string
 }
 
+export type ShipmentContactMethod = 'phone' | 'whatsapp' | 'sms' | 'other'
+export type ShipmentContactResult = 'answered' | 'no_answer' | 'wrong_number' | 'pickup_commitment'
+export interface ShipmentContact {
+  id: string
+  shipmentId: string
+  trackingCode: string
+  contactedAtIso: string
+  method: ShipmentContactMethod
+  result: ShipmentContactResult
+  notes: string
+  performedByUid: string
+  performedByName: string
+  branchId: string
+  createdAtIso: string
+}
+
 // =========================================================================
 // FASE 7: CONFIGURACIÓN OFICIAL PERSISTENTE
 // =========================================================================

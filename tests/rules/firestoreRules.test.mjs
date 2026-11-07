@@ -47,6 +47,26 @@ test('19. Incidencias: lectura por sucursal y escritura directa bloqueada', asyn
   await assertFails(deleteDoc(doc(adminDb, 'shipment_incidents', 'incident-punata')))
 })
 
+test('20. Seguimiento de destinatarios: lectura por sucursal e historial inmutable', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    await setDoc(doc(seed, 'users', 'contact-sec-punata'), { role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true })
+    await setDoc(doc(seed, 'users', 'contact-admin'), { role: 'directiva_admin', primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'], isActive: true })
+    await setDoc(doc(seed, 'users', 'contact-inactive'), { role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: false })
+    await setDoc(doc(seed, 'shipment_contacts', 'contact-punata'), { shipmentId: 'shipment-punata', branchId: 'punata', trackingCode: 'PUN-CONTACT-1' })
+    await setDoc(doc(seed, 'shipment_contacts', 'contact-cbba'), { shipmentId: 'shipment-cbba', branchId: 'cochabamba', trackingCode: 'CBB-CONTACT-1' })
+  })
+  const secDb = testEnv.authenticatedContext('contact-sec-punata').firestore()
+  const adminDb = testEnv.authenticatedContext('contact-admin').firestore()
+  const inactiveDb = testEnv.authenticatedContext('contact-inactive').firestore()
+  await assertSucceeds(getDoc(doc(secDb, 'shipment_contacts', 'contact-punata')))
+  await assertFails(getDoc(doc(secDb, 'shipment_contacts', 'contact-cbba')))
+  await assertSucceeds(getDoc(doc(adminDb, 'shipment_contacts', 'contact-cbba')))
+  await assertFails(getDoc(doc(inactiveDb, 'shipment_contacts', 'contact-punata')))
+  await assertFails(updateDoc(doc(secDb, 'shipment_contacts', 'contact-punata'), { notes: 'tampered' }))
+  await assertFails(deleteDoc(doc(adminDb, 'shipment_contacts', 'contact-punata')))
+})
+
 after(async () => {
   if (testEnv) {
     await testEnv.cleanup()
