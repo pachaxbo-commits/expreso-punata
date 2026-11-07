@@ -61,6 +61,11 @@ export interface StorageShelf {
   name: string
   code: string
   description?: string
+  floorCount?: number
+  spaceCountPerFloor?: number
+  capacityPerSpace?: number
+  physicalWarehouseId?: string
+  physicalWarehouseName?: string
   moduleCount: number // 5 módulos por defecto
 }
 
@@ -117,14 +122,29 @@ export interface ParcelItem {
 
 export interface ParcelPhysicalLocation {
   branchId: string
+  warehouseId?: string
+  warehouseName?: string
   shelfId: string
   shelfName?: string
   moduleId: string
   moduleNumber?: number
+  rowNumber?: number
+  floorNumber?: number
+  spaceNumber?: number
   position?: string
   storedAt: string
   storedByUid: string
   storedByName: string
+}
+
+export interface StoragePhotoEvidence {
+  storagePath: string
+  contentType: string
+  sizeBytes: number
+  originalFileName?: string
+  capturedAtIso: string
+  capturedByUid: string
+  capturedByName: string
 }
 
 export interface DriverCustodyRecord {
@@ -200,6 +220,7 @@ export interface Shipment {
 
   // Ubicación física actual en almacén de destino (resumen rápido)
   storageLocation?: ParcelPhysicalLocation
+  storagePhoto?: StoragePhotoEvidence
 
   // Finanzas del envío: centavos enteros como valor canónico y única fuente de verdad
   shippingFeeCents: number
@@ -224,6 +245,9 @@ export interface Shipment {
   paidCashierUid?: string
   paidCashierName?: string
   paidShiftId?: string
+  cashShiftId?: string | null
+  financialMovementId?: string | null
+  manifestId?: string | null
 
   // Asignación de conductor/vehículo
   assignedVehicle?: {
@@ -260,6 +284,9 @@ export interface Shipment {
     operatorName: string
     operatorRole: string
     reason: string
+    branchId?: string
+    previousStatus?: string
+    newStatus?: string
     previousValues: Record<string, any>
     newValues: Record<string, any>
   }>
