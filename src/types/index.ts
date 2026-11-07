@@ -245,6 +245,9 @@ export interface Shipment {
   paidCashierUid?: string
   paidCashierName?: string
   paidShiftId?: string
+  cashShiftId?: string | null
+  financialMovementId?: string | null
+  manifestId?: string | null
 
   // Asignación de conductor/vehículo
   assignedVehicle?: {

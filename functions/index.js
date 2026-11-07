@@ -786,26 +786,27 @@ export const updateShipment = onCall({ cors: true }, async (request) => {
 export const cancelShipment = onCall({ cors: true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión para anular encomiendas.')
   const callerUid = request.auth.uid
-  const callerSnap = await db.collection('users').doc(callerUid).get()
-  const caller = callerSnap.data() || {}
-  if (!callerSnap.exists || caller.isActive === false || !['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
-    throw new HttpsError('permission-denied', 'No tiene permisos para anular encomiendas.')
-  }
   const { trackingCode, reason } = request.data || {}
   if (typeof trackingCode !== 'string' || trackingCode.trim().length < 6) throw new HttpsError('invalid-argument', 'Código de guía requerido.')
   if (typeof reason !== 'string' || reason.trim().length < 5) throw new HttpsError('invalid-argument', 'El motivo de anulación es obligatorio (mínimo 5 caracteres).')
   const shipmentRef = db.collection('shipments').doc(trackingCode.trim())
+  const callerRef = db.collection('users').doc(callerUid)
   const nowIso = new Date().toISOString()
   return db.runTransaction(async (transaction) => {
+    const callerSnap = await transaction.get(callerRef)
+    const caller = callerSnap.data() || {}
+    if (!callerSnap.exists || caller.isActive !== true || !['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'No tiene permisos para anular encomiendas.')
+    }
     const shipmentSnap = await transaction.get(shipmentRef)
     if (!shipmentSnap.exists) throw new HttpsError('not-found', 'No existe la encomienda indicada.')
     const current = shipmentSnap.data() || {}
-    const allowedBranches = caller.allowedBranchIds || [caller.primaryBranchId]
-    if (caller.role !== 'directiva_admin' && !allowedBranches.includes(current.originBranchId) && !allowedBranches.includes(current.destinationBranchId)) {
-      throw new HttpsError('permission-denied', 'No tiene permisos sobre la sucursal de esta encomienda.')
+    const allowedBranches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : [caller.primaryBranchId]
+    if (caller.role !== 'directiva_admin' && !allowedBranches.includes(current.originBranchId)) {
+      throw new HttpsError('permission-denied', 'Solo la sucursal de origen puede anular esta encomienda.')
     }
     if (current.status === 'cancelled') throw new HttpsError('already-exists', 'La encomienda ya está anulada.')
-    if (current.paymentStatus === 'paid' || current.cashShiftId || current.manifestId || current.deliveryRecord || !['received', 'pending_dispatch'].includes(current.status)) {
+    if (current.paymentStatus === 'paid' || current.cashShiftId || current.financialMovementId || current.manifestId || current.assignedVehicle?.manifestId || current.driverCustody || current.deliveryRecord || !['received', 'pending_dispatch'].includes(current.status)) {
       throw new HttpsError('failed-precondition', 'Solo pueden anularse encomiendas sin pagos, despacho, custodia ni entrega y antes de salir de origen.')
     }
     const auditEntry = {

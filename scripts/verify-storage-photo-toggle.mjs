@@ -1,13 +1,17 @@
 process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
 process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
 process.env.FIREBASE_STORAGE_EMULATOR_HOST ||= '127.0.0.1:9199'
-process.env.GCLOUD_PROJECT ||= 'expreso-punata-dev'
+process.env.GCLOUD_PROJECT ||= 'demo-expreso-punata-storage-toggle'
 process.env.GOOGLE_CLOUD_PROJECT ||= process.env.GCLOUD_PROJECT
+
+if (!/^(127\.0\.0\.1|localhost):\d+$/.test(process.env.FIRESTORE_EMULATOR_HOST)) {
+  throw new Error('Esta verificación solo puede ejecutarse contra Firestore Emulator local.')
+}
 
 const { initializeApp, getApps } = await import('../functions/node_modules/firebase-admin/lib/esm/app/index.js')
 const { getFirestore } = await import('../functions/node_modules/firebase-admin/lib/esm/firestore/index.js')
 const { assignShipmentStorage } = await import('../functions/index.js')
-if (getApps().length === 0) initializeApp({ projectId: 'expreso-punata-dev' })
+if (getApps().length === 0) initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 const db = getFirestore()
 const enabled = process.env.STORAGE_PHOTOS_ENABLED === 'true'
 const uid = `photo-toggle-${enabled ? 'on' : 'off'}`

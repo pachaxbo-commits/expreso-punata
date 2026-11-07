@@ -126,7 +126,17 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   const isDelivered = shipment.status === 'delivered'
   const canEdit = currentUser.role === 'directiva_admin' || currentUser.role === 'encargado_agencia' || (!isDelivered && currentUser.role === 'secretaria' && (isOriginBranch || isDestBranch))
   const canDeliver = !isDelivered && ['received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery'].includes(shipment.status) && (currentBranchId === shipment.destinationBranchId || currentUser.role === 'directiva_admin')
-  const canCancel = !isPaid && ['received', 'pending_dispatch'].includes(shipment.status) && (currentUser.role === 'directiva_admin' || isOriginBranch)
+  const hasFinancialOrCustodyReferences = Boolean(
+    shipment.cashShiftId ||
+    shipment.financialMovementId ||
+    shipment.manifestId ||
+    shipment.assignedVehicle?.manifestId ||
+    shipment.driverCustody ||
+    shipment.deliveryRecord,
+  )
+  const canCancel = !isPaid && !hasFinancialOrCustodyReferences &&
+    ['received', 'pending_dispatch'].includes(shipment.status) &&
+    (currentUser.role === 'directiva_admin' || isOriginBranch)
 
   const dateFormatted = shipment.createdAtIso
     ? new Date(shipment.createdAtIso).toLocaleString('es-BO', {
