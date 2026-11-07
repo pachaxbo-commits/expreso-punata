@@ -16,6 +16,7 @@ import type { Shipment, UserProfile, Branch } from '../../types'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { ShipmentDetailModal } from './ShipmentDetailModal'
 import { searchShipmentsServer, fetchShipmentsPage } from '../../services/shipmentService'
+import { elapsedFullDays, receptionDate } from '../../utils/shipmentTiming'
 
 interface ShipmentsManagementViewProps {
   shipments: Shipment[]
@@ -376,6 +377,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
                 <option value="received_at_dest">Llegado a Destino</option>
                 <option value="stored">En Almacén</option>
                 <option value="delivered">Entregado</option>
+                <option value="uncollected">No recogida</option>
               </select>
 
               <select
@@ -468,7 +470,11 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
 
                           {/* Fecha */}
                           <td className="py-2.5 px-2 text-slate-500 font-mono text-[11px] whitespace-nowrap">
-                            {dateShort}
+                            <div>{dateShort}</div>
+                            {(() => {
+                              const days = elapsedFullDays(receptionDate(s as any))
+                              return days === null ? null : <div className="text-[10px] text-amber-700">{days} d desde recepción</div>
+                            })()}
                           </td>
 
                           {/* Personas */}

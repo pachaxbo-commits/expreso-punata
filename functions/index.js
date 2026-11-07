@@ -2880,7 +2880,7 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
     const occupied = occupancySnap.docs.some((doc) => {
       if (doc.id === shipmentId) return false
       const location = doc.data().storageLocation || {}
-      return doc.data().status === 'stored' &&
+      return ['stored', 'uncollected'].includes(doc.data().status) &&
         location.branchId === destBranch &&
         location.warehouseId === warehouseId &&
         location.shelfId === shelfId &&
@@ -2970,8 +2970,9 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
       storedByName: callerData.fullName || 'Operador',
     }
 
+    const nextStatus = sData.status === 'uncollected' ? 'uncollected' : 'stored'
     transaction.update(shipmentRef, {
-      status: 'stored',
+      status: nextStatus,
       storageLocation: newLocation,
       ...(photo ? {
         storagePhoto: {
@@ -3007,7 +3008,7 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
 
     const statusLogRef = shipmentRef.collection('status_logs').doc()
     transaction.set(statusLogRef, {
-      status: 'stored',
+      status: nextStatus,
       operatorUid: callerUid,
       operatorName: callerData.fullName || 'Operador',
       branchId: destBranch,
@@ -6238,6 +6239,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       ready_for_pickup: 0,
       in_delivery: 0,
       delivered: 0,
+      uncollected: 0,
       returned: 0,
       cancelled: 0,
       lost: 0,
@@ -7784,6 +7786,15 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
         throw new HttpsError('failed-precondition', 'No se pueden registrar incidencias sobre encomiendas canceladas.')
       }
 
+      const callerAllowedBranches = Array.isArray(caller.allowedBranchIds) && caller.allowedBranchIds.length > 0
+        ? caller.allowedBranchIds
+        : [caller.primaryBranchId].filter(Boolean)
+      const shipmentBranches = [shipment.originBranchId, shipment.destinationBranchId].filter(Boolean)
+      if (caller.role !== 'directiva_admin' && !shipmentBranches.some((id) => callerAllowedBranches.includes(id))) {
+        throw new HttpsError('permission-denied', 'No puede registrar incidencias de otra sucursal.')
+      }
+      const incidentBranchId = shipment.destinationBranchId || shipment.originBranchId || caller.primaryBranchId || 'punata'
+
       // Numeración correlativa INC-YYYY-XXXXX
       const cSnap = await t.get(counterRef)
       const currentSeq = cSnap.exists ? (cSnap.data().seq || 0) + 1 : 1
@@ -7803,7 +7814,7 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
         incidentNumber,
         shipmentId,
         trackingCode: shipment.trackingCode || shipmentId,
-        branchId: branchId || shipment.destinationBranchId || 'punata',
+        branchId: incidentBranchId,
         incidentType,
         description: description.trim(),
         responsiblePerson: responsiblePerson.trim(),

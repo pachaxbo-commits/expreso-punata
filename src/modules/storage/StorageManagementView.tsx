@@ -13,6 +13,7 @@ import { assignShipmentStorageThroughBackend, getShipmentStoragePhotoUrl, upload
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import { printShipmentStorageLabelPdf } from '../../services/pdfService.ts'
 import { storagePhotosEnabled } from '../../config/features.ts'
+import { isStorageBranchShipment, isStoredInPhysicalLocation, needsStorageLocation } from '../../utils/storageLocation.ts'
 
 interface StorageManagementViewProps {
   currentUser: UserProfile
@@ -165,19 +166,17 @@ export const StorageManagementView: React.FC<StorageManagementViewProps> = ({
 
   // Encomiendas llegadas a esta sucursal que requieren almacenamiento o ya están guardadas
   const branchShipments = shipments.filter(
-    (s) =>
-      s.destinationBranchId === currentBranch.id &&
-      (s.status === 'received_at_dest' || s.status === 'stored')
+    (s) => isStorageBranchShipment(s, currentBranch.id)
   )
 
   // Encomiendas sin ubicación física asignada
   const pendingStorage = branchShipments.filter(
-    (s) => s.status === 'received_at_dest' || !s.storageLocation
+    (s) => needsStorageLocation(s)
   )
 
   // Encomiendas ya almacenadas
   const storedShipments = branchShipments.filter(
-    (s) => s.status === 'stored' && s.storageLocation
+    (s) => isStoredInPhysicalLocation(s)
   )
 
   const handleQuickLocate = () => {

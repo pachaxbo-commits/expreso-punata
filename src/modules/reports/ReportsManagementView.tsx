@@ -32,6 +32,7 @@ import {
 } from '../../services/reportService.ts'
 import type { UserProfile, Branch } from '../../types/index.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
+import { isEmulatedEnvironment } from '../../firebase/config.ts'
 
 interface ReportsManagementViewProps {
   currentUser: UserProfile
@@ -790,7 +791,9 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           <RefreshCw className="w-8 h-8 animate-spin text-emerald-800 mx-auto mb-3" />
           <p className="text-sm font-bold text-slate-700">Calculando reporte en tiempo real...</p>
           <p className="text-xs text-slate-400 mt-1">
-            Consultando registros de Firebase Cloud (expreso-punata-dev)
+            {isEmulatedEnvironment
+              ? 'Consultando registros del Firebase Emulator local (demo aislado)'
+              : 'Consultando registros de Firebase Cloud'}
           </p>
         </div>
       )}
@@ -968,6 +971,10 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                   <span className="text-xs text-slate-500">
                     Tiempo prom. entrega: <strong>{reportData.summary?.averageTurnaroundHours || 0} hrs</strong>
                   </span>
+                </div>
+                <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-900">
+                  Pendientes de retiro: <strong>{reportData.summary?.byStatus?.uncollected || 0}</strong>
+                  <span className="ml-2 text-amber-700">(estado independiente de devueltas, extraviadas y deterioradas)</span>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">

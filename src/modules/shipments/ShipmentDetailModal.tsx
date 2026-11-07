@@ -18,6 +18,7 @@ import {
   Save,
 } from 'lucide-react'
 import type { Shipment, UserProfile } from '../../types'
+import { formatStorageLocation } from '../../utils/storageLocation.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { printShipmentGuidePdf, printDeliveryProofPdf } from '../../services/pdfService'
 import { printEngine } from '../../services/printing/printEngineService'
@@ -511,7 +512,9 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
                     <div className="space-y-0.5">
                       <p className="font-bold text-emerald-900 flex items-center gap-1.5">
                         <Boxes className="w-3.5 h-3.5 text-[#064e3b]" />
-                        <span>Estante {shipment.storageLocation.shelfId} • Módulo {shipment.storageLocation.moduleId}</span>
+                        <span>
+                          {formatStorageLocation(shipment.storageLocation)}
+                        </span>
                       </p>
                       <p className="text-slate-500 text-[10px]">Asignado por: {shipment.storageLocation.storedByName}</p>
                     </div>

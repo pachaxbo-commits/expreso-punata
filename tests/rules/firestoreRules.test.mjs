@@ -13,13 +13,38 @@ let testEnv
 before(async () => {
   const rules = readFileSync('firestore.rules', 'utf8')
   testEnv = await initializeTestEnvironment({
-    projectId: 'demo-expreso-punata-rules-test',
+      projectId: process.env.FIRESTORE_RULES_PROJECT_ID || 'demo-expreso-punata-rules-test',
     firestore: {
       rules,
       host: '127.0.0.1',
-      port: 8080,
+        port: Number(process.env.FIRESTORE_RULES_PORT || 8080),
     },
   })
+})
+
+test('19. Incidencias: lectura por sucursal y escritura directa bloqueada', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    await setDoc(doc(seed, 'users', 'incident-sec-punata'), { role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true })
+    await setDoc(doc(seed, 'users', 'incident-admin'), { role: 'directiva_admin', primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'], isActive: true })
+    await setDoc(doc(seed, 'users', 'incident-inactive'), { role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: false })
+    await setDoc(doc(seed, 'users', 'incident-no-role'), { primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true })
+    await setDoc(doc(seed, 'shipment_incidents', 'incident-punata'), { branchId: 'punata', shipmentId: 'shipment-punata', incidentType: 'uncollected' })
+    await setDoc(doc(seed, 'shipment_incidents', 'incident-cbba'), { branchId: 'cochabamba', shipmentId: 'shipment-cbba', incidentType: 'damaged' })
+  })
+  const secDb = testEnv.authenticatedContext('incident-sec-punata').firestore()
+  const adminDb = testEnv.authenticatedContext('incident-admin').firestore()
+  const inactiveDb = testEnv.authenticatedContext('incident-inactive').firestore()
+  const noRoleDb = testEnv.authenticatedContext('incident-no-role').firestore()
+  await assertSucceeds(getDoc(doc(secDb, 'shipment_incidents', 'incident-punata')))
+  await assertFails(getDoc(doc(secDb, 'shipment_incidents', 'incident-cbba')))
+  await assertSucceeds(getDoc(doc(adminDb, 'shipment_incidents', 'incident-punata')))
+  await assertSucceeds(getDoc(doc(adminDb, 'shipment_incidents', 'incident-cbba')))
+  await assertFails(getDoc(doc(inactiveDb, 'shipment_incidents', 'incident-punata')))
+  await assertFails(getDoc(doc(noRoleDb, 'shipment_incidents', 'incident-punata')))
+  await assertFails(setDoc(doc(adminDb, 'shipment_incidents', 'incident-new'), { branchId: 'punata' }))
+  await assertFails(updateDoc(doc(secDb, 'shipment_incidents', 'incident-punata'), { description: 'tampered' }))
+  await assertFails(deleteDoc(doc(adminDb, 'shipment_incidents', 'incident-punata')))
 })
 
 after(async () => {

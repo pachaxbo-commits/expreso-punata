@@ -178,6 +178,15 @@ service cloud.firestore {
       allow write: if false; // Solo Cloud Function manageVehicle con validación de unicidad y concurrencia
     }
 
+    match /shipment_incidents/{incidentId} {
+      allow read: if isActive() && (
+        isAdmin() || isTreasury() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) &&
+          isBranchAllowed(resource.data.branchId))
+      );
+      allow write: if false;
+    }
+
     // =========================================================================
     // COLECCIÓN: driver_directory (Directorio operativo público de conductores)
     // =========================================================================
