@@ -576,20 +576,12 @@ export const DemoView: React.FC = () => {
             setIsDeliveryModalOpen(false)
             setDeliveryTarget(undefined)
           }}
-          onSuccess={(updated: Shipment) => {
-            deliverShipment(updated.id, {
-              deliveredAt: updated.deliveryRecord?.deliveredAt || new Date().toISOString(),
-              deliveredByUid: demoUserProfile.uid,
-              deliveredByName: demoUserProfile.fullName,
-              receivedByName: updated.deliveryRecord?.receivedByName || 'Destinatario Demo',
-              receivedByDocType: updated.deliveryRecord?.receivedByDocType,
-              receivedByDocNumber: updated.deliveryRecord?.receivedByDocNumber,
-              recipientRelationship: updated.deliveryRecord?.recipientRelationship || 'titular',
-              signatureDataUrl: updated.deliveryRecord?.signatureDataUrl,
-            })
+          onSuccess={() => {}}
+          onDemoDelivery={(id, record) => {
+            deliverShipment(id, record)
             setIsDeliveryModalOpen(false)
             setDeliveryTarget(undefined)
-            showToast(`¡Entrega de ${updated.trackingCode} registrada en modo DEMO!`)
+            showToast('Entrega registrada en modo DEMO.')
           }}
           currentUser={demoUserProfile}
           currentBranch={currentBranch}

@@ -91,6 +91,14 @@ export async function createDispatchManifestThroughBackend(input: CreateManifest
   return response.data
 }
 
+export async function confirmShipmentDeparture(input: Omit<CreateManifestInput, 'shipmentIds'> & { shipmentId: string }) {
+  await httpsCallable(functions, 'confirmShipmentDeparture')(input)
+}
+
+export async function confirmShipmentReception(input: ReceiveManifestInput['receivedShipments'][number] & { manifestId: string }) {
+  await httpsCallable(functions, 'confirmShipmentReception')(input)
+}
+
 /**
  * Confirma la custodia de la carga por parte del conductor asignado.
  */

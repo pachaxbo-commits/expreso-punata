@@ -23,6 +23,7 @@ interface ShipmentsManagementViewProps {
   currentBranch: Branch
   onOpenNewWizard: () => void
   onOpenDeliveryModal: (targetShipment?: Shipment) => void
+  simpleTransferEnabled?: boolean
   onShipmentUpdated?: (updated: Shipment) => void
   backendConnected: boolean
   isCloudEnvironment: boolean
@@ -34,6 +35,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   currentBranch,
   onOpenNewWizard,
   onOpenDeliveryModal,
+  simpleTransferEnabled,
   onShipmentUpdated,
   backendConnected,
   isCloudEnvironment,
@@ -581,6 +583,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
         }}
         currentUser={currentUser}
         currentBranchId={currentBranch.id}
+        simpleTransferEnabled={simpleTransferEnabled}
         onShipmentUpdated={(updated) => {
           setSelectedShipment(updated)
           if (onShipmentUpdated) onShipmentUpdated(updated)

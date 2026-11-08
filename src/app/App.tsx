@@ -33,6 +33,7 @@ import { WorkersAndExpensesView } from '../modules/workers/WorkersAndExpensesVie
 import { UnionMembersView } from '../modules/union/UnionMembersView.tsx'
 import { subscribeShipmentsByBranch } from '../services/shipmentService'
 import { isEmulatedEnvironment } from '../firebase/config'
+import { ShipmentCustody } from '../modules/shipments/ShipmentCustody'
 import { ShipmentsManagementView } from '../modules/shipments/ShipmentsManagementView'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
 import { ShipmentDeliveryModal } from '../modules/shipments/ShipmentDeliveryModal'
@@ -110,7 +111,9 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   })
 
   // Pestañas filtradas por rol del usuario (RBAC en interfaz)
+  const simpleTransferEnabled = import.meta.env.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
   const tabs = [
+    { id: 'shipment-custody', label: 'Encomiendas asignadas', icon: Package, visible: simpleTransferEnabled && userProfile.role === 'conductor' },
     { id: 'shipments', label: 'Encomiendas', icon: Package, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'storage', label: 'Módulos de Almacén', icon: Boxes, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
@@ -294,6 +297,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         {/* PESTAÑA 1: ENCOMIENDAS (VENTANILLA DEFINITIVA REDISEÑADA) */}
         {activeTab === 'shipments' && (
           <ShipmentsManagementView
+            simpleTransferEnabled={simpleTransferEnabled}
             shipments={displayedShipments}
             currentUser={userProfile}
             currentBranch={currentBranch}
@@ -346,6 +350,10 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         )}
 
         {/* PESTAÑA 3: DESPACHOS Y RUTA */}
+        {activeTab === 'shipment-custody' && simpleTransferEnabled && userProfile.role === 'conductor' && (
+          <ShipmentCustody uid={userProfile.uid} />
+        )}
+
         {activeTab === 'manifests' && (
           <div className="space-y-4">
             <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-1 text-xs">

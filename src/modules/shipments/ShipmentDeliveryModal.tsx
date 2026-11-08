@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   Boxes,
 } from 'lucide-react'
-import type { Shipment, UserProfile, Branch } from '../../types/index.ts'
+import type { Shipment, UserProfile, Branch, ParcelDeliveryRecord } from '../../types/index.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import { deliverShipmentThroughBackend } from '../../services/dispatchService.ts'
 import {
@@ -28,6 +28,7 @@ interface ShipmentDeliveryModalProps {
   currentBranch: Branch
   initialShipment?: Shipment | null
   availableShipments?: Shipment[]
+  onDemoDelivery?: (shipmentId: string, record: Partial<ParcelDeliveryRecord>) => void
 }
 
 export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
@@ -38,6 +39,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
   currentBranch,
   initialShipment,
   availableShipments = [],
+  onDemoDelivery,
 }) => {
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(initialShipment || null)
   const [searchCode, setSearchCode] = useState('')
@@ -187,6 +189,17 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
     }
 
     const signatureDataUrl = canvasRef.current.toDataURL('image/png')
+
+    if (onDemoDelivery) {
+      onDemoDelivery(selectedShipment.id, {
+        receivedByName: receivedByName.trim(),
+        receivedByDocType,
+        receivedByDocNumber: receivedByDocNumber.trim(),
+        recipientRelationship,
+        signatureDataUrl,
+      })
+      return
+    }
 
     setLoading(true)
     setErrorMessage(null)

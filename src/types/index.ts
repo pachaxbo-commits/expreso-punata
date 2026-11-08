@@ -247,6 +247,7 @@ export interface Shipment {
   paidShiftId?: string
   cashShiftId?: string | null
   financialMovementId?: string | null
+  singleTransfer?: boolean
   manifestId?: string | null
 
   // Asignación de conductor/vehículo
@@ -614,6 +615,7 @@ export interface ManifestDiscrepancy {
 }
 
 export interface DispatchManifest {
+  singleTransfer?: boolean
   id: string
   manifestNumber: string // ej. 'MAN-PUN-2026-0001'
   originBranchId: string

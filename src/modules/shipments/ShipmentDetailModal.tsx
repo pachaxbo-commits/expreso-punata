@@ -24,12 +24,15 @@ import { printEngine } from '../../services/printing/printEngineService'
 import { cancelShipmentThroughBackend, updateShipmentThroughBackend } from '../../services/shipmentService'
 import { reportShipmentIncident } from '../../services/incidentService'
 
+import { ShipmentTransfer } from './ShipmentTransfer'
+
 interface ShipmentDetailModalProps {
   shipment: Shipment | null
   isOpen: boolean
   onClose: () => void
   currentUser: UserProfile
   currentBranchId: string
+  simpleTransferEnabled?: boolean
   onShipmentUpdated?: (updated: Shipment) => void
   onDeliverShipment?: (shipment: Shipment) => void
 }
@@ -40,6 +43,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   onClose,
   currentUser,
   currentBranchId,
+  simpleTransferEnabled,
   onShipmentUpdated,
   onDeliverShipment,
 }) => {
@@ -123,6 +127,12 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
 
   const isPaid = shipment.paymentStatus === 'paid'
   const isPostDispatch = ['dispatched', 'in_transit', 'received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery', 'delivered'].includes(shipment.status)
+  const canTransfer = simpleTransferEnabled && currentUser.isActive &&
+    ['secretaria', 'encargado_agencia', 'directiva_admin'].includes(currentUser.role)
+  const transferAction = canTransfer && isOriginBranch && !shipment.manifestId &&
+    ['received', 'pending_dispatch'].includes(shipment.status) ? 'depart'
+    : canTransfer && isDestBranch && shipment.singleTransfer && shipment.manifestId &&
+      ['in_transit', 'dispatched'].includes(shipment.status) ? 'receive' : null
   const isDelivered = shipment.status === 'delivered'
   const canEdit = currentUser.role === 'directiva_admin' || currentUser.role === 'encargado_agencia' || (!isDelivered && currentUser.role === 'secretaria' && (isOriginBranch || isDestBranch))
   const canDeliver = !isDelivered && ['received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery'].includes(shipment.status) && (currentBranchId === shipment.destinationBranchId || currentUser.role === 'directiva_admin')
@@ -379,6 +389,9 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
         {/* Contenido scrolleable */}
         <div className="p-5 overflow-y-auto space-y-5 text-xs flex-1">
           {/* TAB 1: DETALLES */}
+          {activeTab === 'info' && transferAction && (
+            <ShipmentTransfer key={shipment.id + transferAction} shipment={shipment} action={transferAction} onDone={onClose} />
+          )}
           {activeTab === 'info' && (
             <div className="space-y-4">
               {/* Tarjeta de Ruta y Precio */}
