@@ -14,6 +14,7 @@ import {
   MapPin,
   Briefcase,
 } from 'lucide-react'
+import { DemoTransfer } from './DemoTransfer'
 import { useDemoState } from './useDemoState'
 import { DemoRoleSwitcherModal } from './DemoRoleSwitcherModal'
 import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../../domain/expresoPunataConfig'
@@ -53,11 +54,12 @@ export const DemoView: React.FC = () => {
     switchRole,
     switchBranch,
     addShipment,
+    updateShipment,
     deliverShipment,
     resetDemo,
   } = useDemoState()
 
-  const [activeTab, setActiveTab] = useState<string>(() => (demoUserProfile.role === 'conductor' ? 'manifests' : 'shipments'))
+  const [activeTab, setActiveTab] = useState<string>('shipments')
   const [configSubTab, setConfigSubTab] = useState<'users' | 'general' | 'tariffs' | 'printers'>('users')
   const [manifestSubTab, setManifestSubTab] = useState<'manifests' | 'commisiones'>('manifests')
   const [assetSubTab, setAssetSubTab] = useState<'fixed' | 'consumables'>('fixed')
@@ -75,7 +77,8 @@ export const DemoView: React.FC = () => {
       uid: demoUserProfile.uid,
       primaryBranchId: currentBranchId,
     },
-    onNavigateToTab: (tabId) => setActiveTab(tabId),
+    onNavigateToTab: (tabId) => { if (tabId === 'shipment-custody' && demoUserProfile.role === 'conductor') setActiveTab('shipments'); else if (canAccess(tabId)) setActiveTab(tabId) },
+    simplifiedTransfer: true,
     onSetSubTab: (module, subTabId) => {
       if (module === 'manifests') setManifestSubTab(subTabId as any)
       if (module === 'assets') setAssetSubTab(subTabId as any)
@@ -92,10 +95,11 @@ export const DemoView: React.FC = () => {
 
   // Comprobar permisos del rol en demo
   const canAccess = (tab: string) => {
+    if (tab === 'manifests') return false
     if (demoUserProfile.role === 'directiva_admin') return true
     if (demoUserProfile.role === 'encargado_agencia') return tab !== 'config'
     if (demoUserProfile.role === 'secretaria') return ['shipments', 'cash', 'storage', 'printers'].includes(tab)
-    if (demoUserProfile.role === 'conductor') return ['manifests', 'commisiones'].includes(tab)
+    if (demoUserProfile.role === 'conductor') return ['shipments', 'commissions'].includes(tab)
     return false
   }
 
@@ -272,6 +276,11 @@ export const DemoView: React.FC = () => {
               </button>
             )}
 
+            {canAccess('commissions') && (
+              <button type="button" data-tutorial-target="nav-tab-commissions" className="px-4 py-3 font-bold text-white" onClick={() => setActiveTab('commissions')}>
+                Comisiones de conductores
+              </button>
+            )}
             {canAccess('storage') && (
               <button
                 data-tutorial-target="nav-tab-storage"
@@ -374,6 +383,16 @@ export const DemoView: React.FC = () => {
       {/* CONTENIDO PRINCIPAL SEGÚN PESTAÑA */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
         {activeTab === 'shipments' && (
+          <DemoTransfer
+            key={currentRoleId + currentBranchId}
+            shipments={shipments}
+            user={demoUserProfile}
+            branch={currentBranchId}
+            onUpdate={updateShipment}
+            onDeliver={shipment => { setDeliveryTarget(shipment); setIsDeliveryModalOpen(true) }}
+          />
+        )}
+        {activeTab === 'shipments' && demoUserProfile.role !== 'conductor' && (
           <ShipmentsManagementView
             shipments={shipments}
             currentUser={demoUserProfile}
@@ -391,6 +410,12 @@ export const DemoView: React.FC = () => {
           />
         )}
 
+        {activeTab === 'commissions' && canAccess('commissions') && (
+          <section className="rounded-xl border bg-white p-4">
+            <h2 className="font-bold">Comisiones de conductores</h2>
+            <p>La demo de traslado usa guías simuladas y no liquida comisiones.</p>
+          </section>
+        )}
         {activeTab === 'cash' && (
           <CashManagementView
             currentUser={demoUserProfile}
@@ -399,7 +424,7 @@ export const DemoView: React.FC = () => {
           />
         )}
 
-        {activeTab === 'manifests' && (
+        {activeTab === 'manifests' && canAccess('manifests') && (
           <div className="space-y-4">
             <div className="flex gap-2 border-b border-slate-200 pb-2">
               <button
@@ -560,11 +585,11 @@ export const DemoView: React.FC = () => {
           isOpen={isWizardOpen}
           onClose={() => setIsWizardOpen(false)}
           onSuccess={(created: Shipment) => {
-            addShipment(created)
             setIsWizardOpen(false)
             showToast(`¡Guía ${created.trackingCode} generada con éxito en modo DEMO!`)
           }}
           existingShipments={shipments}
+          demo={{ branchId: currentBranchId, operator: demoUserProfile.fullName, register: addShipment }}
         />
       )}
 
@@ -576,20 +601,12 @@ export const DemoView: React.FC = () => {
             setIsDeliveryModalOpen(false)
             setDeliveryTarget(undefined)
           }}
-          onSuccess={(updated: Shipment) => {
-            deliverShipment(updated.id, {
-              deliveredAt: updated.deliveryRecord?.deliveredAt || new Date().toISOString(),
-              deliveredByUid: demoUserProfile.uid,
-              deliveredByName: demoUserProfile.fullName,
-              receivedByName: updated.deliveryRecord?.receivedByName || 'Destinatario Demo',
-              receivedByDocType: updated.deliveryRecord?.receivedByDocType,
-              receivedByDocNumber: updated.deliveryRecord?.receivedByDocNumber,
-              recipientRelationship: updated.deliveryRecord?.recipientRelationship || 'titular',
-              signatureDataUrl: updated.deliveryRecord?.signatureDataUrl,
-            })
+          onSuccess={() => {}}
+          onDemoDelivery={(id, record) => {
+            deliverShipment(id, record)
             setIsDeliveryModalOpen(false)
             setDeliveryTarget(undefined)
-            showToast(`¡Entrega de ${updated.trackingCode} registrada en modo DEMO!`)
+            showToast('Entrega registrada en modo DEMO.')
           }}
           currentUser={demoUserProfile}
           currentBranch={currentBranch}
@@ -605,6 +622,7 @@ export const DemoView: React.FC = () => {
         currentRoleId={currentRoleId}
         onSelectRole={(newRoleId) => {
           switchRole(newRoleId)
+          setActiveTab('shipments')
           showToast(`Cambiado a rol: ${newRoleId}`)
         }}
       />

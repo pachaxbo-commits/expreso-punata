@@ -4,6 +4,8 @@ import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import {
   createDispatchManifest,
+  confirmShipmentDeparture,
+  confirmShipmentReception,
   driverConfirmCustody,
   receiveDispatchManifest,
   assignShipmentStorage,
@@ -466,4 +468,51 @@ test('9. GESTIÓN DE FLOTA: manageVehicle crea móvil y valida unicidad de placa
       },
     })
   }, (err) => err.code === 'already-exists')
+})
+
+test('Traslado por guía: custodia, sucursal, concurrencia y discrepancias', async () => {
+  const previous = process.env.SIMPLE_SHIPMENT_TRANSFER
+  delete process.env.SIMPLE_SHIPMENT_TRANSFER
+  await assert.rejects(() => confirmShipmentDeparture.run({ auth: { uid: 'sec-punata' } }), { code: 'failed-precondition' })
+  await assert.rejects(() => confirmShipmentReception.run({ auth: { uid: 'sec-punata' } }), { code: 'failed-precondition' })
+  process.env.SIMPLE_SHIPMENT_TRANSFER = 'true'
+  try {
+  await createTestUser('sec-punata', 'secretaria', 'punata')
+  await createTestUser('sec-cbba', 'secretaria', 'cochabamba')
+  await createTestUser('chofer-1', 'conductor', 'punata')
+  await createTestVehicle('veh-01', '12', '4589-KLP', 'punata', 'active', 'chofer-1')
+
+  for (const [shipmentId, condition, receivedPackages, expectedStatus] of [
+    ['single-ok', 'good', 1, 'received_at_dest'],
+    ['single-damage', 'damaged', 1, 'incident_investigation'],
+    ['single-missing', 'missing', 0, 'lost'],
+  ]) {
+    await createTestShipment(shipmentId, shipmentId, 'punata', 'cochabamba', 'received', 'destination_cod', 'pending')
+    const auth = { uid: 'sec-punata' }
+    const data = { shipmentId, originBranchId: 'punata', destinationBranchId: 'cochabamba', vehicleId: 'veh-01', driverUid: 'chofer-1' }
+    const departures = await Promise.allSettled([confirmShipmentDeparture.run({ auth, data }), confirmShipmentDeparture.run({ auth, data })])
+    assert.equal(departures.filter(result => result.status === 'fulfilled').length, 1)
+    const { manifestId } = departures.find(result => result.status === 'fulfilled').value
+    const receive = (uid, notes = 'Verificado en ventanilla') => confirmShipmentReception.run({
+      auth: { uid }, data: { shipmentId, manifestId, condition, receivedPackages, notes },
+    })
+    await assert.rejects(() => receive('sec-punata'), { code: 'permission-denied' })
+    await assert.rejects(() => receive('sec-cbba'), { code: 'failed-precondition' })
+    await driverConfirmCustody.run({ auth: { uid: 'chofer-1' }, data: { manifestId } })
+    if (condition !== 'good') await assert.rejects(() => receive('sec-cbba', ''), { code: 'invalid-argument' })
+    const receptions = await Promise.allSettled([receive('sec-cbba'), receive('sec-cbba')])
+    assert.equal(receptions.filter(result => result.status === 'fulfilled').length, 1)
+    const ref = db.collection('shipments').doc(shipmentId)
+    const shipment = (await ref.get()).data()
+    assert.equal(shipment.status, expectedStatus)
+    assert.equal(shipment.paymentStatus, 'pending')
+    const history = await ref.collection('status_logs').where('status', '==', expectedStatus).get()
+    assert.equal(history.size, 1)
+    assert.equal(history.docs[0].data().receivedPackages, receivedPackages)
+    assert.equal(history.docs[0].data().operatorUid, 'sec-cbba')
+  }
+  } finally {
+    if (previous === undefined) delete process.env.SIMPLE_SHIPMENT_TRANSFER
+    else process.env.SIMPLE_SHIPMENT_TRANSFER = previous
+  }
 })

@@ -33,6 +33,7 @@ interface WizardProps {
   onClose: () => void
   onSuccess: (shipment: Shipment) => void
   existingShipments: Shipment[]
+  demo?: { branchId: string; operator: string; register: (shipment: Partial<Shipment>) => Shipment }
 }
 
 export const NewShipmentWizardModal: React.FC<WizardProps> = ({
@@ -40,8 +41,10 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   onClose,
   onSuccess,
   existingShipments,
+  demo,
 }) => {
-  const { currentBranchId, userProfile, hasRole } = useAuth()
+  const { currentBranchId: authBranchId, userProfile, hasRole } = useAuth()
+  const currentBranchId = demo?.branchId || authBranchId
   const isDirectiva = hasRole(['directiva_admin'])
 
   // Sugerencias de clientes para autocompletado rápido
@@ -110,6 +113,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   useEffect(() => {
     let isMounted = true
     if (isOpen) {
+      if (demo) return
       fetchSystemConfig().then(res => {
         if (isMounted && res.config?.tariffs) {
           setSystemTariffs({
@@ -268,7 +272,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
     setErrorMessage(null)
 
     try {
-      const result = await createShipmentThroughBackend({
+      const input: Parameters<typeof createShipmentThroughBackend>[0] = {
         originBranchId,
         destinationBranchId,
         deliveryType,
@@ -286,7 +290,13 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
           : (isZeroPrice ? priceAdjustmentReason.trim() : undefined),
         prohibitedGoodsNoticeAccepted: prohibitedNoticeAccepted,
         idempotencyKey,
-      })
+      }
+      const result = demo ? { shipment: demo.register({
+        ...input,
+        packageCount: items.reduce((total, item) => total + item.quantity, 0),
+        totalWeightKg: items.reduce((total, item) => total + (item.weightKg || 0) * item.quantity, 0),
+        finalAmountCents: effectiveFinalAmountCents,
+      }) } : await createShipmentThroughBackend(input)
 
       setCreatedShipment(result.shipment)
       setStep(5) // Pantalla de éxito
@@ -1059,7 +1069,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                     <span className="font-semibold text-slate-800">Bultos:</span> {items.length} paquete(s) • {totalWeight} kg
                   </div>
                   <div>
-                    <span className="font-semibold text-slate-800">Operador:</span> {userProfile?.fullName || 'Ventanilla'}
+                    <span className="font-semibold text-slate-800">Operador:</span> {demo?.operator || userProfile?.fullName || 'Ventanilla'}
                   </div>
                 </div>
 
