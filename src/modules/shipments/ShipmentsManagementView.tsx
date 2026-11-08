@@ -15,6 +15,7 @@ import {
 import type { Shipment, UserProfile, Branch } from '../../types'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { ShipmentDetailModal } from './ShipmentDetailModal'
+import type { DemoTransferHandlers } from './ShipmentDetailModal'
 import { searchShipmentsServer, fetchShipmentsPage } from '../../services/shipmentService'
 
 interface ShipmentsManagementViewProps {
@@ -27,6 +28,7 @@ interface ShipmentsManagementViewProps {
   onShipmentUpdated?: (updated: Shipment) => void
   backendConnected: boolean
   isCloudEnvironment: boolean
+  demoTransfer?: DemoTransferHandlers
 }
 
 export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = ({
@@ -39,6 +41,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   onShipmentUpdated,
   backendConnected,
   isCloudEnvironment,
+  demoTransfer,
 }) => {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -584,6 +587,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
         currentUser={currentUser}
         currentBranchId={currentBranch.id}
         simpleTransferEnabled={simpleTransferEnabled}
+        demoTransfer={demoTransfer}
         onShipmentUpdated={(updated) => {
           setSelectedShipment(updated)
           if (onShipmentUpdated) onShipmentUpdated(updated)

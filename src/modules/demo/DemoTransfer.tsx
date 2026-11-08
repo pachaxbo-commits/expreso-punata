@@ -1,18 +1,20 @@
 import { useState } from 'react'
 import type { Shipment, UserProfile } from '../../types'
 
-export function DemoTransfer({ shipments, user, branch, onUpdate, onDeliver }: {
+export function DemoTransfer({ shipments, user, branch, onUpdate, onDeliver, initialShipment }: {
   shipments: Shipment[]
   user: UserProfile
   branch: string
   onUpdate: (shipment: Shipment) => void
   onDeliver: (shipment: Shipment) => void
+  initialShipment?: Shipment
 }) {
   const [guide, setGuide] = useState('')
   const [count, setCount] = useState('')
   const [condition, setCondition] = useState('good')
   const [notes, setNotes] = useState('')
-  const shipment = shipments.find(s => s.trackingCode.toUpperCase() === guide.trim().toUpperCase())
+  const shipment = initialShipment || shipments.find(s => s.trackingCode.toUpperCase() === guide.trim().toUpperCase())
+  const embedded = Boolean(initialShipment)
   const driver = user.role === 'conductor'
   const atOrigin = !driver && shipment?.originBranchId === branch
   const atDestination = !driver && shipment?.destinationBranchId === branch
@@ -33,11 +35,11 @@ export function DemoTransfer({ shipments, user, branch, onUpdate, onDeliver }: {
   }
 
   return (
-    <section data-tutorial-target={driver ? "shipment-custody" : "shipment-transfer"} className="space-y-3 rounded-xl border bg-white p-4">
-      <h2 className="font-bold">Traslado por guía · Simulación</h2>
-      <label className="block">Guía de la demo
-        <input className="ml-2 rounded border p-2" value={guide} onChange={e => { setGuide(e.target.value); setCount(''); setCondition('good'); setNotes('') }} />
-      </label>
+    <section data-tutorial-target={driver ? "shipment-custody" : "shipment-transfer"} className={embedded ? 'space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3' : 'space-y-3 rounded-xl border bg-white p-4'}>
+      <h3 className="font-bold text-slate-800">{embedded ? 'Traslado por guía · Simulación' : 'Encomiendas asignadas · Traslado simulado'}</h3>
+      {!embedded && <label className="block text-xs font-semibold text-slate-600">Buscar guía de la demo
+        <input className="ml-2 rounded-lg border border-slate-300 p-2" value={guide} onChange={e => { setGuide(e.target.value); setCount(''); setCondition('good'); setNotes('') }} />
+      </label>}
       {shipment && (atOrigin || atDestination || (driver && shipment.singleTransfer)) && (
         <div className="space-y-2">
           <p>{shipment.trackingCode} · {shipment.status} · {shipment.paymentStatus === 'paid' ? 'Pagada' : 'Por pagar'}</p>
