@@ -117,7 +117,7 @@ try {
       })
     }
     const delivery = destPage.waitForResponse(r => r.url().endsWith('/deliverShipment') && r.request().method() === 'POST')
-    await btn(destPage, 'Confirmar Entrega Conforme').click()
+    await btn(destPage, recover ? /Cobrar .* y Entregar/ : 'Confirmar Entrega Conforme').click()
     const receipt = await (await delivery).json()
     if (recover) {
       assert.equal(receipt.error?.status, 'INTERNAL')
