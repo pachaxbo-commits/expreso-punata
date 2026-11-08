@@ -471,6 +471,12 @@ test('9. GESTIÓN DE FLOTA: manageVehicle crea móvil y valida unicidad de placa
 })
 
 test('Traslado por guía: custodia, sucursal, concurrencia y discrepancias', async () => {
+  const previous = process.env.SIMPLE_SHIPMENT_TRANSFER
+  delete process.env.SIMPLE_SHIPMENT_TRANSFER
+  await assert.rejects(() => confirmShipmentDeparture.run({ auth: { uid: 'sec-punata' } }), { code: 'failed-precondition' })
+  await assert.rejects(() => confirmShipmentReception.run({ auth: { uid: 'sec-punata' } }), { code: 'failed-precondition' })
+  process.env.SIMPLE_SHIPMENT_TRANSFER = 'true'
+  try {
   await createTestUser('sec-punata', 'secretaria', 'punata')
   await createTestUser('sec-cbba', 'secretaria', 'cochabamba')
   await createTestUser('chofer-1', 'conductor', 'punata')
@@ -504,5 +510,9 @@ test('Traslado por guía: custodia, sucursal, concurrencia y discrepancias', asy
     assert.equal(history.size, 1)
     assert.equal(history.docs[0].data().receivedPackages, receivedPackages)
     assert.equal(history.docs[0].data().operatorUid, 'sec-cbba')
+  }
+  } finally {
+    if (previous === undefined) delete process.env.SIMPLE_SHIPMENT_TRANSFER
+    else process.env.SIMPLE_SHIPMENT_TRANSFER = previous
   }
 })

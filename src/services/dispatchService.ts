@@ -220,14 +220,14 @@ export function subscribeManifestsByBranch(
 export function subscribeDriverManifests(
   driverUid: string,
   onUpdate: (manifests: DispatchManifest[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  pendingSingleTransfers = false,
 ) {
-  const q = query(
-    collection(db, 'manifests'),
-    where('driverUid', '==', driverUid),
-    orderBy('createdAt', 'desc'),
-    limit(30)
-  )
+  const manifests = collection(db, 'manifests')
+  const assignedDriver = where('driverUid', '==', driverUid)
+  const q = pendingSingleTransfers
+    ? query(manifests, assignedDriver, where('singleTransfer', '==', true), where('status', '==', 'dispatched'))
+    : query(manifests, assignedDriver, orderBy('createdAt', 'desc'), limit(30))
 
   return onSnapshot(
     q,

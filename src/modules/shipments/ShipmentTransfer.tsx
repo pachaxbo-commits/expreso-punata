@@ -61,7 +61,7 @@ export function ShipmentTransfer({ shipment, action, onDone }: {
   }
 
   return (
-    <fieldset disabled={busy} className="mx-4 my-2 space-y-2 rounded-xl border border-emerald-200 p-3 text-sm">
+    <fieldset data-tutorial-target="shipment-transfer" disabled={busy} className="mx-4 my-2 space-y-2 rounded-xl border border-emerald-200 p-3 text-sm">
       <legend className="px-1 font-bold text-emerald-900">{departing ? 'Salida de agencia' : 'Recepción en destino'}</legend>
       {departing ? (
         <div className="grid gap-2 sm:grid-cols-2">

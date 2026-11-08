@@ -7,7 +7,7 @@ export function ShipmentCustody({ uid }: { uid: string }) {
   const [pendingId, setPendingId] = useState('')
   const [error, setError] = useState('')
 
-  useEffect(() => subscribeDriverManifests(uid, setTrips, () => setError('No se pudo consultar la carga asignada.')), [uid])
+  useEffect(() => subscribeDriverManifests(uid, setTrips, () => setError('No se pudo consultar la carga asignada.'), true), [uid])
 
   async function accept(id: string) {
     setPendingId(id)
@@ -23,7 +23,7 @@ export function ShipmentCustody({ uid }: { uid: string }) {
 
   const pending = trips.filter(trip => trip.singleTransfer && trip.status === 'dispatched' && trip.driverCustodyStatus === 'pending')
   return (
-    <section className="space-y-3 rounded-xl border bg-white p-4">
+    <section data-tutorial-target="shipment-custody" className="space-y-3 rounded-xl border bg-white p-4">
       <h2 className="font-bold">Encomiendas asignadas</h2>
       {error && <p role="alert">{error}</p>}
       {!pending.length && <p>No hay guías pendientes de aceptar.</p>}

@@ -1,3 +1,4 @@
+import { SIMPLE_TRANSFER_TUTORIAL } from './simpleTransferTutorial'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type {
   TutorialStorageScope,
@@ -12,18 +13,19 @@ import {
   resetTutorialState,
 } from './storage'
 import {
-  TUTORIAL_SECTIONS,
   getSectionsForRole,
 } from './tutorialSectionsData'
 
 interface UseTutorialOptions {
   scope: TutorialStorageScope
+  simplifiedTransfer?: boolean
   onNavigateToTab?: (tabId: string) => void
   onSetSubTab?: (module: string, subTabId: string) => void
 }
 
 export function useTutorial({
   scope,
+  simplifiedTransfer = false,
   onNavigateToTab,
   onSetSubTab,
 }: UseTutorialOptions) {
@@ -39,12 +41,15 @@ export function useTutorial({
 
   // Rol-filtered sections
   const roleSections = useMemo(() => {
-    return getSectionsForRole(scope.role)
-  }, [scope.role])
+    const existing = getSectionsForRole(scope.role)
+    if (!simplifiedTransfer) return existing
+    const transfer = SIMPLE_TRANSFER_TUTORIAL.filter(section => section.allowedRoles.includes(scope.role))
+    return [...transfer, ...existing.filter(section => section.moduleId !== 'manifests')]
+  }, [scope.role, simplifiedTransfer])
 
   const sectionsById = useMemo(() => {
-    return new Map(TUTORIAL_SECTIONS.map((sec) => [sec.id, sec]))
-  }, [])
+    return new Map(roleSections.map((sec) => [sec.id, sec]))
+  }, [roleSections])
 
   // Dynamic scope update (e.g. role switch)
   const prevScopeRef = useRef(scope)

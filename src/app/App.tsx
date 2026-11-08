@@ -1,3 +1,4 @@
+import { isPublicDemo } from '../firebase/config'
 import React, { useState, useEffect } from 'react'
 import {
   Package,
@@ -54,7 +55,9 @@ interface MainDashboardProps {
 
 export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => {
   const { signOut, currentBranchId, switchBranch, hasRole } = useAuth()
-  const [activeTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? 'manifests' : 'shipments'))
+  const simpleTransferEnabled = import.meta.env.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
+  const advancedDispatchVisible = !simpleTransferEnabled || import.meta.env.VITE_ADVANCED_DISPATCH === 'true'
+  const [activeTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
   const [configSubTab, setConfigSubTab] = useState<'users' | 'general' | 'tariffs' | 'printers'>('users')
   const [manifestSubTab, setManifestSubTab] = useState<'manifests' | 'commisiones'>('manifests')
   const [assetSubTab, setAssetSubTab] = useState<'fixed' | 'consumables'>('fixed')
@@ -72,7 +75,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
       uid: userProfile.uid,
       primaryBranchId: userProfile.primaryBranchId,
     },
-    onNavigateToTab: (tabId) => setActiveTab(tabId),
+    simplifiedTransfer: !advancedDispatchVisible,
+    onNavigateToTab: (tabId) => { if (tabs.some(tab => tab.id === tabId)) setActiveTab(tabId) },
     onSetSubTab: (module, subTabId) => {
       if (module === 'manifests') setManifestSubTab(subTabId as any)
       if (module === 'assets') setAssetSubTab(subTabId as any)
@@ -111,12 +115,12 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   })
 
   // Pestañas filtradas por rol del usuario (RBAC en interfaz)
-  const simpleTransferEnabled = import.meta.env.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
   const tabs = [
     { id: 'shipment-custody', label: 'Encomiendas asignadas', icon: Package, visible: simpleTransferEnabled && userProfile.role === 'conductor' },
     { id: 'shipments', label: 'Encomiendas', icon: Package, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'storage', label: 'Módulos de Almacén', icon: Boxes, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
-    { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
+    { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: advancedDispatchVisible && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
+    { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
     { id: 'dues', label: 'Socios & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
@@ -354,7 +358,10 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           <ShipmentCustody uid={userProfile.uid} />
         )}
 
-        {activeTab === 'manifests' && (
+        {activeTab === 'commissions' && tabs.some(tab => tab.id === 'commissions') && (
+          <DriverCommissionsView currentUser={userProfile} currentBranch={currentBranch} />
+        )}
+        {activeTab === 'manifests' && advancedDispatchVisible && (
           <div className="space-y-4">
             <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-1 text-xs">
               <button
@@ -614,13 +621,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 }
 
 export const AppContent: React.FC = () => {
-  const isDemo =
-    typeof window !== 'undefined' &&
-    (window.location.pathname.startsWith('/demo') ||
-      window.location.search.includes('demo=true') ||
-      window.location.hash.startsWith('#/demo'))
-
-  if (isDemo) {
+  if (isPublicDemo) {
     return <DemoView />
   }
 

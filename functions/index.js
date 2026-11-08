@@ -2143,7 +2143,7 @@ export const collectShipmentPayment = onCall({ cors: true }, async (request) => 
  */
 const singleTransfer = Symbol('singleTransfer')
 
-export const createDispatchManifest = onCall({ cors: true }, async (request) => {
+async function createDispatch(request) {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para despachar encomiendas.')
   }
@@ -2435,7 +2435,9 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       dispatchedAtIso: nowIso,
     }
   })
-})
+}
+
+export const createDispatchManifest = onCall({ cors: true }, createDispatch)
 
 /**
  * Cloud Function Callable para que el conductor asignado confirme la recepción formal y custodia de la carga.
@@ -2571,7 +2573,7 @@ export const driverConfirmCustody = onCall({ cors: true }, async (request) => {
  * Cloud Function Callable para la recepción formal del manifiesto en agencia de destino,
  * con verificación bulto a bulto, registro de discrepancias y actualización de custodia.
  */
-export const receiveDispatchManifest = onCall({ cors: true }, async (request) => {
+async function receiveDispatch(request) {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para recibir manifiestos.')
   }
@@ -2835,7 +2837,9 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
       receivedAtIso: nowIso,
     }
   })
-})
+}
+
+export const receiveDispatchManifest = onCall({ cors: true }, receiveDispatch)
 
 async function assertTransferBranch(transaction, uid, branchId) {
   const profile = (await transaction.get(db.collection('users').doc(uid))).data()
@@ -2858,8 +2862,12 @@ function transferAudit({ action, previousStatus, newStatus, callerUid, callerDat
 }
 
 export const confirmShipmentDeparture = onCall({ cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión.')
+  if (process.env.SIMPLE_SHIPMENT_TRANSFER !== 'true') {
+    throw new HttpsError('failed-precondition', 'El traslado simplificado está deshabilitado.')
+  }
   const { shipmentId, originBranchId, destinationBranchId, vehicleId, driverUid } = request.data || {}
-  return createDispatchManifest.run({
+  return createDispatch({
     ...request,
     [singleTransfer]: true,
     data: { shipmentIds: [shipmentId], originBranchId, destinationBranchId, vehicleId, driverUid },
@@ -2867,12 +2875,15 @@ export const confirmShipmentDeparture = onCall({ cors: true }, async (request) =
 })
 
 export const confirmShipmentReception = onCall({ cors: true }, async (request) => {
-  const { shipmentId, manifestId, receivedPackages, condition, notes = '' } = request.data || {}
   if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión.')
+  if (process.env.SIMPLE_SHIPMENT_TRANSFER !== 'true') {
+    throw new HttpsError('failed-precondition', 'El traslado simplificado está deshabilitado.')
+  }
+  const { shipmentId, manifestId, receivedPackages, condition, notes = '' } = request.data || {}
   if (!Number.isInteger(receivedPackages) || receivedPackages < 0 || typeof notes !== 'string') {
     throw new HttpsError('invalid-argument', 'Indica la cantidad de bultos y una observación válida.')
   }
-  return receiveDispatchManifest.run({
+  return receiveDispatch({
     ...request,
     [singleTransfer]: true,
     data: { manifestId, receivedShipments: [{ shipmentId, receivedPackages, condition, notes }] },
