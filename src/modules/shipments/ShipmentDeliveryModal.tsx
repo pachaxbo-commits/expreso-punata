@@ -285,7 +285,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
               </p>
               {completedShipment.paymentTiming === 'destination_cod' && (
                 <p className="text-xs font-semibold text-emerald-700 bg-emerald-50 py-1 px-3 rounded-full inline-block mt-1">
-                  ✓ Cobro COD de {formatCurrencyBob(completedShipment.finalAmountCents, true)} ingresado a caja.
+                  ✓ Cobro en destino de {formatCurrencyBob(completedShipment.finalAmountCents, true)} ingresado a caja.
                 </p>
               )}
             </div>
@@ -387,7 +387,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
                               {formatCurrencyBob(s.finalAmountCents, true)}
                             </span>
                             <span className={`block text-[10px] font-bold ${s.paymentTiming === 'destination_cod' ? 'text-amber-800' : 'text-emerald-700'}`}>
-                              {s.paymentTiming === 'destination_cod' ? 'COBRAR COD' : 'PAGADO'}
+                              {s.paymentStatus === 'paid' ? 'PAGADO' : s.paymentTiming === 'destination_cod' ? 'POR PAGAR' : 'PENDIENTE EN ORIGEN'}
                             </span>
                           </div>
                         </div>
@@ -430,7 +430,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
                     <div className="flex items-center gap-2 text-amber-900">
                       <DollarSign className="w-5 h-5 text-amber-600 shrink-0" />
                       <div>
-                        <strong className="block">ENCOMIENDA CONTRAENTREGA (COD)</strong>
+                        <strong className="block">ENCOMIENDA POR PAGAR</strong>
                         <span>Debe cobrar antes de entregar al cliente.</span>
                       </div>
                     </div>

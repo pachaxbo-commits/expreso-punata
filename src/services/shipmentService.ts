@@ -24,7 +24,7 @@ export interface CreateShipmentInput {
   recipient: ParcelCustomer
   items: ParcelItem[]
   declaredValueTotal?: number
-  paymentTiming: PaymentTiming
+  paymentTiming: Exclude<PaymentTiming, 'origin_pending'>
   paymentMethod?: PaymentMethod
   discountCents?: number
   suggestedAmountCents?: number
@@ -85,6 +85,10 @@ export async function createShipmentThroughBackend(
 ): Promise<CreateShipmentResult> {
   if (!auth.currentUser) {
     throw new Error('Debe iniciar sesión para registrar una encomienda.')
+  }
+
+  if (input.paymentTiming !== 'origin_paid' && input.paymentTiming !== 'destination_cod') {
+    throw new Error('Selecciona Pagado en origen o Por pagar para registrar la encomienda.')
   }
 
   // Clave de idempotencia única para prevenir doble envío por red

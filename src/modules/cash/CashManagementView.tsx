@@ -598,7 +598,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                                   </span>
                                 ) : mov.type === 'cod_income' ? (
                                   <span className="text-[10px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-                                    COD ingresado a Caja
+                                    Cobro en destino ingresado a caja
                                   </span>
                                 ) : (
                                   <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">

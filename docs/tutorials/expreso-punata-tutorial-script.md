@@ -104,7 +104,7 @@ Tiempo Estimado de Locución: **~66 minutos**
 **Módulo:** `shipments`  
 **Roles Destinatarios:** `secretaria`, `encargado_agencia`, `directiva_admin`  
 **Duración Aprox.:** ~4 minutos  
-**Descripción:** Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y seleccionar pagos en origen o contraentrega (COD).
+**Descripción:** Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y elegir entre pagar en origen y dejar el envío por pagar en destino.
 
 #### Escena 2.1: Precio Sugerido vs. Precio Acordado Editable
 
@@ -136,7 +136,7 @@ Tiempo Estimado de Locución: **~66 minutos**
   - **Efecto en el Sistema:** La justificación queda grabada en el historial de auditoría de la encomienda y aparecerá en los reportes de administración.
   - **Recomendación:** No uses explicaciones genéricas como "acuerdo". Especifica el motivo real para evitar observaciones en auditoría.
 
-#### Escena 2.3: Condición de Pago: Origen vs. Cobro Contraentrega (COD)
+#### Escena 2.3: Condición de pago — Pagado en origen o Por pagar
 
 - **Objetivo en Pantalla:** `[data-tutorial-target="shipment-payment-mode"]`
 - **Acción Visual:** Desplazamiento y resaltado en recuadro verde y dorado.
@@ -144,11 +144,11 @@ Tiempo Estimado de Locución: **~66 minutos**
   > «Elige si la encomienda queda pagada en este momento o si será cobrada al destinatario cuando la retire en la agencia de destino.»
 
 - **Puntos Pedagógicos Clave:**
-  - **Concepto:** La selección de cuándo se cobrará el flete: "Pagado en Origen" (el remitente paga ahora) o "Por Cobrar / COD" (el destinatario paga al retirar).
+  - **Concepto:** La selección de cuándo se cobrará el flete: "Pagado en Origen" (el remitente paga ahora) o "Por pagar" (el destinatario paga al retirar).
   - **Utilidad:** Determina si el dinero ingresa a la caja de tu sucursal en este momento o si quedará como cuenta por cobrar en la agencia de destino.
-  - **Instrucción:** Selecciona "Pagado en Origen" si el cliente te entrega el dinero en ventanilla. Selecciona "Por Cobrar (Contraentrega)" si pagará quien recibe.
-  - **Ejemplo Práctico:** *Si don Carlos paga los Bs 20 en la agencia Punata, marcas "Pagado en Origen". Si su hija pagará en Cochabamba, marcas "Por Cobrar".*
-  - **Efecto en el Sistema:** Si es Pagado, se emite un comprobante de cobro para tu caja. Si es Por Cobrar, la guía viaja con saldo pendiente de pago.
+  - **Instrucción:** Selecciona "Pagado en Origen" si el cliente te entrega el dinero en ventanilla. Selecciona "Por pagar" si pagará quien recibe.
+  - **Ejemplo Práctico:** *Si don Carlos paga los Bs 20 en la agencia Punata, marcas "Pagado en Origen". Si su hija pagará en Cochabamba, marcas "Por pagar".*
+  - **Efecto en el Sistema:** Si es Pagado, se emite un comprobante de cobro para tu caja. Si es Por pagar, la guía viaja con saldo pendiente de pago.
   - **Recomendación:** Confirma con el cliente si pagará en efectivo o mediante QR Simple antes de finalizar el registro.
 
 #### Escena 2.4: Emisión de la Guía Oficial e Impresión Térmica

@@ -131,8 +131,8 @@ export function resolvePaymentConditionLabel(financials?: DocumentFinancials): s
   // 3. Contraentrega (COD)
   if (financials.paymentTiming === 'destination_cod') {
     return financials.paymentStatus === 'paid'
-      ? 'CONTRAENTREGA COBRADA EN DESTINO'
-      : 'CONTRAENTREGA PENDIENTE DE COBRO'
+      ? 'POR PAGAR — COBRADO EN DESTINO'
+      : 'POR PAGAR EN DESTINO'
   }
 
   // 4. Origen pendiente de cobro
