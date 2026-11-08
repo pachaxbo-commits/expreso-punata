@@ -27,6 +27,7 @@ import { printShipmentGuidePdf } from '../../services/pdfService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
 import { FileText } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext.tsx'
+import { subscribeActiveCashShift } from '../../services/cashService.ts'
 
 interface WizardProps {
   isOpen: boolean
@@ -109,6 +110,18 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   const [isPriceCustomized, setIsPriceCustomized] = useState(false)
   const [priceAdjustmentReason, setPriceAdjustmentReason] = useState('')
   const [systemTariffs, setSystemTariffs] = useState<Partial<ParcelTariffConfig> | null>(null)
+  const [cashShiftState, setCashShiftState] = useState<'checking' | 'open' | 'closed' | 'unavailable'>('checking')
+
+  useEffect(() => {
+    if (!isOpen || demo || !userProfile?.uid || !originBranchId) return
+    setCashShiftState('checking')
+    return subscribeActiveCashShift(
+      userProfile.uid,
+      originBranchId,
+      shift => setCashShiftState(shift ? 'open' : 'closed'),
+      () => setCashShiftState('unavailable'),
+    )
+  }, [isOpen, demo, originBranchId, userProfile?.uid])
 
   useEffect(() => {
     let isMounted = true
@@ -1019,6 +1032,16 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
               {/* Si es pagado en origen, seleccionar medio de pago */}
               {paymentTiming === 'origin_paid' && (
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  {!demo && cashShiftState === 'closed' && (
+                    <div role="status" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      No hay una caja abierta para tu usuario en {INITIAL_BRANCHES.find(branch => branch.id === originBranchId)?.name || originBranchId}. Abre tu turno desde “Caja del Turno” antes de registrar un cobro en origen. También puedes elegir “Por pagar” si el destinatario pagará en destino.
+                    </div>
+                  )}
+                  {!demo && cashShiftState === 'unavailable' && (
+                    <div role="status" className="mb-3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">
+                      No se pudo comprobar el turno de caja. El servidor validará la sucursal, el operador y el estado del turno al emitir la guía.
+                    </div>
+                  )}
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
                     Medio de Cobro en Ventanilla
                   </label>
