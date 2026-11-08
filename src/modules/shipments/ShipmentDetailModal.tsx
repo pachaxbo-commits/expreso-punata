@@ -25,6 +25,12 @@ import { cancelShipmentThroughBackend, fetchCurrentShipment, updateShipmentThrou
 import { reportShipmentIncident } from '../../services/incidentService'
 
 import { ShipmentTransfer } from './ShipmentTransfer'
+import { DemoTransfer } from '../demo/DemoTransfer'
+
+export interface DemoTransferHandlers {
+  onUpdate: (shipment: Shipment) => void
+  onDeliver: (shipment: Shipment) => void
+}
 
 interface ShipmentDetailModalProps {
   shipment: Shipment | null
@@ -35,6 +41,7 @@ interface ShipmentDetailModalProps {
   simpleTransferEnabled?: boolean
   onShipmentUpdated?: (updated: Shipment) => void
   onDeliverShipment?: (shipment: Shipment) => void
+  demoTransfer?: DemoTransferHandlers
 }
 
 export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
@@ -46,6 +53,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   simpleTransferEnabled,
   onShipmentUpdated,
   onDeliverShipment,
+  demoTransfer,
 }) => {
   const [activeTab, setActiveTab] = useState<'info' | 'history' | 'edit' | 'incidents'>('info')
   const [incidentType, setIncidentType] = useState<'uncollected' | 'returned' | 'lost' | 'damaged' | 'exceptional_delivery'>('damaged')
@@ -395,6 +403,19 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
               if (updated) onShipmentUpdated?.(updated)
               onClose()
             }} />
+          )}
+          {activeTab === 'info' && demoTransfer && (
+            <DemoTransfer
+              shipments={[shipment]}
+              user={currentUser}
+              branch={currentBranchId}
+              onUpdate={updated => {
+                demoTransfer.onUpdate(updated)
+                onShipmentUpdated?.(updated)
+              }}
+              onDeliver={demoTransfer.onDeliver}
+              initialShipment={shipment}
+            />
           )}
           {activeTab === 'info' && (
             <div className="space-y-4">

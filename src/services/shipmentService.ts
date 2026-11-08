@@ -15,6 +15,7 @@ import {
 import { httpsCallable } from 'firebase/functions'
 import { db, functions, auth } from '../firebase/config.ts'
 import type { Shipment, ParcelCustomer, ParcelItem, PaymentTiming, PaymentMethod } from '../types/index.ts'
+import { formatShipmentCreationError } from './shipmentErrors.ts'
 
 export interface CreateShipmentInput {
   originBranchId: string
@@ -111,20 +112,7 @@ export async function createShipmentThroughBackend(
     return res.data
   } catch (err: unknown) {
     console.error('[shipmentService] Error al invocar createShipment:', err)
-    const errorObj = err as { code?: string; message?: string }
-    const msg = errorObj.message || 'Error al comunicarse con el servidor de encomiendas.'
-
-    if (errorObj.code === 'permission-denied' || msg.includes('permission-denied')) {
-      throw new Error(`Acceso denegado: ${msg}`)
-    }
-    if (errorObj.code === 'unauthenticated' || msg.includes('unauthenticated')) {
-      throw new Error('Sesión expirada o no autenticada. Inicie sesión nuevamente.')
-    }
-    if (errorObj.code === 'invalid-argument' || msg.includes('invalid-argument')) {
-      throw new Error(`Datos inválidos: ${msg}`)
-    }
-
-    throw new Error(msg)
+    throw new Error(formatShipmentCreationError(err))
   }
 }
 
