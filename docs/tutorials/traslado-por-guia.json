@@ -1,0 +1,122 @@
+[
+  {
+    "id": "simple_transfer",
+    "moduleId": "shipments",
+    "title": "Traslado por guía en ventanilla",
+    "shortTitle": "Traslado por guía en ventanilla",
+    "description": "Traslado por guía en ventanilla",
+    "estimatedMinutes": 4,
+    "category": "operational",
+    "allowedRoles": [
+      "secretaria",
+      "encargado_agencia",
+      "directiva_admin"
+    ],
+    "steps": [
+      {
+        "id": "simple_transfer_0",
+        "sectionId": "simple_transfer",
+        "order": 1,
+        "target": "[data-tutorial-target=\"btn-new-shipment\"]",
+        "fallbackTarget": "[data-tutorial-target=\"nav-tab-shipments\"]",
+        "title": "Registrar la encomienda",
+        "whatIsIt": "Registra remitente, destinatario, ruta y bultos. Elige Pagado en origen o Por pagar.",
+        "whatIsItFor": "Registra el paso y su responsable en la guía.",
+        "whatToWriteOrSelect": "Registra remitente, destinatario, ruta y bultos. Elige Pagado en origen o Por pagar.",
+        "example": "Traslado de Punata a Cochabamba.",
+        "whatHappensAfter": "Consulta el estado actualizado y el historial de la guía.",
+        "importantTip": "Confirma cada paso después de comprobar el paquete físicamente.",
+        "audioScript": "Registra remitente, destinatario, ruta y bultos. Elige Pagado en origen o Por pagar.",
+        "requiredContext": {
+          "tab": "shipments"
+        }
+      },
+      {
+        "id": "simple_transfer_1",
+        "sectionId": "simple_transfer",
+        "order": 2,
+        "target": "[data-tutorial-target=\"shipment-transfer\"]",
+        "fallbackTarget": "[data-tutorial-target=\"nav-tab-shipments\"]",
+        "title": "Confirmar la salida",
+        "whatIsIt": "Abre el detalle de la guía y elige el vehículo y el conductor. Confirma la salida cuando la carga esté lista.",
+        "whatIsItFor": "Registra el paso y su responsable en la guía.",
+        "whatToWriteOrSelect": "Abre el detalle de la guía y elige el vehículo y el conductor. Confirma la salida cuando la carga esté lista.",
+        "example": "Traslado de Punata a Cochabamba.",
+        "whatHappensAfter": "Consulta el estado actualizado y el historial de la guía.",
+        "importantTip": "Confirma cada paso después de comprobar el paquete físicamente.",
+        "audioScript": "Abre el detalle de la guía y elige el vehículo y el conductor. Confirma la salida cuando la carga esté lista.",
+        "requiredContext": {
+          "tab": "shipments"
+        }
+      },
+      {
+        "id": "simple_transfer_2",
+        "sectionId": "simple_transfer",
+        "order": 3,
+        "target": "[data-tutorial-target=\"shipment-transfer\"]",
+        "fallbackTarget": "[data-tutorial-target=\"nav-tab-shipments\"]",
+        "title": "Verificar y recibir",
+        "whatIsIt": "En la agencia de destino, busca la guía. Verifica los bultos y anota daños o diferencias antes de confirmar. El conductor debe haber aceptado la custodia.",
+        "whatIsItFor": "Registra el paso y su responsable en la guía.",
+        "whatToWriteOrSelect": "En la agencia de destino, busca la guía. Verifica los bultos y anota daños o diferencias antes de confirmar. El conductor debe haber aceptado la custodia.",
+        "example": "Traslado de Punata a Cochabamba.",
+        "whatHappensAfter": "Consulta el estado actualizado y el historial de la guía.",
+        "importantTip": "Confirma cada paso después de comprobar el paquete físicamente.",
+        "audioScript": "En la agencia de destino, busca la guía. Verifica los bultos y anota daños o diferencias antes de confirmar. El conductor debe haber aceptado la custodia.",
+        "requiredContext": {
+          "tab": "shipments"
+        }
+      },
+      {
+        "id": "simple_transfer_3",
+        "sectionId": "simple_transfer",
+        "order": 4,
+        "target": "[data-tutorial-target=\"btn-deliver-shipment\"]",
+        "fallbackTarget": "[data-tutorial-target=\"nav-tab-shipments\"]",
+        "title": "Cobrar y entregar con firma",
+        "whatIsIt": "Tras una recepción conforme, cobra en caja de destino si la guía está Por pagar. Verifica la identidad de quien retira y recoge su firma.",
+        "whatIsItFor": "Registra el paso y su responsable en la guía.",
+        "whatToWriteOrSelect": "Tras una recepción conforme, cobra en caja de destino si la guía está Por pagar. Verifica la identidad de quien retira y recoge su firma.",
+        "example": "Traslado de Punata a Cochabamba.",
+        "whatHappensAfter": "Consulta el estado actualizado y el historial de la guía.",
+        "importantTip": "Confirma cada paso después de comprobar el paquete físicamente.",
+        "audioScript": "Tras una recepción conforme, cobra en caja de destino si la guía está Por pagar. Verifica la identidad de quien retira y recoge su firma.",
+        "requiredContext": {
+          "tab": "shipments"
+        }
+      }
+    ]
+  },
+  {
+    "id": "simple_custody",
+    "moduleId": "shipment-custody",
+    "title": "Confirmar custodia de la guía",
+    "shortTitle": "Confirmar custodia de la guía",
+    "description": "Confirmar custodia de la guía",
+    "estimatedMinutes": 4,
+    "category": "operational",
+    "allowedRoles": [
+      "conductor"
+    ],
+    "steps": [
+      {
+        "id": "simple_custody_0",
+        "sectionId": "simple_custody",
+        "order": 1,
+        "target": "[data-tutorial-target=\"shipment-custody\"]",
+        "fallbackTarget": "[data-tutorial-target=\"nav-tab-shipment-custody\"]",
+        "title": "Confirmar custodia",
+        "whatIsIt": "Abre Encomiendas asignadas, revisa la guía y el vehículo, y confirma que recibiste la carga.",
+        "whatIsItFor": "Registra el paso y su responsable en la guía.",
+        "whatToWriteOrSelect": "Abre Encomiendas asignadas, revisa la guía y el vehículo, y confirma que recibiste la carga.",
+        "example": "Traslado de Punata a Cochabamba.",
+        "whatHappensAfter": "Consulta el estado actualizado y el historial de la guía.",
+        "importantTip": "Confirma cada paso después de comprobar el paquete físicamente.",
+        "audioScript": "Abre Encomiendas asignadas, revisa la guía y el vehículo, y confirma que recibiste la carga.",
+        "requiredContext": {
+          "tab": "shipment-custody"
+        }
+      }
+    ]
+  }
+]

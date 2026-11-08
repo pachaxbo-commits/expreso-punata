@@ -72,6 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (user) {
         // Si el perfil ya coincide con el usuario autenticado (por ejemplo, cargado por signIn), no recargar
         if (userProfile && userProfile.uid === user.uid) {
+          _setCurrentBranchId(userProfile.primaryBranchId || 'punata')
           setIsInitializing(false)
           return
         }

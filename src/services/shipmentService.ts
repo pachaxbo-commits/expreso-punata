@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   query,
   where,
   or,
@@ -226,6 +227,13 @@ export function subscribeShipmentsByBranch(
  * Brinda compatibilidad retroactiva completa con guías antiguas con guiones (PUN-2026-00042)
  * y el nuevo formato alfanumérico limpio sin símbolos (PUN202600042).
  */
+export async function fetchCurrentShipment(shipmentId: string): Promise<Shipment | null> {
+  const snapshot = await getDocFromServer(doc(db, 'shipments', shipmentId))
+  if (!snapshot.exists()) return null
+  const shipment = snapshot.data() as Shipment
+  return { ...shipment, id: snapshot.id, trackingCode: shipment.trackingCode || snapshot.id }
+}
+
 export async function fetchShipmentByTrackingCode(
   trackingCode: string
 ): Promise<Shipment | null> {

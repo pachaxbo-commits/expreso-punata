@@ -16,7 +16,11 @@ const isLocalhost = Boolean(
     window.location.hostname.endsWith('.local'))
 )
 
+export const isPublicDemo = typeof window !== 'undefined' &&
+  (window.location.pathname.startsWith('/demo') || window.location.search.includes('demo=true') ||
+    window.location.hash.startsWith('#/demo'))
 const shouldConnectEmulators =
+  isPublicDemo ||
   import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' ||
   (import.meta.env.VITE_USE_FIREBASE_EMULATORS === undefined && (import.meta.env.DEV || isLocalhost))
 
@@ -41,7 +45,16 @@ let firebaseConfig: {
   appId: string
 }
 
-if (shouldConnectEmulators) {
+if (isPublicDemo) {
+  firebaseConfig = {
+    apiKey: 'demo-local-only',
+    authDomain: 'localhost',
+    projectId: 'demo-expreso-punata-offline',
+    storageBucket: 'demo-expreso-punata-offline.appspot.com',
+    messagingSenderId: '123456789012',
+    appId: '1:123456789012:web:demo-offline',
+  }
+} else if (shouldConnectEmulators) {
   // En entorno de emuladores locales, usamos las variables del entorno si existen,
   // o valores sintéticos 'demo-*' de aislamiento total para garantizar que ningún dato toque la nube.
   firebaseConfig = {
@@ -124,19 +137,19 @@ if (shouldConnectEmulators) {
     // Solo conectar si no han sido conectados previamente
     // @ts-expect-error internal flag
     if (!auth._emulator) {
-      connectAuthEmulator(auth, `http://${emulatorHost}:9099`, { disableWarnings: true })
+      connectAuthEmulator(auth, `http://${emulatorHost}:${isPublicDemo ? 1 : 9099}`, { disableWarnings: true })
     }
     // @ts-expect-error internal flag
     if (!db._settingsFrozen) {
-      connectFirestoreEmulator(db, emulatorHost, 8080)
+      connectFirestoreEmulator(db, emulatorHost, isPublicDemo ? 1 : 8080)
     }
     // @ts-expect-error internal flag
     if (!storage._emulator) {
-      connectStorageEmulator(storage, emulatorHost, 9199)
+      connectStorageEmulator(storage, emulatorHost, isPublicDemo ? 1 : 9199)
     }
     // @ts-expect-error internal flag
     if (!functions.emulatorOrigin) {
-      connectFunctionsEmulator(functions, emulatorHost, 5001)
+      connectFunctionsEmulator(functions, emulatorHost, isPublicDemo ? 1 : 5001)
     }
     console.log('[Expreso Punata] Conectado a Emuladores Locales de Firebase (Auth: 9099, Firestore: 8080, Storage: 9199, Functions: 5001)')
   } catch (err) {

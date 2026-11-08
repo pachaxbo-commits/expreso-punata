@@ -91,6 +91,14 @@ export async function createDispatchManifestThroughBackend(input: CreateManifest
   return response.data
 }
 
+export async function confirmShipmentDeparture(input: Omit<CreateManifestInput, 'shipmentIds'> & { shipmentId: string }) {
+  await httpsCallable(functions, 'confirmShipmentDeparture')(input)
+}
+
+export async function confirmShipmentReception(input: ReceiveManifestInput['receivedShipments'][number] & { manifestId: string }) {
+  await httpsCallable(functions, 'confirmShipmentReception')(input)
+}
+
 /**
  * Confirma la custodia de la carga por parte del conductor asignado.
  */
@@ -212,14 +220,16 @@ export function subscribeManifestsByBranch(
 export function subscribeDriverManifests(
   driverUid: string,
   onUpdate: (manifests: DispatchManifest[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  pendingSingleTransfers = false,
+  includeLegacyCustody = false,
 ) {
-  const q = query(
-    collection(db, 'manifests'),
-    where('driverUid', '==', driverUid),
-    orderBy('createdAt', 'desc'),
-    limit(30)
-  )
+  const manifests = collection(db, 'manifests')
+  const assignedDriver = where('driverUid', '==', driverUid)
+  const q = pendingSingleTransfers
+    ? query(manifests, assignedDriver, where('status', 'in', ['dispatched', 'in_transit']),
+      ...(includeLegacyCustody ? [] : [where('singleTransfer', '==', true)]))
+    : query(manifests, assignedDriver, orderBy('createdAt', 'desc'), limit(30))
 
   return onSnapshot(
     q,

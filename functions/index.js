@@ -2141,7 +2141,9 @@ export const collectShipmentPayment = onCall({ cors: true }, async (request) => 
  * Bloquea guías en tránsito, genera correlativo inmutable (MAN-PUN-YYYY-XXXX / MAN-CBBA-YYYY-XXXX),
  * previene doble asignación a viajes activos y actualiza estados de forma atómica.
  */
-export const createDispatchManifest = onCall({ cors: true }, async (request) => {
+const singleTransfer = Symbol('singleTransfer')
+
+async function createDispatch(request) {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para despachar encomiendas.')
   }
@@ -2206,6 +2208,7 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
   }
 
   return await db.runTransaction(async (transaction) => {
+    if (request[singleTransfer]) await assertTransferBranch(transaction, callerUid, originBranchId)
     // 1. TODAS LAS LECTURAS PRIMERO (Regla estricta de Firestore)
     const vehicleRef = db.collection('vehicles').doc(vehicleId)
     const vehicleDoc = await transaction.get(vehicleRef)
@@ -2238,6 +2241,9 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       throw new HttpsError('not-found', 'El conductor seleccionado no existe en el sistema.')
     }
     const driverData = driverDoc.data() || {}
+    if (request[singleTransfer] && (driverData.isActive !== true || vehicleData.status !== 'active' || vehicleData.branchId !== originBranchId)) {
+      throw new HttpsError('failed-precondition', 'Selecciona un conductor activo y un vehículo activo de la agencia de origen.')
+    }
     if (driverData.isActive === false) {
       throw new HttpsError('failed-precondition', 'El conductor seleccionado se encuentra inactivo.')
     }
@@ -2267,6 +2273,10 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       const validDispatchStatuses = ['received', 'pending_dispatch']
       if (!validDispatchStatuses.includes(sData.status)) {
         throw new HttpsError('failed-precondition', `La encomienda '${sData.trackingCode || item.id}' tiene estado '${sData.status}' y no puede ser incorporada al despacho.`)
+      }
+
+      if (request[singleTransfer] && (sData.manifestId || sData.assignedVehicle?.manifestId || sData.deliveryRecord)) {
+        throw new HttpsError('failed-precondition', 'La guía ya tiene un traslado o una entrega registrada.')
       }
 
       if (sData.manifestId && (sData.status === 'in_transit' || sData.status === 'dispatched')) {
@@ -2327,6 +2337,7 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       driverName: driverData.fullName || 'Conductor',
       driverPhone: driverData.phone || '',
       shipmentIds,
+      ...(request[singleTransfer] ? { singleTransfer: true } : {}),
       shipmentSummaries,
       totalShipments: shipmentIds.length,
       totalPackages,
@@ -2354,6 +2365,14 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
     for (const item of shipmentRefsAndDocs) {
       transaction.update(item.ref, {
         status: 'in_transit',
+        ...(request[singleTransfer] ? {
+          singleTransfer: true,
+          auditHistory: FieldValue.arrayUnion(transferAudit({
+            action: 'confirm_shipment_departure', previousStatus: item.doc.data().status,
+            newStatus: 'in_transit', callerUid, callerData, branchId: originBranchId, nowIso,
+            reason: 'Salida confirmada en agencia.', newValues: { vehicleId, driverUid },
+          })),
+        } : {}),
         currentLocation: 'in_transit',
         manifestId,
         manifestNumber,
@@ -2372,6 +2391,7 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       const statusLogRef = item.ref.collection('status_logs').doc()
       transaction.set(statusLogRef, {
         status: 'in_transit',
+        previousStatus: item.doc.data().status,
         operatorUid: callerUid,
         operatorName: callerData.fullName || 'Operador',
         branchId: originBranchId,
@@ -2415,7 +2435,9 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       dispatchedAtIso: nowIso,
     }
   })
-})
+}
+
+export const createDispatchManifest = onCall({ cors: true }, createDispatch)
 
 /**
  * Cloud Function Callable para que el conductor asignado confirme la recepción formal y custodia de la carga.
@@ -2551,7 +2573,7 @@ export const driverConfirmCustody = onCall({ cors: true }, async (request) => {
  * Cloud Function Callable para la recepción formal del manifiesto en agencia de destino,
  * con verificación bulto a bulto, registro de discrepancias y actualización de custodia.
  */
-export const receiveDispatchManifest = onCall({ cors: true }, async (request) => {
+async function receiveDispatch(request) {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para recibir manifiestos.')
   }
@@ -2623,13 +2645,23 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
         supervisorOverride.reason.trim().length >= 10
 
       if (isSupervisor && hasValidOverride) {
-        custOverrideApplied = true
+        custodyOverrideApplied = true
       } else {
         throw new HttpsError('failed-precondition', 'El conductor aún no ha aceptado la custodia formal del manifiesto. Se requiere confirmación de custodia o autorización explícita de supervisor para contingencia.')
       }
     }
 
     const expectedShipmentIds = manifestData.shipmentIds || []
+    const simplified = manifestData.singleTransfer === true
+    if (request[singleTransfer] && (!simplified || expectedShipmentIds.length !== 1)) {
+      throw new HttpsError('failed-precondition', 'Usa el flujo avanzado para este viaje.')
+    }
+    if (simplified) {
+      const profile = await assertTransferBranch(transaction, callerUid, manifestData.destinationBranchId)
+      if (custodyOverrideApplied && !['encargado_agencia', 'directiva_admin'].includes(profile.role)) {
+        throw new HttpsError('permission-denied', 'La contingencia requiere un supervisor autorizado.')
+      }
+    }
 
     // A2: No dar por recibida conforme una encomienda que no esté marcada explícitamente en la lista de recepción
     if (!Array.isArray(receivedShipments) || receivedShipments.length !== expectedShipmentIds.length) {
@@ -2656,6 +2688,7 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
     }
 
     for (const item of shipmentRefsAndDocs) {
+      if (!item.doc.exists && simplified) throw new HttpsError('not-found', 'No se encontró la encomienda del traslado.')
       if (!item.doc.exists) continue
       const sData = item.doc.data() || {}
       const itemInput = receivedMap.get(item.id)
@@ -2671,6 +2704,12 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
         throw new HttpsError('invalid-argument', `El conteo de bultos recibidos para la encomienda ${sData.trackingCode || item.id} debe ser un entero mayor o igual a 0.`)
       }
 
+      if (simplified && (sData.manifestId !== manifestId || !['in_transit', 'dispatched'].includes(sData.status))) {
+        throw new HttpsError('failed-precondition', 'La encomienda ya no está en traslado.')
+      }
+      if (simplified && !['good', 'damaged', 'missing'].includes(itemInput.condition)) {
+        throw new HttpsError('invalid-argument', 'Indica la condición física de los bultos.')
+      }
       const condition = itemInput.condition || 'good'
       const isDiscrepant = (recPkg !== expectedPkg) || (condition !== 'good')
       const notesStr = (itemInput.notes || itemInput.discrepancyNote || itemInput.discrepancyNotes || '').trim()
@@ -2703,6 +2742,9 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
       } else if (condition === 'missing' || recPkg === 0) {
         newStatus = condition === 'missing' ? 'lost' : 'incident_investigation'
         statusNote = `DISCREPANCIA: Paquete no encontrado al arribo del manifiesto ${manifestData.manifestNumber}. Declarado ${newStatus}.`
+      } else if (simplified && isDiscrepant) {
+        newStatus = 'incident_investigation'
+        statusNote = `Recepción observada: ${recPkg}/${expectedPkg} bultos, ${condition}. ${notesStr}`
       } else if (condition === 'damaged') {
         statusNote += ` OBSERVACIÓN: Recibido con daños (${notesStr || 'sin detalle'}).`
       }
@@ -2720,11 +2762,21 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
         updatePayload.incidentNotes = itemInput.notes || `Condición: ${condition}, Bultos: ${recPkg}/${expectedPkg}`
       }
 
+      if (simplified) {
+        updatePayload.auditHistory = FieldValue.arrayUnion(transferAudit({
+          action: 'confirm_shipment_reception', previousStatus: sData.status, newStatus,
+          callerUid, callerData, branchId: manifestData.destinationBranchId, nowIso,
+          reason: notesStr || 'Recepción conforme.', newValues: { receivedPackages: recPkg, condition },
+        }))
+      }
       transaction.update(item.ref, updatePayload)
 
       const statusLogRef = item.ref.collection('status_logs').doc()
       transaction.set(statusLogRef, {
         status: newStatus,
+        previousStatus: sData.status,
+        receivedPackages: recPkg,
+        condition,
         operatorUid: callerUid,
         operatorName: callerData.fullName || 'Operador',
         branchId: manifestData.destinationBranchId,
@@ -2784,6 +2836,57 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
       totalDiscrepancies: discrepancies.length,
       receivedAtIso: nowIso,
     }
+  })
+}
+
+export const receiveDispatchManifest = onCall({ cors: true }, receiveDispatch)
+
+async function assertTransferBranch(transaction, uid, branchId) {
+  const profile = (await transaction.get(db.collection('users').doc(uid))).data()
+  const allowed = profile?.primaryBranchId === branchId ||
+    (Array.isArray(profile?.allowedBranchIds) && profile.allowedBranchIds.includes(branchId))
+  if (!branchId || !allowed || profile?.isActive !== true ||
+      !['secretaria', 'encargado_agencia', 'directiva_admin'].includes(profile.role)) {
+    throw new HttpsError('permission-denied', 'Se requiere un perfil activo autorizado en la sucursal.')
+  }
+  return profile
+}
+
+function transferAudit({ action, previousStatus, newStatus, callerUid, callerData, branchId, nowIso, reason, newValues }) {
+  return {
+    action, previousStatus, newStatus, branchId, reason, newValues,
+    previousValues: { status: previousStatus },
+    changedAt: nowIso, operatorUid: callerUid,
+    operatorName: callerData.fullName || 'Operador', operatorRole: callerData.role,
+  }
+}
+
+export const confirmShipmentDeparture = onCall({ cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión.')
+  if (process.env.SIMPLE_SHIPMENT_TRANSFER !== 'true') {
+    throw new HttpsError('failed-precondition', 'El traslado simplificado está deshabilitado.')
+  }
+  const { shipmentId, originBranchId, destinationBranchId, vehicleId, driverUid } = request.data || {}
+  return createDispatch({
+    ...request,
+    [singleTransfer]: true,
+    data: { shipmentIds: [shipmentId], originBranchId, destinationBranchId, vehicleId, driverUid },
+  })
+})
+
+export const confirmShipmentReception = onCall({ cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión.')
+  if (process.env.SIMPLE_SHIPMENT_TRANSFER !== 'true') {
+    throw new HttpsError('failed-precondition', 'El traslado simplificado está deshabilitado.')
+  }
+  const { shipmentId, manifestId, receivedPackages, condition, notes = '' } = request.data || {}
+  if (!Number.isInteger(receivedPackages) || receivedPackages < 0 || typeof notes !== 'string') {
+    throw new HttpsError('invalid-argument', 'Indica la cantidad de bultos y una observación válida.')
+  }
+  return receiveDispatch({
+    ...request,
+    [singleTransfer]: true,
+    data: { manifestId, receivedShipments: [{ shipmentId, receivedPackages, condition, notes }] },
   })
 })
 
@@ -3590,7 +3693,9 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
           }
         }
 
-        const driverDeliverable = ['in_transit', 'dispatched', 'received_at_dest', 'stored']
+        const driverDeliverable = sData.singleTransfer
+          ? ['received_at_dest', 'stored']
+          : ['in_transit', 'dispatched', 'received_at_dest', 'stored']
         if (!driverDeliverable.includes(sData.status)) {
           throw new HttpsError('failed-precondition', `No se puede entregar la encomienda en estado '${sData.status}'.`)
         }
