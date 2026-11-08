@@ -21,3 +21,11 @@ En /demo se sigue la misma guía al cambiar de perfil. La asignación usa un veh
 6. Ante un problema, restaurar primero la navegación avanzada o el frontend anterior y luego apagar la habilitación de las callables nuevas. El flujo avanzado puede recibir traslados iniciados y conserva las validaciones de discrepancias de la nueva versión.
 
 Las pruebas HTTP usan Firebase Emulator Suite, tokens de Auth Emulator y un proyecto demo. El material de narración está escrito y pendiente de grabación.
+
+## Reversión operativa
+
+El punto de retorno verificado de frontend es main b885b36d3ec08caf141a368307800e288a879ae6 (Vercel Production dpl_FfPjqDf8fiXCLP95vzoA6jyhqyvo). Antes de desplegar, guardar las revisiones activas de receiveDispatchManifest y deliverShipment y la configuración efectiva de las banderas. Para volver a la experiencia anterior, desplegar el frontend con VITE_SIMPLE_SHIPMENT_TRANSFER=false y verificar que reaparezcan los accesos de Despachos por rol.
+
+Si existen traslados simplificados en curso, mantener las revisiones nuevas de receiveDispatchManifest y deliverShipment. Deshabilitar SIMPLE_SHIPMENT_TRANSFER solamente para confirmShipmentDeparture para detener nuevas salidas. Mantener confirmShipmentReception operativa mientras las guías abiertas puedan requerirla, o terminar esas guías por Despachos con recepción explícita y custodia verificada. Una vez cerradas, apagar también la recepción simplificada. Conservar la trazabilidad y los movimientos existentes.
+
+La consulta previa se limita a leer la colección manifests en expreso-punata-dev. La cuenta de Google Cloud devolvió HTTP 403 y Firebase CLI solicitó reautenticación. El inventario de viajes abiertos queda sin verificar hasta disponer de una sesión autorizada de lectura. No asumir que la colección está vacía.

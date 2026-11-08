@@ -222,11 +222,13 @@ export function subscribeDriverManifests(
   onUpdate: (manifests: DispatchManifest[]) => void,
   onError?: (err: Error) => void,
   pendingSingleTransfers = false,
+  includeLegacyCustody = false,
 ) {
   const manifests = collection(db, 'manifests')
   const assignedDriver = where('driverUid', '==', driverUid)
   const q = pendingSingleTransfers
-    ? query(manifests, assignedDriver, where('singleTransfer', '==', true), where('status', '==', 'dispatched'))
+    ? query(manifests, assignedDriver, where('status', 'in', ['dispatched', 'in_transit']),
+      ...(includeLegacyCustody ? [] : [where('singleTransfer', '==', true)]))
     : query(manifests, assignedDriver, orderBy('createdAt', 'desc'), limit(30))
 
   return onSnapshot(

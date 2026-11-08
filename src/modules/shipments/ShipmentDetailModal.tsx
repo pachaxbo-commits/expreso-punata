@@ -21,7 +21,7 @@ import type { Shipment, UserProfile } from '../../types'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { printShipmentGuidePdf, printDeliveryProofPdf } from '../../services/pdfService'
 import { printEngine } from '../../services/printing/printEngineService'
-import { cancelShipmentThroughBackend, updateShipmentThroughBackend } from '../../services/shipmentService'
+import { cancelShipmentThroughBackend, fetchCurrentShipment, updateShipmentThroughBackend } from '../../services/shipmentService'
 import { reportShipmentIncident } from '../../services/incidentService'
 
 import { ShipmentTransfer } from './ShipmentTransfer'
@@ -390,7 +390,11 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
         <div className="p-5 overflow-y-auto space-y-5 text-xs flex-1">
           {/* TAB 1: DETALLES */}
           {activeTab === 'info' && transferAction && (
-            <ShipmentTransfer key={shipment.id + transferAction} shipment={shipment} action={transferAction} onDone={onClose} />
+            <ShipmentTransfer key={shipment.id + transferAction} shipment={shipment} action={transferAction} onDone={async () => {
+              const updated = await fetchCurrentShipment(shipment.id).catch(() => null)
+              if (updated) onShipmentUpdated?.(updated)
+              onClose()
+            }} />
           )}
           {activeTab === 'info' && (
             <div className="space-y-4">

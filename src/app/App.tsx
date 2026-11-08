@@ -56,7 +56,8 @@ interface MainDashboardProps {
 export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => {
   const { signOut, currentBranchId, switchBranch, hasRole } = useAuth()
   const simpleTransferEnabled = import.meta.env.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
-  const advancedDispatchVisible = !simpleTransferEnabled || import.meta.env.VITE_ADVANCED_DISPATCH === 'true'
+  const advancedContingency = import.meta.env.VITE_ADVANCED_DISPATCH === 'true'
+  const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && userProfile.role === 'directiva_admin')
   const [activeTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
   const [configSubTab, setConfigSubTab] = useState<'users' | 'general' | 'tariffs' | 'printers'>('users')
   const [manifestSubTab, setManifestSubTab] = useState<'manifests' | 'commisiones'>('manifests')
@@ -355,7 +356,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 
         {/* PESTAÑA 3: DESPACHOS Y RUTA */}
         {activeTab === 'shipment-custody' && simpleTransferEnabled && userProfile.role === 'conductor' && (
-          <ShipmentCustody uid={userProfile.uid} />
+          <ShipmentCustody uid={userProfile.uid} includeLegacy={advancedContingency} />
         )}
 
         {activeTab === 'commissions' && tabs.some(tab => tab.id === 'commissions') && (

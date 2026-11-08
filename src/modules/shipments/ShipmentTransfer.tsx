@@ -6,7 +6,7 @@ import { confirmShipmentDeparture, confirmShipmentReception } from '../../servic
 export function ShipmentTransfer({ shipment, action, onDone }: {
   shipment: Shipment
   action: 'depart' | 'receive'
-  onDone: () => void
+  onDone: () => Promise<void> | void
 }) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [drivers, setDrivers] = useState<UserProfile[]>([])
@@ -52,7 +52,7 @@ export function ShipmentTransfer({ shipment, action, onDone }: {
           receivedPackages: Number(packages), condition, notes,
         })
       }
-      onDone()
+      await onDone()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo confirmar la operación.')
     } finally {

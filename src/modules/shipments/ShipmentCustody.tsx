@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react'
 import type { DispatchManifest } from '../../types'
 import { driverConfirmCustodyThroughBackend, subscribeDriverManifests } from '../../services/dispatchService'
 
-export function ShipmentCustody({ uid }: { uid: string }) {
+export function ShipmentCustody({ uid, includeLegacy = false }: { uid: string; includeLegacy?: boolean }) {
   const [trips, setTrips] = useState<DispatchManifest[]>([])
   const [pendingId, setPendingId] = useState('')
   const [error, setError] = useState('')
 
-  useEffect(() => subscribeDriverManifests(uid, setTrips, () => setError('No se pudo consultar la carga asignada.'), true), [uid])
+  useEffect(() => subscribeDriverManifests(uid, setTrips, () => setError('No se pudo consultar la carga asignada.'), true, includeLegacy), [uid, includeLegacy])
 
   async function accept(id: string) {
     setPendingId(id)
@@ -21,7 +21,7 @@ export function ShipmentCustody({ uid }: { uid: string }) {
     }
   }
 
-  const pending = trips.filter(trip => trip.singleTransfer && trip.status === 'dispatched' && trip.driverCustodyStatus === 'pending')
+  const pending = trips.filter(trip => (includeLegacy || trip.singleTransfer) && ['dispatched', 'in_transit'].includes(trip.status) && trip.driverCustodyStatus === 'pending')
   return (
     <section data-tutorial-target="shipment-custody" className="space-y-3 rounded-xl border bg-white p-4">
       <h2 className="font-bold">Encomiendas asignadas</h2>
