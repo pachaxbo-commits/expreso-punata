@@ -99,7 +99,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   const [prohibitedNoticeAccepted, setProhibitedNoticeAccepted] = useState(true)
 
   // Estado del Paso 4: Pago
-  const [paymentTiming, setPaymentTiming] = useState<PaymentTiming>('origin_paid')
+  const [paymentTiming, setPaymentTiming] = useState<Exclude<PaymentTiming, 'origin_pending'>>('origin_paid')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
   const [discountBob, setDiscountBob] = useState<number>(0)
   const [customPriceBob, setCustomPriceBob] = useState<string>('')
@@ -472,7 +472,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
                   Modalidad de Entrega en Destino
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {[
                     { id: 'agency', label: 'En Agencia', desc: 'Recojo en estante de sucursal', icon: Building },
                     { id: 'home', label: 'A Domicilio', desc: '+Bs. 12.00 (Entrega en puerta)', icon: Home },
@@ -958,9 +958,10 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
           {step === 4 && (
             <div className="space-y-4">
               {/* Opciones de Cobro */}
-              <div data-tutorial-target="shipment-payment-mode" className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div data-tutorial-target="shipment-payment-mode" className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <button
                   type="button"
+                  aria-pressed={paymentTiming === 'origin_paid'}
                   onClick={() => setPaymentTiming('origin_paid')}
                   className={`p-3 rounded-xl border text-left transition-all ${
                     paymentTiming === 'origin_paid'
@@ -970,58 +971,37 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-xs text-slate-800">
-                      🟢 Pagado en Origen
+                      Pagado en origen
                     </span>
                     <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
                       Cobrado
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 leading-snug">
-                    El remitente cancela en ventanilla ahora con caja activa.
+                    El remitente paga el envío al registrar la encomienda.
                   </p>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setPaymentTiming('origin_pending')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
-                    paymentTiming === 'origin_pending'
-                      ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-600'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs text-slate-800">
-                      🔵 Pendiente en Origen
-                    </span>
-                    <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
-                      Por Cobrar
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 leading-snug">
-                    El remitente deja el paquete y cancelará antes de despachar.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
+                  aria-pressed={paymentTiming === 'destination_cod'}
                   onClick={() => setPaymentTiming('destination_cod')}
                   className={`p-3 rounded-xl border text-left transition-all ${
                     paymentTiming === 'destination_cod'
-                      ? 'border-amber-600 bg-amber-50 ring-2 ring-amber-600'
+                      ? 'border-[#064e3b] bg-emerald-50 ring-2 ring-[#064e3b]'
                       : 'border-slate-200 bg-white hover:border-slate-300'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-xs text-slate-800">
-                      🟡 Contraentrega (COD)
+                      Por pagar
                     </span>
                     <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded">
                       Destino
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 leading-snug">
-                    El destinatario cancela en sucursal de destino al retirar.
+                    El destinatario paga el envío en la sucursal de destino cuando recoge la encomienda.
                   </p>
                 </button>
               </div>

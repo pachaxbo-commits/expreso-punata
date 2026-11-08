@@ -243,7 +243,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
               className="w-full py-3.5 px-5 bg-emerald-900 hover:bg-emerald-950 text-white font-bold text-sm sm:text-base rounded-xl shadow border border-emerald-700 flex items-center justify-center gap-2.5 transition-all cursor-pointer"
             >
               <ShieldCheck className="w-5 h-5 text-[#facc15]" />
-              <span>ENTREGAR ENCOMIENDA (FIRMA & COD)</span>
+              <span>ENTREGAR ENCOMIENDA (FIRMA Y COBRO)</span>
             </button>
           </div>
 
@@ -388,7 +388,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
               >
                 <option value="all">Todo pago</option>
                 <option value="paid">Pagados</option>
-                <option value="pending">Por Cobrar (COD)</option>
+                <option value="pending">Pendientes de pago</option>
               </select>
             </div>
           </div>
@@ -512,7 +512,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
                             <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
                               isPaid ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'
                             }`}>
-                              {isPaid ? 'PAGADO' : 'COD'}
+                              {isPaid ? 'PAGADO' : s.paymentTiming === 'destination_cod' ? 'POR PAGAR' : 'PENDIENTE EN ORIGEN'}
                             </span>
                           </td>
                         </tr>

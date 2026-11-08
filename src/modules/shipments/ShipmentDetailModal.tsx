@@ -414,7 +414,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
                     <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
                       isPaid ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-amber-100 text-amber-800 border border-amber-300'
                     }`}>
-                      {isPaid ? `PAGADO (${shipment.paymentMethod || 'Efectivo'})` : 'POR COBRAR (COD)'}
+                      {isPaid ? `PAGADO (${shipment.paymentMethod || 'Efectivo'})` : shipment.paymentTiming === 'destination_cod' ? 'POR PAGAR' : 'PENDIENTE EN ORIGEN'}
                     </span>
                     {shipment.isPriceAdjusted && (
                       <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded border border-blue-200">
