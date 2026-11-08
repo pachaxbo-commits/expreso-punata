@@ -53,7 +53,23 @@ for (const paymentTiming of ['origin_paid', 'destination_cod']) {
   const isPaid = paymentTiming === 'origin_paid'
   assert.equal(shipment.paymentStatus, isPaid ? 'paid' : 'pending')
   const departure = { shipmentId, originBranchId: 'punata', destinationBranchId: 'cochabamba', vehicleId, driverUid: driver.uid }
-  const { manifestId } = await call('confirmShipmentDeparture', manager, departure)
+  const vehicleRef = db.collection('vehicles').doc(vehicleId)
+  await vehicleRef.update({ branchId: 'cochabamba' })
+  await assert.rejects(call('confirmShipmentDeparture', manager, departure), { code: 'FAILED_PRECONDITION' })
+  await vehicleRef.update({ branchId: 'punata' })
+  const driverRef = db.collection('users').doc(driver.uid)
+  await driverRef.update({ isActive: false })
+  await assert.rejects(call('confirmShipmentDeparture', manager, departure), { code: 'FAILED_PRECONDITION' })
+  await driverRef.update({ isActive: true })
+  const cancelledId = shipmentId + '-cancelled'
+  await db.collection('shipments').doc(cancelledId).set({
+    status: 'cancelled', originBranchId: 'punata', destinationBranchId: 'cochabamba',
+  })
+  await assert.rejects(call('confirmShipmentDeparture', manager, { ...departure, shipmentId: cancelledId }), { code: 'FAILED_PRECONDITION' })
+  // Descarta la respuesta de salida y vuelve a consultar, como después de un resultado incierto.
+  await call('confirmShipmentDeparture', manager, departure)
+  const { manifestId } = (await db.collection('shipments').doc(shipmentId).get()).data()
+  assert(manifestId)
   await assert.rejects(call('confirmShipmentDeparture', origin, departure), { code: 'FAILED_PRECONDITION' })
   const reception = { shipmentId, manifestId, receivedPackages: 1, condition: 'good' }
   await assert.rejects(call('confirmShipmentReception', destination, reception), { code: 'FAILED_PRECONDITION' })
@@ -68,6 +84,7 @@ for (const paymentTiming of ['origin_paid', 'destination_cod']) {
   assert.equal(successes.length, 1, JSON.stringify(attempts.map(r => r.status === 'rejected' ? r.reason.message : r.status)))
   assert.equal(successes[0].value.paymentCollected, !isPaid)
   const saved = (await db.collection('shipments').doc(shipmentId).get()).data()
+  await assert.rejects(call('confirmShipmentReception', admin, reception), { code: 'FAILED_PRECONDITION' })
   assert.equal(saved.status, 'delivered')
   assert.equal(saved.paymentStatus, 'paid')
   assert(saved.deliveryRecord.signature)
