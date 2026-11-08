@@ -267,7 +267,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           { label: 'Total Envíos', value: String(data.summary?.totalShipments || 0) },
           { label: 'Total Facturado', value: formatCurrencyBob(data.summary?.totalBilledCents || 0, true) },
           { label: 'Cobrado', value: formatCurrencyBob(data.summary?.totalCollectedCents || 0, true) },
-          { label: 'Por Cobrar (COD)', value: formatCurrencyBob(data.summary?.totalPendingCodCents || 0, true) },
+          { label: 'Por pagar en destino', value: formatCurrencyBob(data.summary?.totalPendingCodCents || 0, true) },
         ],
         tableHeaders: headers,
         tableRows: rows,
@@ -931,7 +931,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                 </div>
 
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-                  <span className="text-[11px] text-slate-500">Por Cobrar (COD)</span>
+                  <span className="text-[11px] text-slate-500">Por pagar en destino</span>
                   <div className="text-lg font-black text-amber-700 mt-1 font-mono">
                     {formatCurrencyBob(reportData.summary?.totalPendingCodCents || 0, true)}
                   </div>
@@ -1012,7 +1012,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                                   : 'bg-amber-50 text-amber-800 border border-amber-200'
                               }`}
                             >
-                              {s.paymentTiming === 'origin_paid' ? 'Pagado' : 'COD'}
+                              {s.paymentTiming === 'destination_cod' ? 'Por pagar' : s.paymentTiming === 'origin_pending' ? 'Pendiente en origen' : 'Pagado en origen'}
                             </span>
                           </td>
                           <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-900">
@@ -1046,7 +1046,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                   <div className="text-lg font-black text-emerald-700 mt-1 font-mono">
                     {formatCurrencyBob(reportData.summary?.commercialIncomeCents || 0, true)}
                   </div>
-                  <span className="text-[10px] text-slate-400">Ventanilla Origen + COD Destino</span>
+                  <span className="text-[10px] text-slate-400">Ventanilla Origen + Por pagar en destino</span>
                 </div>
 
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">

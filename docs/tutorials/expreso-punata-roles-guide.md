@@ -16,8 +16,8 @@ Este documento define el itinerario de aprendizaje recomendado para cada trabaja
    - *Descripción:* Aprende a emitir encomiendas, registrar remitente y destinatario con datos bolivianos y detallar la carga.
    - *Pasos:* Botón «Nueva Encomienda» → Ruta: Origen y Destino del Envío → Datos del Remitente (Quien Envía) → Datos del Destinatario (Quien Recibe) → Descripción de la Carga, Bultos y Peso
 2. **2. Tarifas, Precio Acordado Editable y Cobro** (~4 min)
-   - *Descripción:* Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y seleccionar pagos en origen o contraentrega (COD).
-   - *Pasos:* Precio Sugerido vs. Precio Acordado Editable → Justificación Obligatoria de Cambio de Precio → Condición de Pago: Origen vs. Cobro Contraentrega (COD) → Emisión de la Guía Oficial e Impresión Térmica
+   - *Descripción:* Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y elegir entre pagar en origen y dejar el envío por pagar en destino.
+   - *Pasos:* Precio Sugerido vs. Precio Acordado Editable → Justificación Obligatoria de Cambio de Precio → Condición de pago — Pagado en origen o Por pagar → Emisión de la Guía Oficial e Impresión Térmica
 3. **3. Seguimiento, Búsqueda, Edición Auditada y Entrega con Firma** (~4 min)
    - *Descripción:* Aprende a buscar encomiendas por guía o cliente, gestionar incidencias y efectuar la entrega formal con firma digital.
    - *Pasos:* Buscador Universal de Guías y Clientes → Ficha Detallada, Historial y Auditoría → Entrega de Encomienda y Firma Digital
@@ -83,8 +83,8 @@ Este documento define el itinerario de aprendizaje recomendado para cada trabaja
    - *Descripción:* Aprende a emitir encomiendas, registrar remitente y destinatario con datos bolivianos y detallar la carga.
    - *Pasos:* Botón «Nueva Encomienda» → Ruta: Origen y Destino del Envío → Datos del Remitente (Quien Envía) → Datos del Destinatario (Quien Recibe) → Descripción de la Carga, Bultos y Peso
 2. **2. Tarifas, Precio Acordado Editable y Cobro** (~4 min)
-   - *Descripción:* Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y seleccionar pagos en origen o contraentrega (COD).
-   - *Pasos:* Precio Sugerido vs. Precio Acordado Editable → Justificación Obligatoria de Cambio de Precio → Condición de Pago: Origen vs. Cobro Contraentrega (COD) → Emisión de la Guía Oficial e Impresión Térmica
+   - *Descripción:* Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y elegir entre pagar en origen y dejar el envío por pagar en destino.
+   - *Pasos:* Precio Sugerido vs. Precio Acordado Editable → Justificación Obligatoria de Cambio de Precio → Condición de pago — Pagado en origen o Por pagar → Emisión de la Guía Oficial e Impresión Térmica
 3. **3. Seguimiento, Búsqueda, Edición Auditada y Entrega con Firma** (~4 min)
    - *Descripción:* Aprende a buscar encomiendas por guía o cliente, gestionar incidencias y efectuar la entrega formal con firma digital.
    - *Pasos:* Buscador Universal de Guías y Clientes → Ficha Detallada, Historial y Auditoría → Entrega de Encomienda y Firma Digital
@@ -168,8 +168,8 @@ Este documento define el itinerario de aprendizaje recomendado para cada trabaja
    - *Descripción:* Aprende a emitir encomiendas, registrar remitente y destinatario con datos bolivianos y detallar la carga.
    - *Pasos:* Botón «Nueva Encomienda» → Ruta: Origen y Destino del Envío → Datos del Remitente (Quien Envía) → Datos del Destinatario (Quien Recibe) → Descripción de la Carga, Bultos y Peso
 2. **2. Tarifas, Precio Acordado Editable y Cobro** (~4 min)
-   - *Descripción:* Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y seleccionar pagos en origen o contraentrega (COD).
-   - *Pasos:* Precio Sugerido vs. Precio Acordado Editable → Justificación Obligatoria de Cambio de Precio → Condición de Pago: Origen vs. Cobro Contraentrega (COD) → Emisión de la Guía Oficial e Impresión Térmica
+   - *Descripción:* Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y elegir entre pagar en origen y dejar el envío por pagar en destino.
+   - *Pasos:* Precio Sugerido vs. Precio Acordado Editable → Justificación Obligatoria de Cambio de Precio → Condición de pago — Pagado en origen o Por pagar → Emisión de la Guía Oficial e Impresión Térmica
 3. **3. Seguimiento, Búsqueda, Edición Auditada y Entrega con Firma** (~4 min)
    - *Descripción:* Aprende a buscar encomiendas por guía o cliente, gestionar incidencias y efectuar la entrega formal con firma digital.
    - *Pasos:* Buscador Universal de Guías y Clientes → Ficha Detallada, Historial y Auditoría → Entrega de Encomienda y Firma Digital

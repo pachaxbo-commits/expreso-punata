@@ -119,7 +119,7 @@ test('3. MOTOR DE IMPRESIÓN: Matriz exhaustiva de condiciones de pago', () => {
       paymentTiming: 'destination_cod',
       paymentStatus: 'pending',
     }),
-    'CONTRAENTREGA PENDIENTE DE COBRO'
+    'POR PAGAR EN DESTINO'
   )
 
   // 4. Contraentrega cobrada en ventanilla destino
@@ -131,7 +131,7 @@ test('3. MOTOR DE IMPRESIÓN: Matriz exhaustiva de condiciones de pago', () => {
       paymentTiming: 'destination_cod',
       paymentStatus: 'paid',
     }),
-    'CONTRAENTREGA COBRADA EN DESTINO'
+    'POR PAGAR — COBRADO EN DESTINO'
   )
 
   // 5. Cobrado en ruta por chofer pero pendiente de rendición
