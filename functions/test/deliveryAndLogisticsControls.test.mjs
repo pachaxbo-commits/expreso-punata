@@ -52,6 +52,12 @@ async function clearCollections() {
     snap.docs.forEach((doc) => batch.delete(doc.ref))
     await batch.commit()
   }
+  for (const branchId of ['punata', 'cochabamba']) {
+    const shelves = await db.collection('branches').doc(branchId).collection('shelves').get()
+    const batch = db.batch()
+    shelves.docs.forEach((doc) => batch.delete(doc.ref))
+    await batch.commit()
+  }
 }
 
 async function createTestUser(uid, role, primaryBranchId = 'punata', allowedBranchIds = null, isActive = true, extra = {}) {

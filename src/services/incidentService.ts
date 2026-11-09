@@ -37,8 +37,10 @@ export async function fetchShipmentIncidents(
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ShipmentIncident))
 }
 
-export async function fetchShipmentContacts(shipmentId: string, maxRecords = 50): Promise<ShipmentContact[]> {
-  const q = query(collection(db, 'shipment_contacts'), where('shipmentId', '==', shipmentId), limit(maxRecords))
+export async function fetchShipmentContacts(shipmentId: string, branchId?: string, maxRecords = 50): Promise<ShipmentContact[]> {
+  const constraints = [where('shipmentId', '==', shipmentId)]
+  if (branchId && branchId !== 'all') constraints.push(where('branchId', '==', branchId))
+  const q = query(collection(db, 'shipment_contacts'), ...constraints, limit(maxRecords))
   const snap = await getDocs(q)
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ShipmentContact)).sort((a, b) => b.contactedAtIso.localeCompare(a.contactedAtIso))
 }

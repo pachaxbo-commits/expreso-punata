@@ -18,6 +18,17 @@ before(() => {
   db = getFirestore(adminApp)
 })
 
+before(async () => {
+  // El archivo mantiene usuarios de fixture entre casos, pero sus claves y
+  // movimientos no deben sobrevivir a una ejecución anterior de la suite.
+  for (const collectionName of ['shipments', 'counters', 'idempotency_keys', 'financial_movements', 'cash_shifts']) {
+    const snapshot = await db.collection(collectionName).get()
+    const batch = db.batch()
+    snapshot.docs.forEach((doc) => batch.delete(doc.ref))
+    await batch.commit()
+  }
+})
+
 after(async () => {
   if (adminApp) {
     await deleteApp(adminApp)

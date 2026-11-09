@@ -83,8 +83,8 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
 
   useEffect(() => {
     if (!shipment?.id) return
-    fetchShipmentContacts(shipment.id).then(setContacts).catch(() => setContacts([]))
-  }, [shipment?.id])
+    fetchShipmentContacts(shipment.id, currentBranchId).then(setContacts).catch(() => setContacts([]))
+  }, [shipment?.id, currentBranchId])
 
   const handleRegisterContact = async (e: React.FormEvent) => {
     e.preventDefault()

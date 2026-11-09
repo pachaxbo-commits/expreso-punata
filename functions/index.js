@@ -6191,6 +6191,23 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       }
     }
 
+    // Algunos registros históricos pueden conservar simultáneamente createdAt
+    // como Timestamp y createdAtIso como cadena. Completar la ventana con la
+    // representación alternativa evita perder encomiendas válidas cuando la
+    // primera consulta devuelve resultados parciales.
+    try {
+      const isoSnap = await db.collection('shipments')
+        .where('createdAtIso', '>=', startIso)
+        .where('createdAtIso', '<=', endIso)
+        .orderBy('createdAtIso', 'desc')
+        .get()
+      const byId = new Map(docs.map((doc) => [doc.id, doc]))
+      isoSnap.docs.forEach((doc) => { if (!byId.has(doc.id)) byId.set(doc.id, { id: doc.id, ...doc.data() }) })
+      docs = Array.from(byId.values())
+    } catch (err) {
+      queryError = queryError || err
+    }
+
     // Si las consultas indexadas fallaron por falta de índice compuesto, fallar rápido con el error explícito
     if (docs.length === 0 && queryError) {
       const errMsg = queryError.message || String(queryError)

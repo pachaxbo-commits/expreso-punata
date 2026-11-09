@@ -5,7 +5,7 @@ $logDir = Join-Path $profile 'session-logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 $env:FIREBASE_CLI_BIN = Join-Path $repoRoot '.firebase-cli-local-1535\node_modules\firebase-tools\lib\bin\firebase.js'
-$env:FIREBASE_EMULATOR_CONFIG = Join-Path $repoRoot 'firebase.test.local.json'
+$env:FIREBASE_EMULATOR_CONFIG = Join-Path $repoRoot 'firebase.local.emulator.json'
 $env:USERPROFILE = $profile
 $env:APPDATA = Join-Path $profile 'AppData'
 $env:LOCALAPPDATA = Join-Path $profile 'LocalAppData'

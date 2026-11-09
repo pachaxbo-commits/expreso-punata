@@ -16,6 +16,7 @@ import type { Shipment, UserProfile, Branch } from '../../types'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { ShipmentDetailModal } from './ShipmentDetailModal'
 import { searchShipmentsServer, fetchShipmentsPage } from '../../services/shipmentService'
+import { fetchShipmentContacts } from '../../services/incidentService'
 import { elapsedFullDays, receptionDate } from '../../utils/shipmentTiming'
 
 interface ShipmentsManagementViewProps {
@@ -42,6 +43,8 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [paymentFilter, setPaymentFilter] = useState('all')
+  const [showFollowUp, setShowFollowUp] = useState(false)
+  const [contactSummary, setContactSummary] = useState<Record<string, import('../../types').ShipmentContact[]>>({})
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 10
 
@@ -125,6 +128,26 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
     })
     return list
   }, [shipments, historicalShipments, serverResults])
+
+  const uncollectedShipments = useMemo(() => combinedShipments.filter((shipment) => shipment.status === 'uncollected'), [combinedShipments])
+
+  useEffect(() => {
+    let cancelled = false
+    if (uncollectedShipments.length === 0) {
+      setContactSummary({})
+      return
+    }
+    Promise.all(uncollectedShipments.map(async (shipment) => [shipment.id, await fetchShipmentContacts(shipment.id, currentBranch.id)] as const))
+      .then((entries) => { if (!cancelled) setContactSummary(Object.fromEntries(entries)) })
+      .catch(() => { if (!cancelled) setContactSummary({}) })
+    return () => { cancelled = true }
+  }, [uncollectedShipments, currentBranch.id])
+
+  const followUpRows = useMemo(() => uncollectedShipments.map((shipment) => {
+    const contacts = contactSummary[shipment.id] || []
+    const received = receptionDate(shipment as any)
+    return { shipment, days: elapsedFullDays(received), lastContact: contacts[0] || null, contactCount: contacts.length }
+  }).sort((a, b) => (b.days ?? -1) - (a.days ?? -1)), [uncollectedShipments, contactSummary])
 
 
 
@@ -361,6 +384,9 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
 
             {/* Filtros desplegables compactos */}
             <div className="flex items-center gap-2 text-xs">
+              <button type="button" onClick={() => setShowFollowUp((value) => !value)} className="px-2.5 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 font-bold text-[11px]">
+                {showFollowUp ? 'Ocultar seguimiento' : 'Seguimiento de rezagos'}
+              </button>
               <select
                 value={statusFilter}
                 onChange={e => {
@@ -394,6 +420,29 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
               </select>
             </div>
           </div>
+
+          {showFollowUp && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
+              <div>
+                <h2 className="text-sm font-black text-amber-950">Seguimiento de rezagos</h2>
+                <p className="text-[11px] text-amber-900/80">Ordenado por días desde recepción. No cambia estados ni genera acciones automáticas.</p>
+              </div>
+              {followUpRows.length === 0 ? <p className="text-xs text-amber-900">No hay encomiendas no recogidas en esta sucursal.</p> : (
+                <div className="space-y-2">
+                  {followUpRows.map(({ shipment, days, lastContact, contactCount }) => (
+                    <button key={shipment.id} type="button" onClick={() => handleRowClick(shipment)} className="w-full text-left bg-white border border-amber-200 rounded-xl p-3 hover:border-amber-400">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-mono font-black text-slate-900">{shipment.trackingCode}</span>
+                        <span className="text-xs font-bold text-amber-800">{days === null ? 'Recepción sin fecha' : `${days} días desde recepción`}</span>
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-600">{lastContact ? `Último contacto: ${lastContact.result} · ${new Date(lastContact.contactedAtIso).toLocaleString('es-BO')}` : 'Sin contactos registrados'} · {contactCount} gestión(es)</div>
+                      <div className="mt-1 text-[11px] text-slate-600">{shipment.storageLocation ? 'Ubicación física asignada' : 'Sin ubicación física'} · {shipment.paymentStatus === 'pending' ? 'COD pendiente' : 'Pago registrado'}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Tabla Compacta y Profesional */}
           <div data-tutorial-target="shipments-table-row" className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
