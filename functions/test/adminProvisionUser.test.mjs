@@ -554,13 +554,21 @@ test('12. FAIL-CLOSED: Errores en authAdmin.updateUser lanzan HttpsError y no se
     }
   }
 
-  await assert.rejects(
-    async () => adminProvisionUser.run(req),
-    (err) => {
-      assert.ok(err.code === 'internal' || err.code === 'invalid-argument')
-      return true
-    }
-  )
+  const authPrototype = Object.getPrototypeOf(auth)
+  const originalUpdateUser = authPrototype.updateUser
+  authPrototype.updateUser = async () => { throw new Error('auth emulator updateUser controlled failure') }
+  try {
+    await assert.rejects(
+      async () => adminProvisionUser.run(req),
+      (err) => {
+        assert.equal(err.code, 'internal')
+        assert.match(err.message, /Fallo crítico al actualizar cuenta/)
+        return true
+      }
+    )
+  } finally {
+    authPrototype.updateUser = originalUpdateUser
+  }
 })
 
 
