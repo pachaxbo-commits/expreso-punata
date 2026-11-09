@@ -13,8 +13,8 @@ import {
 } from '../index.js'
 
 // Inicializar Firebase Admin apuntando a los emuladores locales
-process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
+process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
+process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
 
 if (getApps().length === 0) {
   initializeApp({ projectId: 'demo-expreso-punata-cash-test' })

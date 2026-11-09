@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { initializeApp, getApps, deleteApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 
-process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
+process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
 process.env.GCLOUD_PROJECT = 'demo-expreso-punata-dev'
 
 let adminApp
