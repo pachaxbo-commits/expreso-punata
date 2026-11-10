@@ -271,6 +271,19 @@ export async function listUnionLoansThroughBackend(memberId?: string): Promise<U
   return (await callable(memberId ? { memberId } : {})).data.loans || []
 }
 
+export interface AffiliateAccountResult {
+  success: boolean
+  member: UnionMember
+  dues: UnionMonthlyDue[]
+  loans: UnionLoan[]
+  fines: UnionFine[]
+}
+
+export async function getMyUnionAccountThroughBackend(): Promise<AffiliateAccountResult> {
+  const callable = httpsCallable<void, AffiliateAccountResult>(functions, 'getMyUnionAccount')
+  return (await callable()).data
+}
+
 export async function createUnionFineThroughBackend(input: CreateUnionFineInput): Promise<UnionFine> {
   const callable = httpsCallable<CreateUnionFineInput, { success: boolean; fine: UnionFine }>(functions, 'createUnionFine')
   return (await callable(input)).data.fine

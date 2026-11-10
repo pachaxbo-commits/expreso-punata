@@ -26,12 +26,14 @@ import {
 } from '../../services/userService'
 import type { UserProfile, UserRole, UserAuditLog } from '../../types'
 import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig'
+import { getUnionMembersRosterThroughBackend, type UnionRosterMember } from '../../services/unionService.ts'
 
 const ROLE_LABELS: Record<UserRole, { label: string; bg: string; text: string }> = {
   directiva_admin: { label: 'Administrador General (Directiva)', bg: 'bg-purple-100', text: 'text-purple-800' },
   encargado_agencia: { label: 'Encargado de Agencia', bg: 'bg-blue-100', text: 'text-blue-800' },
   secretaria: { label: 'Secretaria / Ventanilla', bg: 'bg-emerald-100', text: 'text-emerald-800' },
   afiliado_admin: { label: 'Administrador de Afiliados', bg: 'bg-cyan-100', text: 'text-cyan-800' },
+  afiliado: { label: 'Afiliado', bg: 'bg-slate-100', text: 'text-slate-800' },
   tesoreria: { label: 'Tesorería', bg: 'bg-amber-100', text: 'text-amber-800' },
   conductor: { label: 'Chofer / Conductor', bg: 'bg-indigo-100', text: 'text-indigo-800' },
 }
@@ -301,6 +303,7 @@ export const UserManagementView: React.FC = () => {
               <option value="directiva_admin">Administrador General</option>
               <option value="encargado_agencia">Encargado de Agencia</option>
               <option value="afiliado_admin">Administrador de Afiliados</option>
+              <option value="afiliado">Afiliado (solo su cuenta)</option>
               <option value="secretaria">Secretaria / Ventanilla</option>
               <option value="conductor">Chofer / Conductor</option>
               <option value="tesoreria">Tesorería</option>
@@ -599,6 +602,7 @@ export const UserManagementView: React.FC = () => {
                 className="w-full p-2.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
               >
                 <option value="afiliado_admin">Administrador de Afiliados (Padrón y consultas financieras)</option>
+                <option value="afiliado">Afiliado (solo su cuenta)</option>
                 <option value="secretaria">Secretaria / Ventanilla (Emisión de guías, cobros en caja)</option>
                 <option value="encargado_agencia">Encargado de Agencia (Almacén, inventario, caja)</option>
                 <option value="conductor">Chofer / Conductor (Manifiestos y entregas en ruta)</option>
@@ -730,8 +734,21 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
   const [allowedBranches, setAllowedBranches] = useState<string[]>(['punata'])
   const [vehiclePlate, setVehiclePlate] = useState('')
   const [mobileNumber, setMobileNumber] = useState('')
+  const [unionMemberId, setUnionMemberId] = useState('')
+  const [availableMembers, setAvailableMembers] = useState<UnionRosterMember[]>([])
   const [loading, setLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (role !== 'afiliado') {
+      setAvailableMembers([])
+      setUnionMemberId('')
+      return
+    }
+    getUnionMembersRosterThroughBackend()
+      .then((members) => setAvailableMembers(members.filter((member) => member.branchId === primaryBranchId && member.status === 'active')))
+      .catch((err) => setFormError(err.message || 'No se pudieron cargar los afiliados disponibles.'))
+  }, [role, primaryBranchId])
 
   const handleBranchCheckbox = (branchId: string) => {
     if (branchId === primaryBranchId) return // la primaria no se desmarca
@@ -757,6 +774,11 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
       return
     }
 
+    if (role === 'afiliado' && !unionMemberId) {
+      setFormError('Seleccione el afiliado que se vinculará a esta cuenta.')
+      return
+    }
+
     try {
       setLoading(true)
       const input: ProvisionUserInput = {
@@ -775,6 +797,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
               : [primaryBranchId, ...allowedBranches],
         assignedVehiclePlate: role === 'conductor' ? vehiclePlate.trim() : undefined,
         assignedMobileNumber: role === 'conductor' ? mobileNumber.trim() : undefined,
+        unionMemberId: role === 'afiliado' ? unionMemberId : undefined,
         isActive: true,
       }
 
@@ -885,6 +908,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
                 className="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] bg-white font-medium"
               >
                 <option value="afiliado_admin">Administrador de Afiliados</option>
+                <option value="afiliado">Afiliado (solo su cuenta)</option>
                 <option value="secretaria">Secretaria / Ventanilla</option>
                 <option value="encargado_agencia">Encargado de Agencia</option>
                 <option value="conductor">Chofer / Conductor</option>
@@ -917,6 +941,17 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
           </div>
 
           {/* Sucursales autorizadas (oculto para secretaria ya que tiene agencia fija única) */}
+          {role === 'afiliado' && (
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Afiliado vinculado *</label>
+              <select value={unionMemberId} onChange={(e) => setUnionMemberId(e.target.value)} className="w-full p-2.5 border border-slate-300 rounded-lg bg-white">
+                <option value="">Seleccione un afiliado activo</option>
+                {availableMembers.map((member) => <option key={member.id} value={member.id}>{member.memberNumber} · {member.fullName}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">La vinculación se valida nuevamente en Cloud Functions.</p>
+            </div>
+          )}
+
           {role !== 'secretaria' && role !== 'conductor' && (
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
               <span className="font-bold text-slate-700 block mb-2">Sucursales con acceso permitido:</span>

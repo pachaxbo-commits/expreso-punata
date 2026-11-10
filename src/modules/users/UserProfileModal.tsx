@@ -14,6 +14,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   encargado_agencia: 'Encargado de Agencia',
   secretaria: 'Secretaria / Ventanilla',
   afiliado_admin: 'Administrador de Afiliados',
+  afiliado: 'Afiliado',
   tesoreria: 'Tesorería',
   conductor: 'Chofer / Conductor',
 }

@@ -26,6 +26,7 @@ export interface ProvisionUserInput {
   allowedBranchIds: string[]
   assignedVehiclePlate?: string
   assignedMobileNumber?: string
+  unionMemberId?: string
   isActive?: boolean
 }
 

@@ -7,6 +7,7 @@
 export type UserRole =
   | 'secretaria'
   | 'afiliado_admin'
+  | 'afiliado'
   | 'encargado_agencia'
   | 'tesoreria'
   | 'directiva_admin'

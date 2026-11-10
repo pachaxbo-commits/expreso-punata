@@ -15,6 +15,7 @@ import {
   Briefcase,
   BarChart3,
   BookOpen,
+  UserCircle,
 } from 'lucide-react'
 import {
   useTutorial,
@@ -32,6 +33,7 @@ import { FixedAssetsView } from '../modules/assets/FixedAssetsView'
 import { ReportsManagementView } from '../modules/reports/ReportsManagementView.tsx'
 import { WorkersAndExpensesView } from '../modules/workers/WorkersAndExpensesView'
 import { UnionMembersView } from '../modules/union/UnionMembersView.tsx'
+import { AffiliateAccountView } from '../modules/union/AffiliateAccountView.tsx'
 import { subscribeShipmentsByBranch } from '../services/shipmentService'
 import { isEmulatedEnvironment } from '../firebase/config'
 import { ShipmentCustody } from '../modules/shipments/ShipmentCustody'
@@ -130,7 +132,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: advancedDispatchVisible && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
-    { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin', 'afiliado_admin']) },
+    { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
+    { id: 'my-account', label: 'Mi cuenta', icon: UserCircle, visible: hasRole(['afiliado']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
     { id: 'reports', label: 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
@@ -429,6 +432,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             currentBranch={currentBranch}
           />
         )}
+
+        {activeTab === 'my-account' && <AffiliateAccountView currentUser={userProfile} />}
 
         {/* PESTAÑA: PERSONAL & GASTOS OPERATIVOS */}
         {activeTab === 'workers' && (
