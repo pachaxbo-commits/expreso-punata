@@ -25,6 +25,7 @@ import { fetchSystemConfig } from '../../services/configService.ts'
 import { createShipmentThroughBackend, extractCustomerSuggestions } from '../../services/shipmentService.ts'
 import { printShipmentGuidePdf } from '../../services/pdfService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
+import { applyOfficialBranchPhone } from '../../services/branchContactService.ts'
 import { FileText } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext.tsx'
 import { subscribeActiveCashShift } from '../../services/cashService.ts'
@@ -1153,7 +1154,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
-                    const doc = printEngine.buildFromShipment(createdShipment, userProfile?.fullName || 'Operador')
+                    const doc = await applyOfficialBranchPhone(printEngine.buildFromShipment(createdShipment, userProfile?.fullName || 'Operador'), createdShipment.originBranchId)
                     await printEngine.printDocument(doc)
                   }}
                   className="px-5 py-2.5 bg-[#064e3b] hover:bg-[#065f46] text-[#facc15] font-bold text-xs rounded-xl shadow-md flex items-center gap-2"

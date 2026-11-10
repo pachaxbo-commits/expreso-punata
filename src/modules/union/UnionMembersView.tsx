@@ -21,6 +21,8 @@ import type {
   CashShift,
   Branch,
   UserProfile,
+  DriverDirectoryEntry,
+  UnionSportsEvent,
 } from '../../types/index.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import { subscribeActiveCashShift } from '../../services/cashService.ts'
@@ -33,8 +35,23 @@ import {
   subscribeUnionDues,
   type CollectMemberDueResult,
   type MemberAccountStatementResult,
+  type UnionMemberChild,
+  addUnionMemberChildThroughBackend,
+  updateUnionMemberChildThroughBackend,
+  listDriversForUnionLinksThroughBackend,
+  setUnionMemberDriverLinkThroughBackend,
+  getUnionMembersRosterThroughBackend,
+  listUnionLoansThroughBackend,
+  type UnionLoan,
+  listUnionFinesThroughBackend,
+  type UnionFine,
+  listUnionSportsEventsThroughBackend,
 } from '../../services/unionService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
+import { downloadUnionMembersRosterPdf, filterUnionRosterMembers } from '../../services/unionRosterPdfService.ts'
+import { UnionLoansView } from './UnionLoansView.tsx'
+import { UnionFinesView } from './UnionFinesView.tsx'
+import { UnionSportsView } from './UnionSportsView.tsx'
 
 interface UnionMembersViewProps {
   currentUser: UserProfile
@@ -56,7 +73,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
     return () => unsubscribe()
   }, [currentUser?.uid, currentBranch?.id])
   const effectiveShift = activeShift || localShift
-  const [activeTab, setActiveTab] = useState<'members' | 'dues'>('members')
+  const [activeTab, setActiveTab] = useState<'members' | 'dues' | 'loans' | 'fines' | 'sports'>('members')
   const [members, setMembers] = useState<UnionMember[]>([])
   const [loadingMembers, setLoadingMembers] = useState(true)
 
@@ -73,7 +90,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
 
   // Filtros de búsqueda
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'suspended'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'suspended' | 'retired'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
 
   // Modales
@@ -85,15 +102,27 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
 
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false)
   const [statementData, setStatementData] = useState<MemberAccountStatementResult | null>(null)
+  const [statementLoans, setStatementLoans] = useState<UnionLoan[]>([])
+  const [statementFines, setStatementFines] = useState<UnionFine[]>([])
+  const [statementSportsEvents, setStatementSportsEvents] = useState<UnionSportsEvent[]>([])
   const [loadingStatement, setLoadingStatement] = useState(false)
+  const [childMember, setChildMember] = useState<UnionMember | null>(null)
+  const [editingChild, setEditingChild] = useState<UnionMemberChild | null>(null)
+  const [childrenNotice, setChildrenNotice] = useState('')
+  const [activeDrivers, setActiveDrivers] = useState<DriverDirectoryEntry[]>([])
+  const [savingDriverLinkFor, setSavingDriverLinkFor] = useState<string | null>(null)
+  const [driverLinksNotice, setDriverLinksNotice] = useState('')
+  const [driverLinksError, setDriverLinksError] = useState('')
 
   const [isGenerateDuesModalOpen, setIsGenerateDuesModalOpen] = useState(false)
   const [generatingDues, setGeneratingDues] = useState(false)
+  const [printingRoster, setPrintingRoster] = useState(false)
 
   // Feedback y mensajes
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const isManagement = currentUser.role === 'directiva_admin' || currentUser.role === 'tesoreria'
+  const canPrintRoster = ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(currentUser.role)
   const isCashier = ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'].includes(currentUser.role)
 
   // 1. Suscripción a socios
@@ -131,19 +160,8 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
 
   // Filtrado de socios
   const filteredMembers = useMemo(() => {
-    return members.filter((m) => {
-      const matchSearch =
-        m.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        m.memberNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (m.ci && m.ci.includes(searchTerm)) ||
-        (m.vehiclePlate && m.vehiclePlate.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (m.assignedMobileNumber && m.assignedMobileNumber.includes(searchTerm))
-
-      const matchStatus = statusFilter === 'all' || m.status === statusFilter
-      const matchCat = categoryFilter === 'all' || m.category === categoryFilter
-
-      return matchSearch && matchStatus && matchCat
-    })
+    return filterUnionRosterMembers(members, { searchTerm, status: statusFilter })
+      .filter((member) => categoryFilter === 'all' || member.category === categoryFilter)
   }, [members, searchTerm, statusFilter, categoryFilter])
 
   // Métricas del padrón
@@ -174,14 +192,92 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
     setIsStatementModalOpen(true)
     setLoadingStatement(true)
     setStatementData(null)
+    setStatementLoans([])
+    setStatementFines([])
+    setStatementSportsEvents([])
+    setDriverLinksNotice('')
+    setDriverLinksError('')
     try {
       const res = await getMemberAccountStatementThroughBackend(member.id)
       setStatementData(res)
+      try {
+        setStatementLoans(await listUnionLoansThroughBackend(member.id))
+      } catch (loanError: any) {
+        setStatementLoans([])
+        setFeedback({ type: 'error', message: loanError?.message || 'No se pudieron consultar los préstamos del afiliado.' })
+      }
+      try { setStatementFines(await listUnionFinesThroughBackend({ memberId: member.id })) }
+      catch (fineError: any) { setFeedback({ type: 'error', message: fineError?.message || 'No se pudieron consultar las multas del afiliado.' }) }
+      try { setStatementSportsEvents(await listUnionSportsEventsThroughBackend({ memberId: member.id })) }
+      catch (sportsError: any) { setStatementSportsEvents([]); setFeedback({ type: 'error', message: sportsError?.message || 'No se pudo consultar el historial deportivo del afiliado.' }) }
+      try {
+        const drivers = await listDriversForUnionLinksThroughBackend()
+        setActiveDrivers(drivers)
+        setDriverLinksError('')
+      } catch (driversError: any) {
+        setActiveDrivers([])
+        setDriverLinksError(driversError?.message || 'No se pudo consultar el directorio de conductores.')
+      }
     } catch (err: any) {
       console.error('[UnionMembersView] Error extracto:', err)
       setFeedback({ type: 'error', message: err.message || 'Error al cargar el extracto de cuenta.' })
     } finally {
       setLoadingStatement(false)
+    }
+  }
+
+  const handlePrintRoster = async (scope: 'completo' | 'filtrado') => {
+    if (!canPrintRoster || printingRoster) return
+    setPrintingRoster(true)
+    try {
+      const memberIds = scope === 'filtrado' ? filteredMembers.map((member) => member.id) : undefined
+      const roster = memberIds && memberIds.length === 0
+        ? []
+        : await getUnionMembersRosterThroughBackend(memberIds)
+      const pageCount = downloadUnionMembersRosterPdf(roster, scope)
+      setFeedback({
+        type: 'success',
+        message: `Padrón ${scope} generado: ${roster.length} afiliados en ${pageCount} página${pageCount === 1 ? '' : 's'}.`,
+      })
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message || 'No se pudo generar el padrón de afiliados.' })
+    } finally {
+      setPrintingRoster(false)
+    }
+  }
+
+  const handleDriverLinkChange = async (childId: string | null, driverUid: string) => {
+    if (!statementData) return
+    const key = childId || 'primary'
+    setSavingDriverLinkFor(key)
+    setDriverLinksError('')
+    setDriverLinksNotice('')
+    try {
+      const result = await setUnionMemberDriverLinkThroughBackend({
+        memberId: statementData.member.id,
+        childId: childId || undefined,
+        driverUid: driverUid || null,
+      })
+      setStatementData((current) => {
+        if (!current) return current
+        if (childId) {
+          return {
+            ...current,
+            children: current.children.map((child) => child.id === childId
+              ? { ...child, driverUid: result.relation.driverUid, driverName: result.relation.driverName, driverLinkedAtIso: result.relation.driverLinkedAtIso }
+              : child),
+          }
+        }
+        return {
+          ...current,
+          member: { ...current.member, primaryDriverUid: result.relation.primaryDriverUid, primaryDriverName: result.relation.primaryDriverName, primaryDriverLinkedAtIso: result.relation.primaryDriverLinkedAtIso },
+        }
+      })
+      setDriverLinksNotice(childId ? 'Vínculo del hijo actualizado.' : 'Chofer principal actualizado.')
+    } catch (err: any) {
+      setDriverLinksError(err?.message || 'No se pudo guardar el vínculo del conductor.')
+    } finally {
+      setSavingDriverLinkFor(null)
     }
   }
 
@@ -237,7 +333,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
               </span>
               <div>
                 <h2 className="text-lg font-extrabold text-[#facc15] tracking-tight uppercase">
-                  Padrón de Socios y Gestión de Cuotas
+                  Padrón de Afiliados y Gestión de Cuotas
                 </h2>
                 <p className="text-xs text-emerald-100">
                   EXPRESO PUNATA • Sindicato Mixto y Empresa de Transporte Interprovincial
@@ -265,7 +361,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
                   className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-emerald-950 font-extrabold rounded-xl text-xs flex items-center gap-2 transition shadow-md"
                 >
                   <UserPlus className="w-4 h-4" />
-                  <span>+ Nuevo Socio</span>
+                  <span>+ Nuevo Afiliado</span>
                 </button>
               </>
             )}
@@ -336,7 +432,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Padrón de Socios ({members.length})</span>
+          <span>Padrón de Afiliados ({members.length})</span>
         </button>
 
         <button
@@ -351,6 +447,21 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
           <Receipt className="w-4 h-4" />
           <span>Cuotas y Mensualidades ({selectedPeriod})</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('loans')}
+          className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'loans' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+        >
+          <DollarSign className="w-4 h-4" />
+          <span>Préstamos internos</span>
+        </button>
+        <button type="button" onClick={() => setActiveTab('fines')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'fines' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+          <AlertTriangle className="w-4 h-4" /><span>Multas</span>
+        </button>
+        <button type="button" onClick={() => setActiveTab('sports')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'sports' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+          <Calendar className="w-4 h-4" /><span>Deportes</span>
+        </button>
       </div>
 
       {/* PESTAÑA 1: PADRÓN DE SOCIOS */}
@@ -362,7 +473,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
               <input
                 type="text"
-                placeholder="Buscar por nombre, socio (SOC-...), CI, móvil o placa..."
+                placeholder="Buscar por nombre, afiliado (SOC-...), CI, móvil o placa..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
@@ -377,6 +488,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
               >
                 <option value="all">Todos los Estados</option>
                 <option value="active">Activos</option>
+                <option value="retired">Retirados</option>
                 <option value="inactive">Inactivos</option>
                 <option value="suspended">Suspendidos</option>
               </select>
@@ -389,25 +501,51 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
                 <option value="all">Todas las Categorías</option>
                 <option value="propietario_transporte">Propietario</option>
                 <option value="conductor">Conductor Afiliado</option>
-                <option value="socio_general">Socio General</option>
+                <option value="socio_general">Afiliado General</option>
               </select>
             </div>
           </div>
 
-          {/* Listado de Socios */}
+          {canPrintRoster && (
+            <div className="flex flex-col gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-emerald-900">El PDF incluye la ficha y los hijos vinculados. La impresión no modifica datos.</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={printingRoster || loadingMembers}
+                  onClick={() => void handlePrintRoster('filtrado')}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#064e3b] px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Printer className="h-4 w-4" />
+                  {printingRoster ? 'Generando PDF…' : `Imprimir padrón de afiliados (${filteredMembers.length})`}
+                </button>
+                <button
+                  type="button"
+                  disabled={printingRoster || loadingMembers}
+                  onClick={() => void handlePrintRoster('completo')}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-800 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Printer className="h-4 w-4" />
+                  Imprimir padrón completo ({members.length})
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Listado de Afiliados */}
           {loadingMembers ? (
             <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 shadow-sm">
               <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin mx-auto mb-2" />
-              <p className="text-xs font-bold text-slate-600">Cargando padrón oficial de socios...</p>
+              <p className="text-xs font-bold text-slate-600">Cargando padrón oficial de afiliados...</p>
             </div>
           ) : filteredMembers.length === 0 ? (
             <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 shadow-sm">
               <Users className="w-8 h-8 text-slate-400 mx-auto mb-2" />
               <p className="text-sm font-bold text-slate-700">
-                {searchTerm ? 'No se encontraron socios' : 'Aún no existen socios registrados.'}
+                {searchTerm ? 'No se encontraron afiliados' : 'Aún no existen afiliados registrados.'}
               </p>
               <p className="text-xs text-slate-500 mt-1 mb-3">
-                {searchTerm ? 'Intente con otros criterios de búsqueda.' : 'El padrón oficial sindical está listo para incorporar al primer socio transportista o conductor.'}
+                {searchTerm ? 'Intente con otros criterios de búsqueda.' : 'El padrón oficial sindical está listo para incorporar al primer afiliado transportista o conductor.'}
               </p>
               {!searchTerm && (
                 <button
@@ -416,7 +554,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
                   className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#064e3b] hover:bg-[#053d2e] text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer"
                 >
                   <PlusCircle className="w-4 h-4 text-[#facc15]" />
-                  <span>Agregar socio</span>
+                  <span>Agregar afiliado</span>
                 </button>
               )}
             </div>
@@ -493,7 +631,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
                           type="button"
                           onClick={() => handleOpenMemberModal(m)}
                           className="px-2.5 py-1.5 bg-slate-100 hover:bg-[#064e3b] hover:text-[#facc15] text-slate-600 text-xs font-bold rounded-lg transition"
-                          title="Editar datos del socio"
+                          title="Editar datos del afiliado"
                         >
                           Editar
                         </button>
@@ -548,7 +686,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
               <Calendar className="w-8 h-8 text-slate-400 mx-auto mb-2" />
               <p className="text-sm font-bold text-slate-700">No hay cuotas emitidas para {selectedPeriod}</p>
               <p className="text-xs text-slate-500 mt-1 mb-4">
-                Puede generar las cuotas mensuales de todos los socios activos con un solo clic.
+                Puede generar las cuotas mensuales de todos los afiliados activos con un solo clic.
               </p>
               {isManagement && (
                 <button
@@ -648,6 +786,17 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
         </div>
       )}
 
+      {activeTab === 'loans' && (
+        <UnionLoansView
+          members={members}
+          currentUser={currentUser}
+          currentBranch={currentBranch}
+          activeShift={effectiveShift}
+        />
+      )}
+      {activeTab === 'fines' && <UnionFinesView members={members} canCreate={isManagement} canCollect={['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'].includes(currentUser.role)} activeShift={effectiveShift} branchId={currentBranch.id} />}
+      {activeTab === 'sports' && <UnionSportsView members={members} canManage={isManagement} canDecide={currentUser.role === 'directiva_admin'} />}
+
       {/* =========================================================================
           MODAL 1: ALTA / EDICIÓN DE SOCIO
          ========================================================================= */}
@@ -660,7 +809,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
             setIsMemberModalOpen(false)
             setFeedback({
               type: 'success',
-              message: `Socio ${saved.memberNumber} - ${saved.fullName} guardado exitosamente.`,
+              message: `Afiliado ${saved.memberNumber} - ${saved.fullName} guardado exitosamente.`,
             })
           }}
         />
@@ -694,8 +843,57 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
         <AccountStatementModal
           isOpen={isStatementModalOpen}
           statement={statementData}
+          loans={statementLoans}
+          fines={statementFines}
+          sportsEvents={statementSportsEvents}
           loading={loadingStatement}
+          canManageChildren={isManagement}
+          childrenNotice={childrenNotice}
+          onAddChild={() => {
+            if (statementData) {
+              setEditingChild(null)
+              setChildrenNotice('')
+              setChildMember(statementData.member)
+            }
+          }}
+          onEditChild={(child) => {
+            if (statementData) {
+              setEditingChild(child)
+              setChildrenNotice('')
+              setChildMember(statementData.member)
+            }
+          }}
+          drivers={activeDrivers}
+          driverLinkError={driverLinksError}
+          driverLinkNotice={driverLinksNotice}
+          savingDriverLinkFor={savingDriverLinkFor}
+          onSetDriverLink={handleDriverLinkChange}
           onClose={() => setIsStatementModalOpen(false)}
+        />
+      )}
+
+      {childMember && (
+        <AddChildModal
+          member={childMember}
+          child={editingChild}
+          onClose={() => { setChildMember(null); setEditingChild(null) }}
+          onSave={async (child) => {
+            const savedChild = editingChild
+              ? await updateUnionMemberChildThroughBackend({
+                  memberId: childMember.id,
+                  childId: editingChild.id,
+                  child,
+                })
+              : (await addUnionMemberChildThroughBackend({ memberId: childMember.id, child })).child
+            setStatementData((current) => current
+              ? { ...current, children: editingChild
+                  ? current.children.map((existing) => existing.id === savedChild.id ? savedChild : existing)
+                  : [...current.children, savedChild].sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || ''))) }
+              : current)
+            setChildrenNotice(editingChild ? 'Los datos del hijo se actualizaron correctamente.' : 'El hijo se registró correctamente.')
+            setChildMember(null)
+            setEditingChild(null)
+          }}
         />
       )}
 
@@ -750,9 +948,16 @@ const MemberFormModal: React.FC<MemberFormModalProps> = ({
   const [fullName, setFullName] = useState(editingMember?.fullName || '')
   const [ci, setCi] = useState(editingMember?.ci || '')
   const [phone, setPhone] = useState(editingMember?.phone || '')
-  const [status, setStatus] = useState<'active' | 'inactive' | 'suspended' | 'honorary'>(
+  const [status, setStatus] = useState<'active' | 'inactive' | 'suspended' | 'honorary' | 'retired'>(
     editingMember?.status || 'active'
   )
+  const [ciComplement, setCiComplement] = useState(editingMember?.ciComplement || '')
+  const [alternatePhone, setAlternatePhone] = useState(editingMember?.alternatePhone || '')
+  const [address, setAddress] = useState(editingMember?.address || '')
+  const [locality, setLocality] = useState(editingMember?.locality || '')
+  const [birthDate, setBirthDate] = useState(editingMember?.birthDate || '')
+  const [joinedAt, setJoinedAt] = useState(editingMember?.joinedAt || new Date().toISOString().slice(0, 10))
+  const [retiredAt, setRetiredAt] = useState(editingMember?.retiredAt || '')
   const [category, setCategory] = useState<'propietario_transporte' | 'conductor' | 'socio_general'>(
     editingMember?.category || 'propietario_transporte'
   )
@@ -772,11 +977,15 @@ const MemberFormModal: React.FC<MemberFormModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!memberNumber.trim()) {
-      setErrorMessage('El número de socio es obligatorio (ej. SOC-001).')
+      setErrorMessage('El número de afiliado es obligatorio (ej. SOC-001).')
       return
     }
     if (!fullName.trim() || fullName.trim().length < 3) {
       setErrorMessage('El nombre completo es obligatorio.')
+      return
+    }
+    if (retiredAt && retiredAt < joinedAt) {
+      setErrorMessage('La fecha de retiro no puede ser anterior a la fecha de ingreso.')
       return
     }
 
@@ -796,7 +1005,9 @@ const MemberFormModal: React.FC<MemberFormModalProps> = ({
         fullName: fullName.trim(),
         ci: ci.trim(),
         phone: phone.trim(),
-        status,
+        ciComplement: ciComplement.trim(), alternatePhone: alternatePhone.trim(), address: address.trim(),
+        locality: locality.trim(), birthDate, joinedAt, retiredAt,
+        status: retiredAt ? 'retired' : status,
         category,
         vehiclePlate: vehiclePlate.trim().toUpperCase() || undefined,
         assignedMobileNumber: assignedMobileNumber.trim() || undefined,
@@ -806,7 +1017,7 @@ const MemberFormModal: React.FC<MemberFormModalProps> = ({
       onSuccess(res.member)
     } catch (err: any) {
       console.error('[MemberFormModal] Error:', err)
-      setErrorMessage(err.message || 'Error al guardar los datos del socio.')
+      setErrorMessage(err.message || 'Error al guardar los datos del afiliado.')
     } finally {
       setLoading(false)
     }
@@ -819,7 +1030,7 @@ const MemberFormModal: React.FC<MemberFormModalProps> = ({
           <div className="flex items-center gap-2.5">
             <Users className="w-5 h-5 text-[#facc15]" />
             <h3 className="text-base font-extrabold text-[#facc15]">
-              {editingMember ? 'EDITAR SOCIO AFILIADO' : 'NUEVO SOCIO AFILIADO'}
+              {editingMember ? 'EDITAR AFILIADO' : 'NUEVO AFILIADO'}
             </h3>
           </div>
           <button
@@ -841,7 +1052,7 @@ const MemberFormModal: React.FC<MemberFormModalProps> = ({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Nº de Socio *
+                Nº de Afiliado *
               </label>
               <input
                 type="text"
@@ -866,8 +1077,23 @@ const MemberFormModal: React.FC<MemberFormModalProps> = ({
                 <option value="inactive">Inactivo</option>
                 <option value="suspended">Suspendido</option>
                 <option value="honorary">Honorario</option>
+                <option value="retired">Retirado</option>
               </select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs font-bold text-slate-700">Complemento de CI<input value={ciComplement} onChange={e => setCiComplement(e.target.value)} className="mt-1 w-full px-3 py-2 border rounded-xl font-normal" /></label>
+            <label className="text-xs font-bold text-slate-700">Teléfono alternativo<input value={alternatePhone} onChange={e => setAlternatePhone(e.target.value)} className="mt-1 w-full px-3 py-2 border rounded-xl font-normal" /></label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs font-bold text-slate-700">Domicilio<input value={address} onChange={e => setAddress(e.target.value)} className="mt-1 w-full px-3 py-2 border rounded-xl font-normal" /></label>
+            <label className="text-xs font-bold text-slate-700">Ciudad o localidad<input value={locality} onChange={e => setLocality(e.target.value)} className="mt-1 w-full px-3 py-2 border rounded-xl font-normal" /></label>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <label className="text-xs font-bold text-slate-700">Nacimiento<input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} className="mt-1 w-full px-2 py-2 border rounded-xl font-normal" /></label>
+            <label className="text-xs font-bold text-slate-700">Ingreso<input type="date" required value={joinedAt} onChange={e => setJoinedAt(e.target.value)} className="mt-1 w-full px-2 py-2 border rounded-xl font-normal" /></label>
+            <label className="text-xs font-bold text-slate-700">Retiro<input type="date" value={retiredAt} onChange={e => setRetiredAt(e.target.value)} className="mt-1 w-full px-2 py-2 border rounded-xl font-normal" /></label>
           </div>
 
           <div>
@@ -999,7 +1225,7 @@ const MemberFormModal: React.FC<MemberFormModalProps> = ({
               disabled={loading}
               className="px-5 py-2 bg-[#064e3b] hover:bg-emerald-800 text-white font-extrabold text-xs rounded-xl transition shadow disabled:opacity-50"
             >
-              {loading ? 'Guardando...' : 'Guardar Socio'}
+              {loading ? 'Guardando...' : 'Guardar Afiliado'}
             </button>
           </div>
         </form>
@@ -1137,7 +1363,7 @@ const CollectDueModal: React.FC<CollectDueModalProps> = ({
                 {completedResult.receiptNumber}
               </p>
               <p className="text-xs text-slate-600 mt-1">
-                Socio: <strong>{completedResult.memberNumber} — {completedResult.memberName}</strong>
+                Afiliado: <strong>{completedResult.memberNumber} — {completedResult.memberName}</strong>
               </p>
               <p className="text-xl font-extrabold text-emerald-700 font-mono mt-2">
                 Bs {completedResult.amountBob.toFixed(2)}
@@ -1179,7 +1405,7 @@ const CollectDueModal: React.FC<CollectDueModalProps> = ({
 
             <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs">
               <div className="flex justify-between">
-                <span className="text-slate-500">Socio:</span>
+                <span className="text-slate-500">Afiliado:</span>
                 <span className="font-extrabold text-slate-900">
                   {due.memberNumber} - {due.memberName}
                 </span>
@@ -1319,17 +1545,124 @@ const CollectDueModal: React.FC<CollectDueModalProps> = ({
 /* =========================================================================
    SUB-MODAL 3: EXTRACTO DE CUENTA HISTÓRICO
    ========================================================================= */
+interface AddChildModalProps {
+  member: UnionMember
+  child: UnionMemberChild | null
+  onClose: () => void
+  onSave: (child: { fullName: string; ci?: string; birthDate?: string; phone?: string; address?: string; notes?: string }) => Promise<void>
+}
+
+const AddChildModal: React.FC<AddChildModalProps> = ({ member, child, onClose, onSave }) => {
+  const [fullName, setFullName] = useState(child?.fullName || '')
+  const [ci, setCi] = useState(child?.ci || '')
+  const [birthDate, setBirthDate] = useState(child?.birthDate || '')
+  const [phone, setPhone] = useState(child?.phone || '')
+  const [address, setAddress] = useState(child?.address || '')
+  const [notes, setNotes] = useState(child?.notes || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const normalizedName = fullName.trim()
+    if (normalizedName.length < 2) {
+      setError('Ingresa el nombre completo del hijo (mínimo 2 caracteres).')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      await onSave({
+        fullName: normalizedName,
+        ci: ci.trim(),
+        birthDate,
+        phone: phone.trim(),
+        address: address.trim(),
+        notes: notes.trim(),
+      })
+    } catch (err: any) {
+      setError(err?.message || 'No se pudo registrar al hijo. Verifica tu autorización e inténtalo nuevamente.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const fieldClass = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500'
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="add-child-title">
+      <form onSubmit={handleSubmit} className="my-auto w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <header className="flex items-center justify-between bg-[#064e3b] px-5 py-4 text-white">
+          <div>
+            <h3 id="add-child-title" className="font-extrabold text-[#facc15]">{child ? 'Editar hijo' : 'Agregar hijo'}</h3>
+            <p className="mt-1 text-xs text-emerald-100">Afiliado: {member.fullName}</p>
+          </div>
+          <button type="button" onClick={onClose} disabled={saving} aria-label="Cerrar" className="rounded-lg p-1 text-emerald-100 hover:bg-emerald-800 disabled:opacity-50"><X className="h-5 w-5" /></button>
+        </header>
+        <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+          <label className="sm:col-span-2 text-xs font-bold text-slate-700">Nombre completo <span className="text-red-600">*</span>
+            <input autoFocus required minLength={2} maxLength={120} value={fullName} onChange={(e) => setFullName(e.target.value)} className={`${fieldClass} mt-1`} />
+          </label>
+          <label className="text-xs font-bold text-slate-700">CI (opcional)
+            <input maxLength={30} value={ci} onChange={(e) => setCi(e.target.value)} className={`${fieldClass} mt-1`} />
+          </label>
+          <label className="text-xs font-bold text-slate-700">Fecha de nacimiento (opcional)
+            <input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} className={`${fieldClass} mt-1`} />
+          </label>
+          <label className="text-xs font-bold text-slate-700">Teléfono (opcional)
+            <input type="tel" maxLength={40} value={phone} onChange={(e) => setPhone(e.target.value)} className={`${fieldClass} mt-1`} />
+          </label>
+          <label className="text-xs font-bold text-slate-700">Domicilio (opcional)
+            <input maxLength={180} value={address} onChange={(e) => setAddress(e.target.value)} className={`${fieldClass} mt-1`} />
+          </label>
+          <label className="sm:col-span-2 text-xs font-bold text-slate-700">Observaciones (opcional)
+            <textarea rows={3} maxLength={1000} value={notes} onChange={(e) => setNotes(e.target.value)} className={`${fieldClass} mt-1`} />
+          </label>
+          {error && <p role="alert" className="sm:col-span-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800">{error}</p>}
+        </div>
+        <footer className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+          <button type="button" disabled={saving} onClick={onClose} className="rounded-lg px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50">Cancelar</button>
+          <button type="submit" disabled={saving || fullName.trim().length < 2} className="rounded-lg bg-[#064e3b] px-4 py-2 text-xs font-extrabold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Guardando…' : child ? 'Guardar cambios' : 'Guardar hijo'}</button>
+        </footer>
+      </form>
+    </div>
+  )
+}
+
 interface AccountStatementModalProps {
   isOpen: boolean
   statement: MemberAccountStatementResult | null
+  loans: UnionLoan[]
+  fines: UnionFine[]
+  sportsEvents: UnionSportsEvent[]
   loading: boolean
+  canManageChildren: boolean
+  childrenNotice: string
+  drivers: DriverDirectoryEntry[]
+  driverLinkError: string
+  driverLinkNotice: string
+  savingDriverLinkFor: string | null
+  onAddChild: () => void
+  onEditChild: (child: UnionMemberChild) => void
+  onSetDriverLink: (childId: string | null, driverUid: string) => void
   onClose: () => void
 }
 
 const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
   isOpen,
   statement,
+  loans,
+  fines,
+  sportsEvents,
   loading,
+  canManageChildren,
+  childrenNotice,
+  drivers,
+  driverLinkError,
+  driverLinkNotice,
+  savingDriverLinkFor,
+  onAddChild,
+  onEditChild,
+  onSetDriverLink,
   onClose,
 }) => {
   if (!isOpen) return null
@@ -1355,11 +1688,105 @@ const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
         {loading || !statement ? (
           <div className="p-12 text-center">
             <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin mx-auto mb-2" />
-            <p className="text-xs font-bold text-slate-600">Calculando estado contable del socio...</p>
+            <p className="text-xs font-bold text-slate-600">Calculando estado contable del afiliado...</p>
           </div>
         ) : (
           <div className="p-6 space-y-5">
-            {/* Cabecera del socio */}
+            <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h5 className="text-sm font-extrabold text-emerald-950">Hijos ({statement.children.length})</h5>
+                <p className="mt-1 text-xs text-emerald-800">Datos de hijos asociados a este afiliado.</p>
+              </div>
+              {canManageChildren && (
+                <button type="button" onClick={onAddChild} className="shrink-0 rounded-lg bg-[#064e3b] px-3 py-2 text-xs font-bold text-white hover:bg-emerald-800">
+                  Agregar hijo
+                </button>
+              )}
+            </section>
+            <section className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+              <div><h5 className="text-sm font-extrabold text-slate-900">Préstamos internos ({loans.length})</h5><p className="mt-1 text-xs text-slate-600">Saldos y pagos del afiliado. El monto otorgado no se contabiliza como ingreso.</p></div>
+              {loans.length === 0 ? <p className="text-xs text-slate-500">Este afiliado no tiene préstamos registrados.</p> : <div className="space-y-2">{loans.map((loan) => <article key={loan.id} className="rounded-lg border border-amber-100 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-xs text-slate-800">{loan.loanNumber} · {loan.status === 'paid' ? 'Pagado' : loan.status === 'overdue' ? 'Vencido' : 'Vigente'}</strong><span className="text-[11px] font-bold text-red-700">Saldo {formatCurrencyBob(loan.balanceCents, true)}</span></div><p className="mt-1 text-[11px] text-slate-600">Original {formatCurrencyBob(loan.principalCents, true)} · Pagado {formatCurrencyBob(loan.paidCents, true)} · Vencido {formatCurrencyBob(loan.overdueBalanceCents || 0, true)}</p><p className="mt-1 text-[10px] text-slate-500">{loan.installmentCount} cuotas · {loan.installments.filter((installment) => installment.status === 'paid').length} pagadas · {loan.payments.length} pagos recibidos</p></article>)}</div>}
+            </section>
+            <section className="space-y-2 rounded-xl border border-blue-200 bg-blue-50/60 p-4">
+              <div><h5 className="text-sm font-extrabold text-slate-900">Historial deportivo ({sportsEvents.length} jornadas)</h5><p className="mt-1 text-xs text-slate-600">Convocatorias, asistencias, justificaciones y decisiones registradas.</p></div>
+              {sportsEvents.length === 0 ? <p className="text-xs text-slate-500">Este afiliado no tiene jornadas deportivas registradas.</p> : sportsEvents.map((event) => {
+                const participant = event.participants.find((entry) => entry.memberId === statement.member.id)
+                if (!participant) return null
+                const stateLabel = participant.attendance === 'present' ? 'Presente' : participant.attendance === 'late' ? 'Tardanza' : participant.attendance === 'absent' ? 'Ausente' : participant.attendance === 'exempt' ? 'Exento por autorización' : 'Pendiente de control'
+                return <article key={event.id} className="rounded-lg border border-blue-100 bg-white p-3 text-xs"><div className="flex flex-wrap justify-between gap-2"><strong>{event.activityName}</strong><span>{event.date} · {event.scheduledTime} · {stateLabel}</span></div>{participant.sportsFine && <p className="mt-1">Multa {participant.sportsFine.fineNumber} · Importe {formatCurrencyBob(participant.sportsFine.amountCents, true)} · Pagado {formatCurrencyBob(participant.sportsFine.paidCents, true)} · Saldo {formatCurrencyBob(participant.sportsFine.balanceCents, true)} · {participant.sportsFine.status === 'voided' ? 'Anulada' : participant.sportsFine.status === 'paid' ? 'Pagada' : participant.sportsFine.status === 'partial' ? 'Parcial' : 'Pendiente'}</p>}{participant.sportsFine?.financialReviewRequired && <p className="mt-1 font-bold text-red-700">Situación financiera pendiente de revisión autorizada.</p>}{participant.justifications?.map((justification) => <p key={justification.id} className="mt-1 text-slate-600">Justificación: {justification.reason} · {justification.status === 'approved' ? 'Aprobada' : justification.status === 'rejected' ? 'Rechazada' : 'Pendiente'}{justification.decisionByName ? ` por ${justification.decisionByName}` : ''}</p>)}</article>
+              })}
+            </section>
+            <section className="space-y-2 rounded-xl border border-red-200 bg-red-50/60 p-4">
+              <div><h5 className="text-sm font-extrabold text-slate-900">Multas ({fines.length})</h5><p className="mt-1 text-xs text-slate-600">Importes pendientes registrados para este afiliado.</p></div>
+              {fines.length === 0 ? <p className="text-xs text-slate-500">Este afiliado no tiene multas registradas.</p> : fines.map((fine) => <article key={fine.id} className="flex flex-wrap justify-between gap-2 rounded-lg border border-red-100 bg-white p-3 text-xs"><div><strong>{fine.fineNumber} · {fine.reason}</strong><p className="mt-1 text-slate-600">{fine.category} · {fine.date}{fine.description ? ` · ${fine.description}` : ''}</p>{fine.financialReviewRequired && <p className="mt-1 font-bold text-red-700">Situación financiera pendiente de revisión autorizada.</p>}{fine.notes && <p className="mt-1 text-slate-500">Observaciones: {fine.notes}</p>}<details className="mt-2"><summary className="cursor-pointer font-bold text-emerald-800">Pagos ({fine.payments?.length || 0})</summary>{fine.payments?.map((payment) => <p key={payment.id} className="mt-1 text-slate-600">{payment.receiptNumber} · {new Date(payment.paidAtIso).toLocaleString('es-BO')} · {payment.collectedByName} · {formatCurrencyBob(payment.amountCents, true)}</p>)}</details></div><div className="text-right"><span className="block">Importe {formatCurrencyBob(fine.amountCents, true)}</span><span className="block text-emerald-700">Pagado {formatCurrencyBob(fine.paidCents || 0, true)}</span><strong className="text-red-700">Saldo {formatCurrencyBob(fine.balanceCents, true)}</strong><span className="block">{fine.status === 'paid' ? 'Pagada' : fine.status === 'partial' ? 'Parcialmente pagada' : fine.status === 'voided' ? 'Anulada por corrección' : 'Pendiente'}</span></div></article>)}
+            </section>
+            {childrenNotice && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">{childrenNotice}</p>}
+            {statement.children.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-xs text-slate-500">Este afiliado todavía no tiene hijos registrados.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {statement.children.map((child) => (
+                  <article key={child.id} className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h6 className="break-words text-sm font-extrabold text-slate-900">{child.fullName}</h6>
+                        <div className="mt-2 space-y-1 text-xs text-slate-600">
+                          {child.ci && <p><span className="font-semibold">CI:</span> {child.ci}</p>}
+                          {child.birthDate && <p><span className="font-semibold">Nacimiento:</span> {child.birthDate}</p>}
+                          {child.phone && <p><span className="font-semibold">Teléfono:</span> {child.phone}</p>}
+                          {child.address && <p className="break-words"><span className="font-semibold">Domicilio:</span> {child.address}</p>}
+                          {child.notes && <p className="break-words"><span className="font-semibold">Observaciones:</span> {child.notes}</p>}
+                        </div>
+                      </div>
+                      {canManageChildren && <button type="button" onClick={() => onEditChild(child)} className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-emerald-700 hover:text-emerald-800">Editar</button>}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <h5 className="text-sm font-extrabold text-slate-900">Choferes vinculados</h5>
+                <p className="mt-1 text-xs text-slate-600">Vínculos administrativos con conductores existentes. No modifican viajes, vehículos ni comisiones.</p>
+              </div>
+              {driverLinkError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-800">{driverLinkError}</p>}
+              {driverLinkNotice && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">{driverLinkNotice}</p>}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <label className="min-w-0 text-xs font-bold text-slate-700">
+                  Chofer principal del afiliado
+                  {canManageChildren ? (
+                    <select value={statement.member.primaryDriverUid || ''} disabled={savingDriverLinkFor === 'primary' || (drivers.length === 0 && Boolean(driverLinkError))} onChange={(event) => onSetDriverLink(null, event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs disabled:opacity-60">
+                      <option value="">Sin chofer vinculado</option>
+                      {statement.member.primaryDriverUid && !drivers.some((driver) => driver.uid === statement.member.primaryDriverUid) && <option value={statement.member.primaryDriverUid}>{statement.member.primaryDriverName || `Conductor ${statement.member.primaryDriverUid}`} (no activo/no disponible)</option>}
+                      {drivers.map((driver) => <option key={driver.uid} value={driver.uid}>{driver.fullName}{driver.assignedMobileNumber ? ` · Móvil ${driver.assignedMobileNumber}` : ''}{driver.assignedVehiclePlate ? ` · ${driver.assignedVehiclePlate}` : ''}</option>)}
+                    </select>
+                  ) : (
+                    <p className="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium">{drivers.find((driver) => driver.uid === statement.member.primaryDriverUid)?.fullName || statement.member.primaryDriverName || (statement.member.primaryDriverUid ? `Conductor ${statement.member.primaryDriverUid}` : 'Sin chofer vinculado')}</p>
+                  )}
+                </label>
+                {statement.children.map((child) => {
+                  const childDriver = drivers.find((driver) => driver.uid === child.driverUid)
+                  const linkKey = child.id
+                  return (
+                    <label key={`child-driver-${child.id}`} className="min-w-0 text-xs font-bold text-slate-700">
+                      Chofer vinculado · {child.fullName}
+                      {canManageChildren ? (
+                        <select value={child.driverUid || ''} disabled={savingDriverLinkFor === linkKey || (drivers.length === 0 && Boolean(driverLinkError))} onChange={(event) => onSetDriverLink(child.id, event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs disabled:opacity-60">
+                          <option value="">Sin chofer vinculado</option>
+                          {child.driverUid && !drivers.some((driver) => driver.uid === child.driverUid) && <option value={child.driverUid}>{child.driverName || `Conductor ${child.driverUid}`} (no activo/no disponible)</option>}
+                          {drivers.map((driver) => <option key={driver.uid} value={driver.uid}>{driver.fullName}{driver.assignedMobileNumber ? ` · Móvil ${driver.assignedMobileNumber}` : ''}{driver.assignedVehiclePlate ? ` · ${driver.assignedVehiclePlate}` : ''}</option>)}
+                        </select>
+                      ) : (
+                        <p className="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium">{childDriver?.fullName || child.driverName || (child.driverUid ? `Conductor ${child.driverUid}` : 'Sin chofer vinculado')}</p>
+                      )}
+                    </label>
+                  )
+                })}
+              </div>
+            </section>
+
+            {/* Cabecera del afiliado */}
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="font-mono text-xs font-extrabold text-[#064e3b] bg-emerald-100 px-2 py-0.5 rounded">
@@ -1420,7 +1847,7 @@ const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
               <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
                 {statement.dues.length === 0 ? (
                   <p className="p-4 text-xs text-slate-500 text-center">
-                    No se registran cuotas emitidas para este socio.
+                    No se registran cuotas emitidas para este afiliado.
                   </p>
                 ) : (
                   statement.dues.map((d) => (
@@ -1507,13 +1934,13 @@ const GenerateDuesModal: React.FC<GenerateDuesModalProps> = ({
           </h3>
           <p className="text-xs text-slate-600">
             Esta acción generará la cuota mensual ordinaria para los{' '}
-            <strong>{activeMembersCount} socios activos</strong> del padrón oficial.
+            <strong>{activeMembersCount} afiliados activos</strong> del padrón oficial.
           </p>
         </div>
 
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
           <p>
-            • Operación idempotente: Los socios que ya tengan cuota registrada para {period} no serán duplicados.
+            • Operación idempotente: Los afiliados que ya tengan cuota registrada para {period} no serán duplicados.
           </p>
         </div>
 

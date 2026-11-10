@@ -16,6 +16,7 @@ import {
   AlertCircle,
   AlertTriangle,
   Save,
+  MessageCircle,
 } from 'lucide-react'
 import type { Shipment, UserProfile } from '../../types'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
@@ -23,6 +24,8 @@ import { printShipmentGuidePdf, printDeliveryProofPdf } from '../../services/pdf
 import { printEngine } from '../../services/printing/printEngineService'
 import { cancelShipmentThroughBackend, fetchCurrentShipment, updateShipmentThroughBackend } from '../../services/shipmentService'
 import { reportShipmentIncident } from '../../services/incidentService'
+import { applyOfficialBranchPhone } from '../../services/branchContactService.ts'
+import { buildWhatsAppChatUrl } from '../../services/whatsappService.ts'
 
 import { ShipmentTransfer } from './ShipmentTransfer'
 import { DemoTransfer } from '../demo/DemoTransfer'
@@ -242,7 +245,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
 
   const handlePrintThermal = async () => {
     try {
-      const docPayload = printEngine.buildFromShipment(shipment, currentUser.fullName)
+      const docPayload = await applyOfficialBranchPhone(printEngine.buildFromShipment(shipment, currentUser.fullName), shipment.originBranchId)
       await printEngine.printDocument(docPayload)
     } catch (err) {
       console.error('Error al imprimir guía térmica:', err)
@@ -485,6 +488,9 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
                     <Phone className="w-3 h-3 text-slate-400" />
                     <span>{shipment.sender.phone}</span>
                   </p>
+                  {buildWhatsAppChatUrl(shipment.sender.phone) ? (
+                    <a href={buildWhatsAppChatUrl(shipment.sender.phone) || undefined} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-900"><MessageCircle className="w-3.5 h-3.5"/>Contactar por WhatsApp</a>
+                  ) : <span className="text-[10px] text-slate-400">WhatsApp no disponible: teléfono no válido</span>}
                   {shipment.sender.docNumber && (
                     <p className="text-[11px] text-slate-500 font-mono">
                       {shipment.sender.docType || 'CI'}: {shipment.sender.docNumber}
@@ -502,6 +508,9 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
                     <Phone className="w-3 h-3 text-slate-400" />
                     <span>{shipment.recipient.phone}</span>
                   </p>
+                  {buildWhatsAppChatUrl(shipment.recipient.phone) ? (
+                    <a href={buildWhatsAppChatUrl(shipment.recipient.phone) || undefined} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-900"><MessageCircle className="w-3.5 h-3.5"/>Contactar por WhatsApp</a>
+                  ) : <span className="text-[10px] text-slate-400">WhatsApp no disponible: teléfono no válido</span>}
                   {shipment.recipient.docNumber && (
                     <p className="text-[11px] text-slate-500 font-mono">
                       {shipment.recipient.docType || 'CI'}: {shipment.recipient.docNumber}

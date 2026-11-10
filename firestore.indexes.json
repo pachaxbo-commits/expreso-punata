@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "shipment_notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "destinationBranchId", "order": "ASCENDING" },
+        { "fieldPath": "createdAtIso", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "shipments",
       "queryScope": "COLLECTION",
       "fields": [

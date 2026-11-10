@@ -30,6 +30,7 @@ async function clearCollections() {
     'cash_shift_active_locks',
     'financial_movements',
     'shipments',
+    'shipment_notifications',
     'counters',
     'idempotency_keys',
     'expense_authorizations',

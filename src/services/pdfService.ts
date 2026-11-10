@@ -46,12 +46,13 @@ import jsPDF from 'jspdf'
 import QRCode from 'qrcode'
 import type { Shipment, CashShift, DispatchManifest } from '../types/index.ts'
 import { formatCurrencyBob } from '../domain/parcelEngine.ts'
+import { fetchOfficialBranchPhone } from './branchContactService.ts'
 
 /**
  * Genera la Guía Oficial de Encomienda de Expreso Punata en PDF con código QR integrado.
  * Formato de media página / A5 horizontal o ticket oficial para impresión en ventanilla.
  */
-export async function generateShipmentGuidePdf(shipment: Shipment): Promise<Blob> {
+export async function generateShipmentGuidePdf(shipment: Shipment, agencyPhone = 'No configurado'): Promise<Blob> {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -83,7 +84,7 @@ export async function generateShipmentGuidePdf(shipment: Shipment): Promise<Blob
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'normal')
   doc.text('Transporte Interprovincial Punata - Cochabamba', 10, 20)
-  doc.text('Punata: 4-4571234 — Cochabamba: 4-4256789', 10, 25)
+  doc.text(`Teléfono de agencia: ${agencyPhone || 'No configurado'}`, 10, 25, { maxWidth: 72 })
 
   // Recuadro de Guía
   doc.setFillColor(255, 255, 255)
@@ -255,7 +256,8 @@ export async function generateShipmentGuidePdf(shipment: Shipment): Promise<Blob
  * Dispara la visualización e impresión del PDF en una nueva pestaña del navegador.
  */
 export async function printShipmentGuidePdf(shipment: Shipment): Promise<void> {
-  const blob = await generateShipmentGuidePdf(shipment)
+  const agencyPhone = await fetchOfficialBranchPhone(shipment.originBranchId)
+  const blob = await generateShipmentGuidePdf(shipment, agencyPhone || 'No configurado')
   const url = URL.createObjectURL(blob)
   window.open(url, '_blank')
 }

@@ -412,6 +412,8 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                   <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-1">
                     <span>Efectivo: {formatCurrencyBob(activeShift.breakdown?.cashIncomeCents || 0)}</span>
                   </div>
+                  {(activeShift.breakdown?.loanRepaymentsCents || 0) > 0 && <p className="mt-1 text-[10px] font-semibold text-amber-700">Recaudación de préstamos (separada de ingresos): {formatCurrencyBob(activeShift.breakdown?.loanRepaymentsCents || 0)}</p>}
+                  {(activeShift.breakdown?.fineIncomeCents || 0) > 0 && <p className="mt-1 text-[10px] font-semibold text-rose-700">Cobros de multas: {formatCurrencyBob(activeShift.breakdown?.fineIncomeCents || 0)}</p>}
                 </div>
 
                 {/* 3. Cobros Electrónicos (QR + Transferencia) */}

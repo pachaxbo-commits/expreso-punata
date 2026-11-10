@@ -1,5 +1,6 @@
 import { fetchCurrentShipment } from '../../services/shipmentService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
+import { applyOfficialBranchPhone } from '../../services/branchContactService.ts'
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import {
   X,
@@ -336,7 +337,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
-                    const doc = printEngine.buildFromShipment(completedShipment, currentUser.fullName, true, savedSignatureDataUrl)
+                    const doc = await applyOfficialBranchPhone(printEngine.buildFromShipment(completedShipment, currentUser.fullName, true, savedSignatureDataUrl), completedShipment.destinationBranchId)
                     await printEngine.printDocument(doc)
                   }}
                   className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition"

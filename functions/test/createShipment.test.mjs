@@ -5,6 +5,16 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
 process.env.GCLOUD_PROJECT = 'demo-expreso-punata-dev'
+// Evita que idempotency_keys persistidas en emuladores compartidos contaminen
+// las expectativas de una nueva ejecución del mismo conjunto de pruebas.
+const testRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+const secretaryUid = `sec-test-fin-${testRunId}`
+const driverUid = `driver-test-${testRunId}`
+const administratorUid = `admin-descuentos-${testRunId}`
+const validShiftId = `shift-punata-valid-1-${testRunId}`
+const closedShiftId = `shift-closed-1-${testRunId}`
+const otherOperatorShiftId = `shift-other-op-${testRunId}`
+const otherBranchShiftId = `shift-other-branch-${testRunId}`
 
 let adminApp
 let db
@@ -279,7 +289,7 @@ async function executeCreateShipment(callerAuth, data) {
 }
 
 test('1. Creación atómica de encomienda CON movimiento financiero auditable vinculado a turno abierto', async () => {
-  await db.collection('users').doc('sec-test-fin').set({
+  await db.collection('users').doc(secretaryUid).set({
     role: 'secretaria',
     primaryBranchId: 'punata',
     allowedBranchIds: ['punata'],
@@ -288,10 +298,10 @@ test('1. Creación atómica de encomienda CON movimiento financiero auditable vi
   })
 
   // Crear turno de caja abierto válido
-  await db.collection('cash_shifts').doc('shift-punata-valid-1').set({
-    id: 'shift-punata-valid-1',
+  await db.collection('cash_shifts').doc(validShiftId).set({
+    id: validShiftId,
     branchId: 'punata',
-    operatorUid: 'sec-test-fin',
+    operatorUid: secretaryUid,
     status: 'open',
   })
 
@@ -305,11 +315,11 @@ test('1. Creación atómica de encomienda CON movimiento financiero auditable vi
     paymentTiming: 'origin_paid',
     paymentMethod: 'cash',
     prohibitedGoodsNoticeAccepted: true,
-    idempotencyKey: 'idemp-fin-001',
-    cashShiftId: 'shift-punata-valid-1',
+    idempotencyKey: `idemp-fin-${testRunId}`,
+    cashShiftId: validShiftId,
   }
 
-  const res = await executeCreateShipment({ uid: 'sec-test-fin' }, payload)
+  const res = await executeCreateShipment({ uid: secretaryUid }, payload)
   assert.equal(res.isDuplicate, false)
   assert.equal(res.shipment.paymentStatus, 'paid')
   assert.ok(res.shipment.financialMovementId)
@@ -318,7 +328,7 @@ test('1. Creación atómica de encomienda CON movimiento financiero auditable vi
   const movDoc = await db.collection('financial_movements').doc(res.shipment.financialMovementId).get()
   assert.equal(movDoc.exists, true)
   assert.equal(movDoc.data().amountCents, 1500)
-  assert.equal(movDoc.data().cashShiftId, 'shift-punata-valid-1')
+  assert.equal(movDoc.data().cashShiftId, validShiftId)
   assert.equal(movDoc.data().trackingCode, res.shipment.trackingCode)
 })
 
@@ -333,10 +343,10 @@ test('2. Encomienda contraentrega (destination_cod) NO crea movimiento financier
     paymentTiming: 'destination_cod',
     paymentMethod: 'cash',
     prohibitedGoodsNoticeAccepted: true,
-    idempotencyKey: 'idemp-cod-002',
+    idempotencyKey: `idemp-cod-${testRunId}`,
   }
 
-  const res = await executeCreateShipment({ uid: 'sec-test-fin' }, payload)
+  const res = await executeCreateShipment({ uid: secretaryUid }, payload)
   assert.equal(res.shipment.paymentStatus, 'pending')
   assert.equal(res.shipment.financialMovementId, null)
 
@@ -345,7 +355,7 @@ test('2. Encomienda contraentrega (destination_cod) NO crea movimiento financier
 })
 
 test('3. Idempotencia reforzada: rechaza misma clave con datos diferentes y usuario diferente', async () => {
-  const originalKey = 'idemp-repeat-003'
+  const originalKey = `idemp-repeat-${testRunId}`
   const payload = {
     originBranchId: 'punata',
     destinationBranchId: 'cochabamba',
@@ -359,10 +369,10 @@ test('3. Idempotencia reforzada: rechaza misma clave con datos diferentes y usua
     idempotencyKey: originalKey,
   }
 
-  const firstCall = await executeCreateShipment({ uid: 'sec-test-fin' }, payload)
+  const firstCall = await executeCreateShipment({ uid: secretaryUid }, payload)
   assert.equal(firstCall.isDuplicate, false)
 
-  const secondCall = await executeCreateShipment({ uid: 'sec-test-fin' }, payload)
+  const secondCall = await executeCreateShipment({ uid: secretaryUid }, payload)
   assert.equal(secondCall.isDuplicate, true)
   assert.equal(secondCall.shipment.trackingCode, firstCall.shipment.trackingCode)
 
@@ -379,7 +389,7 @@ test('3. Idempotencia reforzada: rechaza misma clave con datos diferentes y usua
 })
 
 test('4. Bloqueo estricto de roles (conductor y sucursal no permitida)', async () => {
-  await db.collection('users').doc('driver-test').set({
+  await db.collection('users').doc(driverUid).set({
     role: 'conductor',
     primaryBranchId: 'punata',
     allowedBranchIds: ['punata'],
@@ -389,7 +399,7 @@ test('4. Bloqueo estricto de roles (conductor y sucursal no permitida)', async (
 
   await assert.rejects(
     async () => executeCreateShipment(
-      { uid: 'driver-test' },
+      { uid: driverUid },
       {
         originBranchId: 'punata',
         destinationBranchId: 'cochabamba',
@@ -423,7 +433,7 @@ test('5. Concurrencia de 10 peticiones simultáneas sin correlativos duplicados'
       prohibitedGoodsNoticeAccepted: true,
       idempotencyKey: `concurrent-key-${Date.now()}-${i}`,
     }
-    promises.push(executeCreateShipment({ uid: 'sec-test-fin' }, payload))
+    promises.push(executeCreateShipment({ uid: secretaryUid }, payload))
   }
 
   const results = await Promise.all(promises)
@@ -437,7 +447,7 @@ test('5. Concurrencia de 10 peticiones simultáneas sin correlativos duplicados'
 test('6. Validación de descuentos: secretaria NO puede aplicar descuentos arbitrarios', async () => {
   await assert.rejects(
     async () => executeCreateShipment(
-      { uid: 'sec-test-fin' },
+      { uid: secretaryUid },
       {
         originBranchId: 'punata',
         destinationBranchId: 'cochabamba',
@@ -458,8 +468,8 @@ test('6. Validación de descuentos: secretaria NO puede aplicar descuentos arbit
 })
 
 test('7. Directiva / Administración puede aplicar descuentos autorizados', async () => {
-  await db.collection('users').doc('admin-descuentos').set({
-    uid: 'admin-descuentos',
+  await db.collection('users').doc(administratorUid).set({
+    uid: administratorUid,
     fullName: 'Administrador Descuentos',
     role: 'directiva_admin',
     primaryBranchId: 'punata',
@@ -468,7 +478,7 @@ test('7. Directiva / Administración puede aplicar descuentos autorizados', asyn
   })
 
   const result = await executeCreateShipment(
-    { uid: 'admin-descuentos' },
+    { uid: administratorUid },
     {
       originBranchId: 'punata',
       destinationBranchId: 'cochabamba',
@@ -502,7 +512,7 @@ test('8. Cobro origin_paid SIN turno de caja mantiene estado pending y no crea m
     idempotencyKey: `no-shift-${Date.now()}`,
   }
 
-  const result = await executeCreateShipment({ uid: 'sec-test-fin' }, payload)
+  const result = await executeCreateShipment({ uid: secretaryUid }, payload)
   assert.equal(result.shipment.paymentStatus, 'pending')
   assert.equal(result.shipment.financialMovementId, null)
 
@@ -524,7 +534,7 @@ test('9. Turno de caja inventado / inexistente es RECHAZADO', async () => {
   }
 
   await assert.rejects(
-    async () => executeCreateShipment({ uid: 'sec-test-fin' }, payload),
+    async () => executeCreateShipment({ uid: secretaryUid }, payload),
     (err) => {
       assert.match(err.message, /FAILED_PRECONDITION: El turno de caja 'turno-inventado-999' no existe en el sistema/)
       return true
@@ -533,10 +543,10 @@ test('9. Turno de caja inventado / inexistente es RECHAZADO', async () => {
 })
 
 test('10. Turno de caja CERRADO es RECHAZADO', async () => {
-  await db.collection('cash_shifts').doc('shift-closed-1').set({
-    id: 'shift-closed-1',
+  await db.collection('cash_shifts').doc(closedShiftId).set({
+    id: closedShiftId,
     branchId: 'punata',
-    operatorUid: 'sec-test-fin',
+    operatorUid: secretaryUid,
     status: 'closed', // Cerrado
   })
 
@@ -547,15 +557,15 @@ test('10. Turno de caja CERRADO es RECHAZADO', async () => {
     recipient: { name: 'Destino Cbb', phone: '72299999' },
     items: [{ description: 'Bulto closed shift', quantity: 1, weightKg: 1 }],
     paymentTiming: 'origin_paid',
-    cashShiftId: 'shift-closed-1',
+    cashShiftId: closedShiftId,
     prohibitedGoodsNoticeAccepted: true,
     idempotencyKey: `closed-shift-${Date.now()}`,
   }
 
   await assert.rejects(
-    async () => executeCreateShipment({ uid: 'sec-test-fin' }, payload),
+    async () => executeCreateShipment({ uid: secretaryUid }, payload),
     (err) => {
-      assert.match(err.message, /FAILED_PRECONDITION: El turno de caja 'shift-closed-1' no está abierto/)
+      assert.match(err.message, new RegExp(`FAILED_PRECONDITION: El turno de caja '${closedShiftId}' no está abierto`))
       return true
     }
   )
@@ -563,8 +573,8 @@ test('10. Turno de caja CERRADO es RECHAZADO', async () => {
 
 test('11. Turno de caja de OTRO OPERADOR u OTRA SUCURSAL es RECHAZADO', async () => {
   // Turno de otro operador
-  await db.collection('cash_shifts').doc('shift-other-op').set({
-    id: 'shift-other-op',
+  await db.collection('cash_shifts').doc(otherOperatorShiftId).set({
+    id: otherOperatorShiftId,
     branchId: 'punata',
     operatorUid: 'otro-operador-uid',
     status: 'open',
@@ -577,24 +587,24 @@ test('11. Turno de caja de OTRO OPERADOR u OTRA SUCURSAL es RECHAZADO', async ()
     recipient: { name: 'Destino Cbb', phone: '72299999' },
     items: [{ description: 'Bulto', quantity: 1, weightKg: 1 }],
     paymentTiming: 'origin_paid',
-    cashShiftId: 'shift-other-op',
+    cashShiftId: otherOperatorShiftId,
     prohibitedGoodsNoticeAccepted: true,
     idempotencyKey: `other-op-${Date.now()}`,
   }
 
   await assert.rejects(
-    async () => executeCreateShipment({ uid: 'sec-test-fin' }, payloadOtherOp),
+    async () => executeCreateShipment({ uid: secretaryUid }, payloadOtherOp),
     (err) => {
-      assert.match(err.message, /PERMISSION_DENIED: El turno de caja 'shift-other-op' pertenece a otro operador/)
+      assert.match(err.message, new RegExp(`PERMISSION_DENIED: El turno de caja '${otherOperatorShiftId}' pertenece a otro operador`))
       return true
     }
   )
 
   // Turno de otra sucursal (Cochabamba en vez de Punata)
-  await db.collection('cash_shifts').doc('shift-other-branch').set({
-    id: 'shift-other-branch',
+  await db.collection('cash_shifts').doc(otherBranchShiftId).set({
+    id: otherBranchShiftId,
     branchId: 'cochabamba',
-    operatorUid: 'sec-test-fin',
+    operatorUid: secretaryUid,
     status: 'open',
   })
 
@@ -605,15 +615,15 @@ test('11. Turno de caja de OTRO OPERADOR u OTRA SUCURSAL es RECHAZADO', async ()
     recipient: { name: 'Destino Cbb', phone: '72299999' },
     items: [{ description: 'Bulto', quantity: 1, weightKg: 1 }],
     paymentTiming: 'origin_paid',
-    cashShiftId: 'shift-other-branch',
+    cashShiftId: otherBranchShiftId,
     prohibitedGoodsNoticeAccepted: true,
     idempotencyKey: `other-branch-${Date.now()}`,
   }
 
   await assert.rejects(
-    async () => executeCreateShipment({ uid: 'sec-test-fin' }, payloadOtherBranch),
+    async () => executeCreateShipment({ uid: secretaryUid }, payloadOtherBranch),
     (err) => {
-      assert.match(err.message, /PERMISSION_DENIED: El turno de caja 'shift-other-branch' no corresponde a la sucursal de origen 'punata'/)
+      assert.match(err.message, new RegExp(`PERMISSION_DENIED: El turno de caja '${otherBranchShiftId}' no corresponde a la sucursal de origen 'punata'`))
       return true
     }
   )
@@ -634,7 +644,7 @@ test('12. Idempotencia completa: Misma clave con ítems o pesos diferentes es RE
     idempotencyKey: sharedKey,
   }
 
-  const okResult = await executeCreateShipment({ uid: 'sec-test-fin' }, basePayload)
+  const okResult = await executeCreateShipment({ uid: secretaryUid }, basePayload)
   assert.equal(okResult.isDuplicate, false)
 
   // Intento de reutilizar la misma clave pero con un peso de 10 kg en lugar de 5 kg
@@ -644,7 +654,7 @@ test('12. Idempotencia completa: Misma clave con ítems o pesos diferentes es RE
   }
 
   await assert.rejects(
-    async () => executeCreateShipment({ uid: 'sec-test-fin' }, alteredPayload),
+    async () => executeCreateShipment({ uid: secretaryUid }, alteredPayload),
     (err) => {
       assert.match(err.message, /INVALID_ARGUMENT: Clave de idempotencia ya utilizada con datos de envío diferentes/)
       return true
@@ -668,7 +678,7 @@ test('13. FASE 1: Precio acordado editable: secretaria registra precio superior 
     idempotencyKey: `price-sup-${Date.now()}`,
   }
 
-  const result = await executeCreateShipment({ uid: 'sec-test-fin' }, payloadSuperior)
+  const result = await executeCreateShipment({ uid: secretaryUid }, payloadSuperior)
   assert.equal(result.isDuplicate, false)
   assert.equal(result.shipment.finalAmountCents, 2500)
   assert.equal(result.shipment.agreedAmountCents, 2500)
@@ -694,7 +704,7 @@ test('14. FASE 1: Precio acordado editable: secretaria registra precio inferior 
     idempotencyKey: `price-inf-${Date.now()}`,
   }
 
-  const result = await executeCreateShipment({ uid: 'sec-test-fin' }, payloadInferior)
+  const result = await executeCreateShipment({ uid: secretaryUid }, payloadInferior)
   assert.equal(result.isDuplicate, false)
   assert.equal(result.shipment.finalAmountCents, 1000)
   assert.equal(result.shipment.suggestedAmountCents, 1500)
@@ -717,7 +727,7 @@ test('15. FASE 1: Precio cero exige justificación obligatoria y rechaza montos 
   }
 
   await assert.rejects(
-    async () => executeCreateShipment({ uid: 'sec-test-fin' }, payloadCeroSinMotivo),
+    async () => executeCreateShipment({ uid: secretaryUid }, payloadCeroSinMotivo),
     (err) => {
       assert.match(err.message, /INVALID_ARGUMENT: Para encomiendas con precio Bs 0.00 es obligatorio/i)
       return true
@@ -730,7 +740,7 @@ test('15. FASE 1: Precio cero exige justificación obligatoria y rechaza montos 
     priceAdjustmentReason: 'Documentación interna administrativa institucional sin costo',
     idempotencyKey: `price-cero-ok-${Date.now()}`,
   }
-  const resultCero = await executeCreateShipment({ uid: 'sec-test-fin' }, payloadCeroConMotivo)
+  const resultCero = await executeCreateShipment({ uid: secretaryUid }, payloadCeroConMotivo)
   assert.equal(resultCero.shipment.finalAmountCents, 0)
 
   // Precio negativo: rechazado
@@ -740,7 +750,7 @@ test('15. FASE 1: Precio cero exige justificación obligatoria y rechaza montos 
     idempotencyKey: `price-neg-${Date.now()}`,
   }
   await assert.rejects(
-    async () => executeCreateShipment({ uid: 'sec-test-fin' }, payloadNegativo),
+    async () => executeCreateShipment({ uid: secretaryUid }, payloadNegativo),
     (err) => {
       assert.match(err.message, /INVALID_ARGUMENT: El precio acordado debe ser un número entero de centavos no negativo/i)
       return true
@@ -761,7 +771,7 @@ test('16. FASE 4: Número de guía alfanumérico limpio sin guiones, barras ni s
     idempotencyKey: `tracking-clean-${Date.now()}`,
   }
 
-  const result = await executeCreateShipment({ uid: 'sec-test-fin' }, payload)
+  const result = await executeCreateShipment({ uid: secretaryUid }, payload)
   const code = result.shipment.trackingCode
   // Formato: 3 letras de sucursal (PUN) + 4 dígitos año (2026) + 5 dígitos correlativo (0000X)
   assert.match(code, /^PUN2026\d{5}$/)

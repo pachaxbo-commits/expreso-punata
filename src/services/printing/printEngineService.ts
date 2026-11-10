@@ -357,6 +357,7 @@ export class PrintEngineService {
         { description: 'Ingresos por encomiendas Por pagar', quantity: 1, totalBob: (b.codIncomeCents || 0) / 100 },
         { description: 'Remesas Rendidas por Choferes', quantity: 1, totalBob: driverRemittanceCents / 100 },
         { description: 'Aportes y Cuotas de Socios', quantity: 1, totalBob: contributionsIncomeCents / 100 },
+        { description: 'Recaudación de Préstamos (no es ingreso)', quantity: 1, totalBob: (b.loanRepaymentsCents || 0) / 100 },
         { description: 'Egresos de Caja Autorizados', quantity: 1, totalBob: -((b.expensesCents || 0) / 100) },
       ],
       signatures: {
@@ -714,7 +715,7 @@ export class PrintEngineService {
       documentNumber: asset.assetCode,
       timestampIso: new Date().toISOString(),
       operatorName: asset.responsiblePersonName || 'Encargado',
-      qrContent: `EXPRESO-PUNATA:ACTIVO:${asset.assetCode}:${asset.branchId}`,
+      qrContent: asset.qrPayload || (asset.id ? `EXPRESO-PUNATA:ACTIVO:${asset.id}` : `EXPRESO-PUNATA:ACTIVO:${asset.assetCode}:${asset.branchId}`),
       items: [
         {
           description: asset.name,

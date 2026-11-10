@@ -25,6 +25,7 @@ async function clearCollections() {
   const collections = [
     'users',
     'shipments',
+    'shipment_notifications',
     'cash_shifts',
     'cash_shift_active_locks',
     'financial_movements',

@@ -11,12 +11,15 @@ import {
   ChevronRight,
   Loader2,
   Download,
+  Bell,
+  Check,
 } from 'lucide-react'
-import type { Shipment, UserProfile, Branch } from '../../types'
+import type { Shipment, UserProfile, Branch, ShipmentNotification } from '../../types'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { ShipmentDetailModal } from './ShipmentDetailModal'
 import type { DemoTransferHandlers } from './ShipmentDetailModal'
-import { searchShipmentsServer, fetchShipmentsPage } from '../../services/shipmentService'
+import { searchShipmentsServer, fetchShipmentsPage, fetchCurrentShipment } from '../../services/shipmentService'
+import { fetchShipmentNotifications, markShipmentNotificationRead } from '../../services/shipmentNotificationService.ts'
 
 interface ShipmentsManagementViewProps {
   shipments: Shipment[]
@@ -62,6 +65,26 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   const [lastVisibleDoc, setLastVisibleDoc] = useState<any | null>(null)
   const [hasMoreHistory, setHasMoreHistory] = useState(true)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [notifications, setNotifications] = useState<ShipmentNotification[]>([])
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [notificationError, setNotificationError] = useState('')
+  const [openingNotificationId, setOpeningNotificationId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    const loadNotifications = async () => {
+      try {
+        const list = await fetchShipmentNotifications(currentBranch.id)
+        if (active) { setNotifications(list); setNotificationError('') }
+      } catch (error) {
+        console.warn('[ShipmentsManagementView] No se pudieron consultar notificaciones:', error)
+        if (active) setNotificationError('No fue posible cargar avisos de esta agencia.')
+      }
+    }
+    void loadNotifications()
+    const timer = window.setInterval(loadNotifications, 10000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [currentBranch.id])
 
   const handleLoadMoreHistory = async () => {
     if (isLoadingHistory || !hasMoreHistory) return
@@ -194,8 +217,53 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
     setIsDetailOpen(true)
   }
 
+  const openShipmentNotification = async (notification: ShipmentNotification) => {
+    setOpeningNotificationId(notification.id)
+    setNotificationError('')
+    try {
+      const shipment = await fetchCurrentShipment(notification.trackingCode)
+      if (!shipment || shipment.destinationBranchId !== currentBranch.id) throw new Error('La guía ya no está disponible para esta agencia.')
+      handleRowClick(shipment)
+      setNotificationsOpen(false)
+      if (!notification.isReadByCurrentUser) {
+        await markShipmentNotificationRead({ notificationId: notification.id, branchId: currentBranch.id })
+        setNotifications((previous) => previous.map((entry) => entry.id === notification.id ? { ...entry, isReadByCurrentUser: true, readByUids: [...entry.readByUids, currentUser.uid] } : entry))
+      }
+    } catch (error) { setNotificationError(error instanceof Error ? error.message : 'No se pudo abrir la guía.') }
+    finally { setOpeningNotificationId(null) }
+  }
+
+  const markNotificationRead = async (notification: ShipmentNotification) => {
+    try {
+      await markShipmentNotificationRead({ notificationId: notification.id, branchId: currentBranch.id })
+      setNotifications((previous) => previous.map((entry) => entry.id === notification.id ? { ...entry, isReadByCurrentUser: true, readByUids: [...entry.readByUids, currentUser.uid] } : entry))
+      setNotificationError('')
+    } catch (error) { setNotificationError(error instanceof Error ? error.message : 'No se pudo marcar como leída.') }
+  }
+
+  const unreadNotificationCount = notifications.filter((notification) => !notification.isReadByCurrentUser).length
+
   return (
     <div className="space-y-5">
+      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <button type="button" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)} className="w-full flex items-center justify-between gap-3 p-3.5 text-left hover:bg-slate-50">
+          <span className="flex items-center gap-2 text-sm font-bold text-slate-800"><Bell className="w-4 h-4 text-[#064e3b]"/> Avisos de encomiendas para {currentBranch.name}
+            {unreadNotificationCount > 0 && <span className="rounded-full bg-rose-600 text-white px-2 py-0.5 text-[10px]">{unreadNotificationCount} pendientes</span>}
+          </span>
+          <span className="text-xs text-slate-500">{notificationsOpen ? 'Ocultar' : 'Ver recientes'}</span>
+        </button>
+        {notificationsOpen && <div className="border-t border-slate-100 p-3 space-y-2">
+          {notificationError && <p role="alert" className="text-xs text-rose-700">{notificationError}</p>}
+          {notifications.length === 0 ? <p className="text-xs text-slate-500 py-2">No hay notificaciones recientes para esta agencia.</p> : notifications.slice(0, 20).map((notification) => {
+            const originName = notification.originBranchId === 'punata' ? 'Punata' : 'Cochabamba'
+            const registeredDate = new Date(notification.createdAtIso).toLocaleString('es-BO', { timeZone: 'America/La_Paz', dateStyle: 'short', timeStyle: 'short' })
+            return <article key={notification.id} className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border p-3 ${notification.isReadByCurrentUser ? 'border-slate-200 bg-slate-50' : 'border-emerald-200 bg-emerald-50'}`}>
+              <div className="min-w-0"><p className="text-xs font-bold text-slate-800">{notification.isReadByCurrentUser ? 'Leída' : 'Nueva'} · Guía {notification.trackingCode}</p><p className="text-[11px] text-slate-600">Registrada en {originName} · {registeredDate} · Estado: {notification.status.replace(/_/g, ' ')}</p></div>
+              <div className="flex gap-2 shrink-0"><button type="button" disabled={openingNotificationId === notification.id} onClick={() => void openShipmentNotification(notification)} className="rounded-md px-2.5 py-1.5 bg-[#064e3b] text-white text-[11px] font-bold disabled:opacity-50">{openingNotificationId === notification.id ? 'Abriendo…' : 'Abrir guía'}</button>{!notification.isReadByCurrentUser && <button type="button" onClick={() => void markNotificationRead(notification)} className="rounded-md px-2.5 py-1.5 border border-emerald-300 text-emerald-800 text-[11px] font-bold flex items-center gap-1"><Check className="w-3 h-3"/>Marcar leída</button>}</div>
+            </article>
+          })}
+        </div>}
+      </section>
       {/* ========================================================================= */}
       {/* LAYOUT PRINCIPAL DE DOS COLUMNAS (50% / 50% en escritorio)                */}
       {/* ========================================================================= */}

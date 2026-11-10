@@ -7,6 +7,7 @@ import {
   generateMonthlyDues,
   collectMemberDue,
   getMemberAccountStatement,
+  getUnionMembersRoster,
   openCashShift,
 } from '../index.js'
 
@@ -93,6 +94,38 @@ test('1. PADRÓN DE SOCIOS: Tesorería registra nuevo socio afiliado con cuota m
     .get()
   assert.equal(auditSnap.empty, false)
   assert.equal(auditSnap.docs[0].data().action, 'union_member_created')
+})
+
+test('1A. Afiliado: persiste campos de expediente en Firestore Emulator', async () => {
+  await createTestUser('tesorero-campos', 'tesoreria', 'punata')
+  const fields = {
+    id: 'member-expediente-campos',
+    memberNumber: 'SOC-EXP-001',
+    fullName: 'Afiliada de Prueba',
+    ci: '7654321',
+    ciComplement: '1A',
+    phone: '70001122',
+    alternatePhone: '70003344',
+    address: 'Calle de Prueba 123',
+    locality: 'Punata',
+    birthDate: '1985-03-12',
+    joinedAt: '2020-02-01',
+    retiredAt: '2025-10-15',
+    status: 'retired',
+    monthlyFeeBob: 50,
+  }
+
+  const result = await manageUnionMember.run({
+    auth: { uid: 'tesorero-campos' },
+    data: fields,
+  })
+  assert.equal(result.success, true)
+
+  const saved = await db.collection('union_members').doc(fields.id).get()
+  assert.equal(saved.exists, true)
+  for (const key of ['ciComplement', 'alternatePhone', 'address', 'locality', 'birthDate', 'joinedAt', 'retiredAt', 'status']) {
+    assert.equal(saved.data()[key], fields[key], `Campo persistido: ${key}`)
+  }
 })
 
 test('2. SEGURIDAD DE PADRÓN: Rol no autorizado (secretaria o conductor) NO puede registrar socios', async () => {
@@ -456,4 +489,328 @@ test('11. getMemberAccountStatement: Secretaria y conductor NO tienen acceso al 
       data: { memberId: 'm-sec-view' },
     })
   }, (err) => err.code === 'permission-denied')
+})
+
+test('12. Afiliado antiguo: actualizar expediente conserva datos y cuota vinculada', async () => {
+  await createTestUser('tesorero-old', 'tesoreria', 'punata')
+  const memberRef = db.collection('union_members').doc('m-legacy')
+  await memberRef.set({
+    id: 'm-legacy', memberNumber: 'SOC-LEG-001', fullName: 'Afiliado Histórico', ci: '1234567',
+    phone: '71112223', joinedAt: '2018-04-10', status: 'active', category: 'propietario_transporte',
+    monthlyFeeBob: 50, monthlyFeeCents: 5000, notes: 'Dato histórico',
+  })
+
+  await generateMonthlyDues.run({
+    auth: { uid: 'tesorero-old' },
+    data: { period: '2026-11', dueDate: '2026-11-15' },
+  })
+  const dueRef = db.collection('union_dues').doc('m-legacy_2026-11')
+  const dueBefore = await dueRef.get()
+  assert.equal(dueBefore.exists, true)
+  const dueDataBefore = dueBefore.data()
+
+  await manageUnionMember.run({
+    auth: { uid: 'tesorero-old' },
+    data: {
+      id: 'm-legacy', memberNumber: 'SOC-LEG-001', fullName: 'Afiliado Histórico', ci: '1234567',
+      phone: '70009988', joinedAt: '2018-04-10', status: 'active', category: 'propietario_transporte',
+      monthlyFeeBob: 50, notes: 'Dato histórico', alternatePhone: '70007766',
+      address: 'Avenida Compatibilidad 20', locality: 'Punata',
+    },
+  })
+
+  const saved = await memberRef.get()
+  assert.equal(saved.data().fullName, 'Afiliado Histórico')
+  assert.equal(saved.data().ci, '1234567')
+  assert.equal(saved.data().phone, '70009988')
+  assert.equal(saved.data().joinedAt, '2018-04-10')
+  assert.equal(saved.data().monthlyFeeCents, 5000)
+  assert.equal(saved.data().notes, 'Dato histórico')
+  assert.equal(saved.data().alternatePhone, '70007766')
+  assert.equal(saved.data().address, 'Avenida Compatibilidad 20')
+  assert.equal(saved.data().locality, 'Punata')
+
+  const dueAfter = await dueRef.get()
+  assert.deepEqual(dueAfter.data(), dueDataBefore)
+})
+
+test('13. Afiliado: rechaza fecha de retiro anterior al ingreso sin persistir', async () => {
+  await createTestUser('tesorero-fechas', 'tesoreria', 'punata')
+  const memberId = 'member-fechas-invalidas'
+
+  await assert.rejects(async () => {
+    await manageUnionMember.run({
+      auth: { uid: 'tesorero-fechas' },
+      data: {
+        id: memberId,
+        memberNumber: 'SOC-DATE-001',
+        fullName: 'Afiliado Fechas Inconsistentes',
+        joinedAt: '2020-01-15',
+        retiredAt: '2018-06-10',
+        status: 'retired',
+        monthlyFeeBob: 50,
+      },
+    })
+  }, (error) => error.code === 'invalid-argument')
+
+  const saved = await db.collection('union_members').doc(memberId).get()
+  assert.equal(saved.exists, false)
+})
+
+test('14. Afiliado: quitar fecha de retiro limpia el campo y permite verificar estado', async () => {
+  await createTestUser('tesorero-retirar-fecha', 'tesoreria', 'punata')
+  const memberId = 'member-quitar-retiro'
+  const auth = { uid: 'tesorero-retirar-fecha' }
+
+  await manageUnionMember.run({
+    auth,
+    data: {
+      id: memberId, memberNumber: 'SOC-RET-014', fullName: 'Afiliado Retiro Prueba',
+      joinedAt: '2020-01-15', retiredAt: '2024-06-01', status: 'retired', monthlyFeeBob: 50,
+    },
+  })
+  let saved = await db.collection('union_members').doc(memberId).get()
+  assert.equal(saved.data().retiredAt, '2024-06-01')
+  assert.equal(saved.data().status, 'retired')
+
+  await manageUnionMember.run({
+    auth,
+    data: {
+      id: memberId, memberNumber: 'SOC-RET-014', fullName: 'Afiliado Retiro Prueba',
+      joinedAt: '2020-01-15', retiredAt: '', status: 'active', monthlyFeeBob: 50,
+    },
+  })
+
+  saved = await db.collection('union_members').doc(memberId).get()
+  assert.equal(saved.data().retiredAt, null)
+  assert.equal(saved.data().status, 'active')
+})
+
+test('15. Hijos: crear, consultar y editar conserva campos omitidos y rechaza rol no autorizado', async () => {
+  const runId = Date.now().toString(36)
+  await createTestUser('tesorero-hijos-crud', 'tesoreria', 'punata')
+  await createTestUser('secretaria-hijos-crud', 'secretaria', 'punata')
+  const auth = { uid: 'tesorero-hijos-crud' }
+  const memberId = `member-hijos-crud-${runId}`
+  await manageUnionMember.run({
+    auth,
+    data: {
+      id: memberId, memberNumber: `SOC-CHILD-015-${runId}`, fullName: 'Afiliado Prueba Hijos',
+      joinedAt: '2020-01-15', status: 'active', monthlyFeeBob: 50,
+    },
+  })
+
+  const created = await manageUnionMember.run({
+    auth,
+    data: {
+      action: 'addChild', memberId,
+      child: { fullName: 'Camila Prueba', ci: '1234567', birthDate: '2012-04-20', phone: '70001122', address: 'Calle Uno', notes: 'Dato original' },
+    },
+  })
+  assert.equal(created.success, true)
+  const childId = created.child.id
+  const childRef = db.collection('union_members').doc(memberId).collection('children').doc(childId)
+  const createdDoc = await childRef.get()
+  assert.equal(createdDoc.exists, true)
+  assert.equal(createdDoc.data().fullName, 'Camila Prueba')
+
+  const statement = await getMemberAccountStatement.run({ auth, data: { memberId } })
+  assert.equal(statement.children.length, 1)
+  assert.equal(statement.children[0].id, childId)
+  assert.equal(statement.children[0].address, 'Calle Uno')
+
+  const updated = await manageUnionMember.run({
+    auth,
+    data: { action: 'updateChild', memberId, childId, child: { phone: '70009988', address: 'Avenida Nueva' } },
+  })
+  assert.equal(updated.success, true)
+  assert.equal(updated.child.phone, '70009988')
+  assert.equal(updated.child.address, 'Avenida Nueva')
+  assert.equal(updated.child.fullName, 'Camila Prueba')
+  assert.equal(updated.child.ci, '1234567')
+  assert.equal(updated.child.notes, 'Dato original')
+
+  await assert.rejects(async () => {
+    await manageUnionMember.run({
+      auth: { uid: 'secretaria-hijos-crud' },
+      data: { action: 'updateChild', memberId, childId, child: { fullName: 'Cambio No Autorizado' } },
+    })
+  }, (error) => error.code === 'permission-denied')
+  const persisted = await childRef.get()
+  assert.equal(persisted.data().fullName, 'Camila Prueba')
+  assert.equal(persisted.data().phone, '70009988')
+})
+
+test('16. Vínculos: afiliado e hijo usan conductores existentes sin alterar viajes ni cuotas', async () => {
+  const runId = Date.now().toString(36)
+  await createTestUser('tesorero-vinculos', 'tesoreria', 'punata')
+  await createTestUser('secretaria-vinculos', 'secretaria', 'punata')
+  await createTestUser(`driver-vinculo-a-${runId}`, 'conductor', 'punata')
+  await createTestUser(`driver-vinculo-b-${runId}`, 'conductor', 'punata')
+  const drivers = [`driver-vinculo-a-${runId}`, `driver-vinculo-b-${runId}`]
+  for (const uid of drivers) {
+    await db.collection('driver_directory').doc(uid).set({ uid, fullName: `Conductor ${uid}`, phone: '70001122', isActive: true })
+  }
+  const driverUsersBefore = await Promise.all(drivers.map((uid) => db.collection('users').doc(uid).get()))
+  const driverDirectoryBefore = await Promise.all(drivers.map((uid) => db.collection('driver_directory').doc(uid).get()))
+
+  const auth = { uid: 'tesorero-vinculos' }
+  const memberId = `member-vinculos-${runId}`
+  const otherMemberId = `member-vinculos-otro-${runId}`
+  await manageUnionMember.run({ auth, data: { id: memberId, memberNumber: `SOC-LINK-016-${runId}`, fullName: 'Afiliado Vinculos', status: 'active', monthlyFeeBob: 50 } })
+  await manageUnionMember.run({ auth, data: { id: otherMemberId, memberNumber: `SOC-LINK-017-${runId}`, fullName: 'Otro Afiliado', status: 'active', monthlyFeeBob: 50 } })
+  const childRes = await manageUnionMember.run({ auth, data: { action: 'addChild', memberId, child: { fullName: 'Hijo Vinculado' } } })
+  const childId = childRes.child.id
+
+  const dueRef = db.collection('union_dues').doc(`due-vinculos-preserved-${runId}`)
+  const manifestRef = db.collection('manifests').doc(`manifest-vinculos-preserved-${runId}`)
+  const vehicleRef = db.collection('vehicles').doc(`vehicle-vinculos-preserved-${runId}`)
+  const dueOriginal = { memberId, amountCents: 5000, status: 'pending' }
+  const manifestOriginal = { driverUid: drivers[0], vehicleId: vehicleRef.id, status: 'in_transit', driverCustodyStatus: 'accepted' }
+  const vehicleOriginal = { assignedDriverUid: drivers[0], plate: 'LINK-016', status: 'active' }
+  await Promise.all([dueRef.set(dueOriginal), manifestRef.set(manifestOriginal), vehicleRef.set(vehicleOriginal)])
+
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId, driverUid: drivers[0] } })
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId, childId, driverUid: drivers[1] } })
+  let statement = await getMemberAccountStatement.run({ auth, data: { memberId } })
+  assert.equal(statement.member.primaryDriverUid, drivers[0])
+  assert.equal(statement.children.find((child) => child.id === childId).driverUid, drivers[1])
+  assert.equal(statement.member.primaryDriverName, 'Usuario Test conductor')
+  assert.equal(statement.children.find((child) => child.id === childId).driverName, 'Usuario Test conductor')
+
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId, driverUid: drivers[1] } })
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId, childId, driverUid: null } })
+  statement = await getMemberAccountStatement.run({ auth, data: { memberId } })
+  assert.equal(statement.member.primaryDriverUid, drivers[1])
+  assert.equal(statement.children.find((child) => child.id === childId).driverUid, null)
+
+  await manageUnionMember.run({ auth, data: { action: 'addChild', memberId: otherMemberId, child: { fullName: 'Hijo de Otro' } } })
+  await assert.rejects(async () => manageUnionMember.run({
+    auth,
+    data: { action: 'setDriverLink', memberId: otherMemberId, childId, driverUid: drivers[0] },
+  }), (error) => error.code === 'not-found')
+  await assert.rejects(async () => manageUnionMember.run({
+    auth,
+    data: { action: 'setDriverLink', memberId, driverUid: `missing-driver-${runId}` },
+  }), (error) => error.code === 'failed-precondition')
+  await assert.rejects(async () => manageUnionMember.run({
+    auth: { uid: 'secretaria-vinculos' },
+    data: { action: 'setDriverLink', memberId, driverUid: drivers[0] },
+  }), (error) => error.code === 'permission-denied')
+
+  assert.deepEqual((await dueRef.get()).data(), dueOriginal)
+  assert.deepEqual((await manifestRef.get()).data(), manifestOriginal)
+  assert.deepEqual((await vehicleRef.get()).data(), vehicleOriginal)
+  const driverUsersAfter = await Promise.all(drivers.map((uid) => db.collection('users').doc(uid).get()))
+  const driverDirectoryAfter = await Promise.all(drivers.map((uid) => db.collection('driver_directory').doc(uid).get()))
+  for (let index = 0; index < drivers.length; index += 1) {
+    assert.deepEqual(driverUsersAfter[index].data(), driverUsersBefore[index].data())
+    assert.deepEqual(driverDirectoryAfter[index].data(), driverDirectoryBefore[index].data())
+  }
+})
+
+test('17. Padrón imprimible: devuelve afiliados, hijos y vínculos con los roles de lectura existentes', async () => {
+  const runId = Date.now().toString(36)
+  await createTestUser(`tesorero-roster-${runId}`, 'tesoreria', 'punata')
+  await createTestUser(`secretaria-roster-${runId}`, 'secretaria', 'punata')
+  await createTestUser(`driver-roster-${runId}`, 'conductor', 'punata')
+  const auth = { uid: `tesorero-roster-${runId}` }
+  const memberId = `member-roster-${runId}`
+  const legacyId = `member-roster-legacy-${runId}`
+  const driverUid = `driver-roster-${runId}`
+  await db.collection('users').doc(driverUid).update({ fullName: 'Conductor del Padrón' })
+  await db.collection('driver_directory').doc(driverUid).set({ uid: driverUid, fullName: 'Conductor del Padrón', isActive: true, phone: '' })
+  await manageUnionMember.run({ auth, data: {
+    id: memberId, memberNumber: `SOC-ROSTER-${runId}`, fullName: 'Afiliada Ejemplo', ci: '1234567', ciComplement: 'A',
+    phone: '70001122', alternatePhone: '70003344', address: 'Calle Central', locality: 'Punata',
+    birthDate: '1980-01-02', joinedAt: '2015-06-01', status: 'active', notes: 'Observación de prueba', monthlyFeeBob: 50,
+  } })
+  const child = await manageUnionMember.run({ auth, data: { action: 'addChild', memberId, child: { fullName: 'Hijo Afiliada', birthDate: '2010-05-02' } } })
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId, driverUid } })
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId, childId: child.child.id, driverUid } })
+  await db.collection('union_members').doc(legacyId).set({
+    id: legacyId, memberNumber: `SOC-OLD-${runId}`, fullName: 'Afiliado Antiguo', ci: '', phone: '', joinedAt: '',
+    status: 'retired', category: 'socio_general', monthlyFeeBob: 0,
+  })
+
+  const fullRoster = await getUnionMembersRoster.run({ auth, data: {} })
+  assert.equal(fullRoster.success, true)
+  assert.equal(fullRoster.members.length, 2)
+  const currentEntry = fullRoster.members.find((member) => member.id === memberId)
+  assert.equal(currentEntry.primaryDriverName, 'Conductor del Padrón')
+  assert.equal(currentEntry.children.length, 1)
+  assert.equal(currentEntry.children[0].driverName, 'Conductor del Padrón')
+  const legacyEntry = fullRoster.members.find((member) => member.id === legacyId)
+  assert.equal(legacyEntry.status, 'retired')
+  assert.equal(legacyEntry.alternatePhone, '')
+  assert.equal(legacyEntry.children.length, 0)
+
+  const filteredRoster = await getUnionMembersRoster.run({ auth, data: { memberIds: [memberId] } })
+  assert.deepEqual(filteredRoster.members.map((member) => member.id), [memberId])
+  await assert.rejects(async () => getUnionMembersRoster.run({
+    auth: { uid: `secretaria-roster-${runId}` }, data: {},
+  }), (error) => error.code === 'permission-denied')
+})
+
+test('18. Simulación integral: afiliados, hijos, conductores y padrón conservan cuotas y operaciones existentes', async () => {
+  const runId = Date.now().toString(36)
+  const adminUid = `tesorero-integral-${runId}`
+  const deniedUid = `secretaria-integral-${runId}`
+  const driverA = `driver-a-integral-${runId}`
+  const driverB = `driver-b-integral-${runId}`
+  await createTestUser(adminUid, 'tesoreria')
+  await createTestUser(deniedUid, 'secretaria')
+  for (const [uid, fullName] of [[driverA, 'Chofer A Integración'], [driverB, 'Chofer B Integración']]) {
+    await createTestUser(uid, 'conductor')
+    await db.collection('users').doc(uid).update({ fullName })
+    await db.collection('driver_directory').doc(uid).set({ uid, fullName, isActive: true })
+  }
+  const auth = { uid: adminUid }
+  const firstId = `member-integral-a-${runId}`
+  const secondId = `member-integral-b-${runId}`
+  const firstRef = db.collection('union_members').doc(firstId)
+  const dueRef = db.collection('union_dues').doc(`due-integral-${runId}`)
+  const paymentRef = dueRef.collection('payments').doc('existing-payment')
+  const vehicleRef = db.collection('vehicles').doc(`vehicle-integral-${runId}`)
+  const manifestRef = db.collection('manifests').doc(`manifest-integral-${runId}`)
+  const originalDue = { memberId: firstId, amountCents: 5000, paidAmountCents: 2000, balanceCents: 3000, status: 'partial' }
+  const originalPayment = { amountCents: 2000, receiptNumber: `REC-${runId}` }
+  const originalVehicle = { plate: `INT-${runId}`, assignedDriverUid: driverA, status: 'active' }
+  const originalManifest = { driverUid: driverA, vehicleId: vehicleRef.id, status: 'in_transit' }
+  await Promise.all([
+    dueRef.set(originalDue), paymentRef.set(originalPayment),
+    vehicleRef.set(originalVehicle), manifestRef.set(originalManifest),
+  ])
+
+  await manageUnionMember.run({ auth, data: { id: firstId, memberNumber: `INT-${runId}-A`, fullName: 'Afiliada Integrada', ci: '1111111', phone: '70001111', joinedAt: '2018-01-01', status: 'active', monthlyFeeBob: 50 } })
+  await manageUnionMember.run({ auth, data: { id: secondId, memberNumber: `INT-${runId}-B`, fullName: 'Afiliado Integrado B', ci: '2222222', phone: '70002222', joinedAt: '2019-02-02', status: 'active', monthlyFeeBob: 50 } })
+  await manageUnionMember.run({ auth, data: { id: firstId, memberNumber: `INT-${runId}-A`, fullName: 'Afiliada Integrada Editada', ci: '1111111', phone: '70003333', joinedAt: '2018-01-01', status: 'active', monthlyFeeBob: 50, address: 'Calle 1' } })
+
+  const firstChild = await manageUnionMember.run({ auth, data: { action: 'addChild', memberId: firstId, child: { fullName: 'Hijo Integrado 1', phone: '71110001' } } })
+  const secondChild = await manageUnionMember.run({ auth, data: { action: 'addChild', memberId: firstId, child: { fullName: 'Hijo Integrado 2' } } })
+  await manageUnionMember.run({ auth, data: { action: 'updateChild', memberId: firstId, childId: firstChild.child.id, child: { address: 'Domicilio hijo', notes: 'Editado' } } })
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId: firstId, driverUid: driverA } })
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId: firstId, driverUid: driverB } })
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId: firstId, childId: firstChild.child.id, driverUid: driverA } })
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId: firstId, childId: secondChild.child.id, driverUid: driverB } })
+  await manageUnionMember.run({ auth, data: { action: 'setDriverLink', memberId: firstId, childId: secondChild.child.id, driverUid: null } })
+
+  await assert.rejects(() => manageUnionMember.run({ auth: { uid: deniedUid }, data: { id: firstId, memberNumber: `INT-${runId}-A`, fullName: 'No autorizado', monthlyFeeBob: 50 } }), (error) => error.code === 'permission-denied')
+  const fullRoster = await getUnionMembersRoster.run({ auth, data: {} })
+  assert.equal(fullRoster.members.length, 2)
+  const member = fullRoster.members.find((item) => item.id === firstId)
+  assert.equal(member.fullName, 'Afiliada Integrada Editada')
+  assert.equal(member.primaryDriverName, 'Chofer B Integración')
+  assert.equal(member.children.length, 2)
+  assert.equal(member.children.find((item) => item.id === firstChild.child.id).driverName, 'Chofer A Integración')
+  assert.equal(member.children.find((item) => item.id === secondChild.child.id).driverUid, null)
+  const filtered = await getUnionMembersRoster.run({ auth, data: { memberIds: [secondId] } })
+  assert.deepEqual(filtered.members.map((item) => item.id), [secondId])
+  const storedMember = await firstRef.get()
+  assert.equal(storedMember.data().address, 'Calle 1')
+  assert.deepEqual((await dueRef.get()).data(), originalDue)
+  assert.deepEqual((await paymentRef.get()).data(), originalPayment)
+  assert.deepEqual((await vehicleRef.get()).data(), originalVehicle)
+  assert.deepEqual((await manifestRef.get()).data(), originalManifest)
+  assert.deepEqual((await db.collection('users').doc(driverA).get()).data().fullName, 'Chofer A Integración')
 })

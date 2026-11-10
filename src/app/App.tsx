@@ -46,6 +46,7 @@ import { UserProfileModal } from '../modules/users/UserProfileModal'
 import { PrinterSettingsView } from '../modules/admin/printers/PrinterSettingsView'
 import { DriverCommissionsView } from '../modules/dispatch/DriverCommissionsView'
 import { ConsumablesManagementView } from '../modules/assets/ConsumablesManagementView'
+import { PhysicalInventoryDocumentsView } from '../modules/assets/PhysicalInventoryDocumentsView'
 import { SystemConfigView } from '../modules/admin/SystemConfigView'
 import type { Shipment } from '../types'
 
@@ -61,7 +62,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const [activeTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
   const [configSubTab, setConfigSubTab] = useState<'users' | 'general' | 'tariffs' | 'printers'>('users')
   const [manifestSubTab, setManifestSubTab] = useState<'manifests' | 'commisiones'>('manifests')
-  const [assetSubTab, setAssetSubTab] = useState<'fixed' | 'consumables'>('fixed')
+  const [assetSubTab, setAssetSubTab] = useState<'fixed' | 'documents' | 'consumables'>('fixed')
   const [isWizardOpen, setIsWizardOpen] = useState(false)
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false)
   const [deliveryTargetShipment, setDeliveryTargetShipment] = useState<Shipment | null>(null)
@@ -123,7 +124,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: advancedDispatchVisible && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
-    { id: 'dues', label: 'Socios & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
+    { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
     { id: 'reports', label: 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
@@ -449,6 +450,14 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
               </button>
               <button
                 type="button"
+                onClick={() => setAssetSubTab('documents')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${assetSubTab === 'documents' ? 'bg-[#064e3b] text-white shadow' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Documentos físicos</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setAssetSubTab('consumables')}
                 className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${
                   assetSubTab === 'consumables'
@@ -466,6 +475,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
                 currentBranchId={currentBranchId}
                 userProfile={userProfile}
               />
+            ) : assetSubTab === 'documents' ? (
+              <PhysicalInventoryDocumentsView userProfile={userProfile} />
             ) : (
               <ConsumablesManagementView
                 currentUser={userProfile}
