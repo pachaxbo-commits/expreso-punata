@@ -69,6 +69,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [realShipments, setRealShipments] = useState<Shipment[]>([])
   const [backendConnected, setBackendConnected] = useState(true)
+  const canReadShipments = hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor'])
 
   // Orquestador de Capacitación y Tutoriales Interactivos
   const tutorial = useTutorial({
@@ -88,6 +89,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 
   // Suscripción reactiva a encomiendas en Firestore Emulator por sucursal
   useEffect(() => {
+    if (!canReadShipments) {
+      setRealShipments([])
+      setBackendConnected(true)
+      return
+    }
     const unsubscribe = subscribeShipmentsByBranch(
       currentBranchId,
       (list) => {
@@ -100,7 +106,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
       }
     )
     return () => unsubscribe()
-  }, [currentBranchId])
+  }, [canReadShipments, currentBranchId])
 
 
 
@@ -124,7 +130,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: advancedDispatchVisible && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
-    { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
+    { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin', 'afiliado_admin']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
     { id: 'reports', label: 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },

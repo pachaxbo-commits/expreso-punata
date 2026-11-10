@@ -31,6 +31,7 @@ const ROLE_LABELS: Record<UserRole, { label: string; bg: string; text: string }>
   directiva_admin: { label: 'Administrador General (Directiva)', bg: 'bg-purple-100', text: 'text-purple-800' },
   encargado_agencia: { label: 'Encargado de Agencia', bg: 'bg-blue-100', text: 'text-blue-800' },
   secretaria: { label: 'Secretaria / Ventanilla', bg: 'bg-emerald-100', text: 'text-emerald-800' },
+  afiliado_admin: { label: 'Administrador de Afiliados', bg: 'bg-cyan-100', text: 'text-cyan-800' },
   tesoreria: { label: 'Tesorería', bg: 'bg-amber-100', text: 'text-amber-800' },
   conductor: { label: 'Chofer / Conductor', bg: 'bg-indigo-100', text: 'text-indigo-800' },
 }
@@ -299,6 +300,7 @@ export const UserManagementView: React.FC = () => {
               <option value="all">Todos los roles</option>
               <option value="directiva_admin">Administrador General</option>
               <option value="encargado_agencia">Encargado de Agencia</option>
+              <option value="afiliado_admin">Administrador de Afiliados</option>
               <option value="secretaria">Secretaria / Ventanilla</option>
               <option value="conductor">Chofer / Conductor</option>
               <option value="tesoreria">Tesorería</option>
@@ -596,6 +598,7 @@ export const UserManagementView: React.FC = () => {
                 onChange={(e) => setNewSelectedRole(e.target.value as UserRole)}
                 className="w-full p-2.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
               >
+                <option value="afiliado_admin">Administrador de Afiliados (Padrón y consultas financieras)</option>
                 <option value="secretaria">Secretaria / Ventanilla (Emisión de guías, cobros en caja)</option>
                 <option value="encargado_agencia">Encargado de Agencia (Almacén, inventario, caja)</option>
                 <option value="conductor">Chofer / Conductor (Manifiestos y entregas en ruta)</option>
@@ -881,6 +884,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
                 onChange={(e) => setRole(e.target.value as UserRole)}
                 className="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] bg-white font-medium"
               >
+                <option value="afiliado_admin">Administrador de Afiliados</option>
                 <option value="secretaria">Secretaria / Ventanilla</option>
                 <option value="encargado_agencia">Encargado de Agencia</option>
                 <option value="conductor">Chofer / Conductor</option>

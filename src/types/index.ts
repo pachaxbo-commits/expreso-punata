@@ -6,6 +6,7 @@
 
 export type UserRole =
   | 'secretaria'
+  | 'afiliado_admin'
   | 'encargado_agencia'
   | 'tesoreria'
   | 'directiva_admin'
@@ -29,6 +30,7 @@ export interface UserProfile {
   lastLoginAt?: string
   syncStatus?: 'syncing' | 'synced' | 'failed'
   createdReason?: string
+  unionMemberId?: string
 }
 
 export interface UserAuditLog {
@@ -585,6 +587,7 @@ export interface UnionMember {
   notes?: string
   createdAtIso?: string
   updatedAtIso?: string
+  branchId?: string
 }
 
 export type UnionSportsAttendance = 'pending' | 'present' | 'late' | 'absent' | 'exempt'

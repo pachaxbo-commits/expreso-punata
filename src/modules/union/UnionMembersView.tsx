@@ -65,13 +65,14 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   activeShift,
 }) => {
     const [localShift, setLocalShift] = useState<CashShift | null>(null)
+  const canReadCashShift = ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'].includes(currentUser.role)
   useEffect(() => {
-    if (!currentUser?.uid || !currentBranch?.id) return
+    if (!canReadCashShift || !currentUser?.uid || !currentBranch?.id) return
     const unsubscribe = subscribeActiveCashShift(currentUser.uid, currentBranch.id, (sh) => {
       setLocalShift(sh)
     })
     return () => unsubscribe()
-  }, [currentUser?.uid, currentBranch?.id])
+  }, [canReadCashShift, currentUser?.uid, currentBranch?.id])
   const effectiveShift = activeShift || localShift
   const [activeTab, setActiveTab] = useState<'members' | 'dues' | 'loans' | 'fines' | 'sports'>('members')
   const [members, setMembers] = useState<UnionMember[]>([])
@@ -122,7 +123,9 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const isManagement = currentUser.role === 'directiva_admin' || currentUser.role === 'tesoreria'
-  const canPrintRoster = ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(currentUser.role)
+  const canManageMembers = isManagement || currentUser.role === 'afiliado_admin'
+  const canGenerateDues = isManagement
+  const canPrintRoster = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'afiliado_admin'].includes(currentUser.role)
   const isCashier = ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'].includes(currentUser.role)
 
   // 1. Suscripción a socios
@@ -343,17 +346,19 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {isManagement && (
+            {canManageMembers && (
               <>
-                <button
-                  type="button"
-                  data-tutorial-target="btn-collect-member-fee"
-                  onClick={() => setIsGenerateDuesModalOpen(true)}
-                  className="px-3.5 py-2 bg-emerald-800/80 hover:bg-emerald-800 border border-emerald-600/70 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition shadow-sm"
-                >
-                  <Calendar className="w-4 h-4 text-amber-300" />
-                  <span>Emitir Cuotas Mensuales</span>
-                </button>
+                {canGenerateDues && (
+                  <button
+                    type="button"
+                    data-tutorial-target="btn-collect-member-fee"
+                    onClick={() => setIsGenerateDuesModalOpen(true)}
+                    className="px-3.5 py-2 bg-emerald-800/80 hover:bg-emerald-800 border border-emerald-600/70 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition shadow-sm"
+                  >
+                    <Calendar className="w-4 h-4 text-amber-300" />
+                    <span>Emitir Cuotas Mensuales</span>
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -459,9 +464,9 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
         <button type="button" onClick={() => setActiveTab('fines')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'fines' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
           <AlertTriangle className="w-4 h-4" /><span>Multas</span>
         </button>
-        <button type="button" onClick={() => setActiveTab('sports')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'sports' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+        {currentUser.role !== 'afiliado_admin' && <button type="button" onClick={() => setActiveTab('sports')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'sports' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
           <Calendar className="w-4 h-4" /><span>Deportes</span>
-        </button>
+        </button>}
       </div>
 
       {/* PESTAÑA 1: PADRÓN DE SOCIOS */}
@@ -626,7 +631,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
                         <span>Extracto</span>
                       </button>
 
-                      {isManagement && (
+                      {canManageMembers && (
                         <button
                           type="button"
                           onClick={() => handleOpenMemberModal(m)}
@@ -847,7 +852,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
           fines={statementFines}
           sportsEvents={statementSportsEvents}
           loading={loadingStatement}
-          canManageChildren={isManagement}
+          canManageChildren={canManageMembers}
           childrenNotice={childrenNotice}
           onAddChild={() => {
             if (statementData) {

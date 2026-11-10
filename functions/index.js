@@ -963,7 +963,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
   // CI opcional: se guarda como null si no se ingresa; nunca inventar valores ficticios
   const safeCi = ci && typeof ci === 'string' && ci.trim() ? ci.trim() : null
 
-  const validRoles = ['secretaria', 'conductor', 'encargado_agencia', 'tesoreria', 'directiva_admin']
+  const validRoles = ['secretaria', 'afiliado_admin', 'conductor', 'encargado_agencia', 'tesoreria', 'directiva_admin']
   if (!validRoles.includes(role)) {
     throw new HttpsError('invalid-argument', `Rol inválido: '${role}'.`)
   }
@@ -1096,7 +1096,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     phone: safePhone,
     role,
     primaryBranchId,
-    allowedBranchIds: role === 'secretaria'
+    allowedBranchIds: role === 'secretaria' || role === 'afiliado_admin'
       ? [primaryBranchId]
       : role === 'directiva_admin'
         ? ['punata', 'cochabamba']
@@ -4644,11 +4644,19 @@ export const manageUnionMember = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+  const isAffiliateAdmin = caller.role === 'afiliado_admin'
+  if (!['directiva_admin', 'tesoreria', 'afiliado_admin'].includes(caller.role)) {
     throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden administrar socios.')
   }
 
   const requestData = request.data || {}
+  if (isAffiliateAdmin && typeof requestData.memberId === 'string' && requestData.memberId.trim()) {
+    const scopedMember = await db.collection('union_members').doc(requestData.memberId.trim()).get()
+    const scopedBranchId = scopedMember.data()?.branchId
+    if (scopedMember.exists && scopedBranchId && !(caller.allowedBranchIds || [caller.primaryBranchId]).includes(scopedBranchId)) {
+      throw new HttpsError('permission-denied', 'El afiliado pertenece a una sucursal no autorizada.')
+    }
+  }
   if (requestData.action === 'addChild') {
     const { memberId, child } = requestData
     if (typeof memberId !== 'string' || !memberId.trim()) {
@@ -4862,6 +4870,10 @@ export const manageUnionMember = onCall({ cors: true }, async (request) => {
   const memberRef = db.collection('union_members').doc(memberId)
   const existingDoc = await memberRef.get()
   const isNew = !existingDoc.exists
+  const existingBranchId = existingDoc.data()?.branchId || caller.primaryBranchId || 'punata'
+  if (isAffiliateAdmin && !(caller.allowedBranchIds || [caller.primaryBranchId]).includes(existingBranchId)) {
+    throw new HttpsError('permission-denied', 'El afiliado pertenece a una sucursal no autorizada.')
+  }
 
   const memberData = {
     id: memberId,
@@ -4883,6 +4895,7 @@ export const manageUnionMember = onCall({ cors: true }, async (request) => {
     monthlyFeeBob: feeCents / 100,
     monthlyFeeCents: feeCents,
     notes: notes ? String(notes).trim() : null,
+    branchId: existingBranchId,
     updatedAtIso: nowIso,
     updatedByUid: callerUid,
     updatedByName: caller.fullName || 'Operador',
@@ -5039,6 +5052,7 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
         memberNumber: member.memberNumber,
         memberName: member.fullName,
         memberCategory: member.category,
+        branchId: member.branchId || caller.primaryBranchId || 'punata',
         period,
         periodLabel,
         amountBob: feeBob,
@@ -9149,7 +9163,7 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
 // =========================================================================
 const LOAN_MANAGEMENT_ROLES = ['directiva_admin', 'tesoreria']
 const LOAN_COLLECTION_ROLES = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia']
-const LOAN_READ_ROLES = ['directiva_admin', 'tesoreria', 'encargado_agencia']
+const LOAN_READ_ROLES = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'afiliado_admin']
 
 function loanDateIsValid(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
@@ -9360,7 +9374,7 @@ export const collectUnionLoanPayment = onCall({ cors: true }, async (request) =>
 })
 
 export const listUnionLoans = onCall({ cors: true }, async (request) => {
-  await requireUnionLoanCaller(request, LOAN_READ_ROLES, 'consultar préstamos internos.')
+  const caller = await requireUnionLoanCaller(request, LOAN_READ_ROLES, 'consultar préstamos internos.')
   const memberId = request.data?.memberId
   if (memberId !== undefined && (typeof memberId !== 'string' || !memberId.trim())) throw new HttpsError('invalid-argument', 'El afiliado solicitado no es válido.')
   let query = db.collection('union_loans').orderBy('createdAtIso', 'desc')
@@ -9370,8 +9384,14 @@ export const listUnionLoans = onCall({ cors: true }, async (request) => {
     query = db.collection('union_loans').where('memberId', '==', memberId)
   }
   const loanSnapshot = await query.get()
+  const visibleLoanDocs = caller.role === 'afiliado_admin'
+    ? (await Promise.all(loanSnapshot.docs.map(async (loanDoc) => {
+      const memberDoc = await db.collection('union_members').doc(loanDoc.data()?.memberId).get()
+      return memberDoc.exists && (caller.allowedBranchIds || [caller.primaryBranchId]).includes(memberDoc.data()?.branchId) ? loanDoc : null
+    }))).filter(Boolean)
+    : loanSnapshot.docs
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
-  const loans = await Promise.all(loanSnapshot.docs.map(async (loanDoc) => {
+  const loans = await Promise.all(visibleLoanDocs.map(async (loanDoc) => {
     const [installmentSnapshot, paymentSnapshot] = await Promise.all([
       loanDoc.ref.collection('installments').orderBy('sequence', 'asc').get(),
       loanDoc.ref.collection('payments').orderBy('paidAtIso', 'asc').get(),
@@ -9787,7 +9807,7 @@ export const listUnionSportsEvents = onCall({ cors: true }, async (request) => {
 })
 
 export const listUnionFines = onCall({ cors: true }, async (request) => {
-  await requireUnionLoanCaller(request, LOAN_READ_ROLES, 'consultar multas de afiliados.')
+  const caller = await requireUnionLoanCaller(request, LOAN_READ_ROLES, 'consultar multas de afiliados.')
   const { memberId, category, status } = request.data || {}
   if (memberId !== undefined && (typeof memberId !== 'string' || !memberId.trim())) throw new HttpsError('invalid-argument', 'El afiliado solicitado no es válido.')
   if (category !== undefined && !FINE_CATEGORIES.includes(category)) throw new HttpsError('invalid-argument', 'La categoría de multa no es válida.')
@@ -9796,7 +9816,13 @@ export const listUnionFines = onCall({ cors: true }, async (request) => {
   let query = db.collection('union_fines').orderBy('createdAtIso', 'desc')
   if (memberId) query = query.where('memberId', '==', memberId)
   const snapshot = await query.get()
-  const allFines = await Promise.all(snapshot.docs.map(async (doc) => {
+  const visibleFineDocs = caller.role === 'afiliado_admin'
+    ? (await Promise.all(snapshot.docs.map(async (fineDoc) => {
+      const memberDoc = await db.collection('union_members').doc(fineDoc.data()?.memberId).get()
+      return memberDoc.exists && (caller.allowedBranchIds || [caller.primaryBranchId]).includes(memberDoc.data()?.branchId) ? fineDoc : null
+    }))).filter(Boolean)
+    : snapshot.docs
+  const allFines = await Promise.all(visibleFineDocs.map(async (doc) => {
     const paymentsSnapshot = await doc.ref.collection('payments').orderBy('paidAtIso', 'asc').get()
     return { id: doc.id, ...doc.data(), payments: paymentsSnapshot.docs.map((payment) => ({ id: payment.id, ...payment.data() })) }
   }))

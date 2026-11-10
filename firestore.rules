@@ -44,6 +44,10 @@ service cloud.firestore {
       return getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin'];
     }
 
+    function isAffiliateAdmin() {
+      return getUserRole() == 'afiliado_admin';
+    }
+
     function isDriver() {
       return getUserRole() == 'conductor';
     }
@@ -360,20 +364,20 @@ service cloud.firestore {
     }
 
     match /union_loans/{loanId} {
-      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)));
+      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId)));
       allow write: if false;
       match /installments/{installmentId} {
-        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_loans/$(loanId)).data.branchId)));
+        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_loans/$(loanId)).data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(get(/databases/$(database)/documents/union_loans/$(loanId)).data.memberId)).data.branchId)));
         allow write: if false;
       }
       match /payments/{paymentId} {
-        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_loans/$(loanId)).data.branchId)));
+        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_loans/$(loanId)).data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(get(/databases/$(database)/documents/union_loans/$(loanId)).data.memberId)).data.branchId)));
         allow write: if false;
       }
     }
 
     match /union_fines/{fineId} {
-      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)));
+      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId)));
       allow write: if false;
       match /payments/{paymentId} {
         allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_fines/$(fineId)).data.branchId)));
@@ -393,16 +397,16 @@ service cloud.firestore {
     // COLECCIONES SINDICALES: members, dues, workers, worker_payments, expenses
     // =========================================================================
     match /union_members/{memberId} {
-      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier() || (isAffiliateAdmin() && isBranchAllowed(resource.data.branchId)));
       allow write: if false; // Exclusivo de Cloud Functions (manageUnionMember)
     }
 
     match /union_dues/{dueId} {
-      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier() || (isAffiliateAdmin() && isBranchAllowed(resource.data.branchId)));
       allow write: if false; // Exclusivo de Cloud Functions (generateMonthlyDues, collectMemberDue)
 
       match /payments/{paymentId} {
-        allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
+        allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier() || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId)));
         allow write: if false; // Inmutable, solo Cloud Functions (collectMemberDue)
       }
     }

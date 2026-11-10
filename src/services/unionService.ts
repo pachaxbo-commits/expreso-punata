@@ -5,8 +5,10 @@ import {
   where,
   orderBy,
   onSnapshot,
+  getDoc,
+  doc,
 } from 'firebase/firestore'
-import { functions, db } from '../firebase/config.ts'
+import { functions, db, auth } from '../firebase/config.ts'
 import type { DriverDirectoryEntry, UnionMember, UnionMonthlyDue, UnionSportsAttendance, UnionSportsEvent } from '../types/index.ts'
 import { listActiveDriversThroughBackend } from './dispatchService.ts'
 
@@ -487,21 +489,18 @@ export function subscribeUnionMembers(
   onData: (members: UnionMember[]) => void,
   onError?: (err: Error) => void
 ): () => void {
-  const q = query(collection(db, 'union_members'), orderBy('memberNumber', 'asc'))
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const list = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as UnionMember[]
-      onData(list)
-    },
-    (err) => {
-      console.warn('[unionService] Error al suscribir a socios:', err)
-      if (onError) onError(err)
-    }
-  )
+  let unsubscribe = () => {}
+  void (async () => {
+    const profile = auth.currentUser ? (await getDoc(doc(db, 'users', auth.currentUser.uid))).data() : null
+    const base = collection(db, 'union_members')
+    const q = profile?.role === 'afiliado_admin'
+      ? query(base, where('branchId', 'in', profile.allowedBranchIds || [profile.primaryBranchId]), orderBy('memberNumber', 'asc'))
+      : query(base, orderBy('memberNumber', 'asc'))
+    unsubscribe = onSnapshot(q, (snapshot) => {
+      onData(snapshot.docs.map((memberDoc) => ({ id: memberDoc.id, ...memberDoc.data() })) as UnionMember[])
+    }, (err) => { console.warn('[unionService] Error al suscribir a socios:', err); onError?.(err) })
+  })().catch((err) => onError?.(err as Error))
+  return () => unsubscribe()
 }
 
 /**
@@ -512,23 +511,16 @@ export function subscribeUnionDues(
   onData: (dues: UnionMonthlyDue[]) => void,
   onError?: (err: Error) => void
 ): () => void {
-  const q = query(
-    collection(db, 'union_dues'),
-    where('period', '==', period),
-    orderBy('memberNumber', 'asc')
-  )
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const list = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as UnionMonthlyDue[]
-      onData(list)
-    },
-    (err) => {
-      console.warn('[unionService] Error al suscribir a cuotas:', err)
-      if (onError) onError(err)
-    }
-  )
+  let unsubscribe = () => {}
+  void (async () => {
+    const profile = auth.currentUser ? (await getDoc(doc(db, 'users', auth.currentUser.uid))).data() : null
+    const base = collection(db, 'union_dues')
+    const q = profile?.role === 'afiliado_admin'
+      ? query(base, where('period', '==', period), where('branchId', 'in', profile.allowedBranchIds || [profile.primaryBranchId]), orderBy('memberNumber', 'asc'))
+      : query(base, where('period', '==', period), orderBy('memberNumber', 'asc'))
+    unsubscribe = onSnapshot(q, (snapshot) => {
+      onData(snapshot.docs.map((dueDoc) => ({ id: dueDoc.id, ...dueDoc.data() })) as UnionMonthlyDue[])
+    }, (err) => { console.warn('[unionService] Error al suscribir a cuotas:', err); onError?.(err) })
+  })().catch((err) => onError?.(err as Error))
+  return () => unsubscribe()
 }
