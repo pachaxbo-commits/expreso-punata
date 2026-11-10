@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Building2,
   Plus,
@@ -14,14 +14,18 @@ import {
   MapPin,
   Wrench,
   Trash2,
+  QrCode,
+  Download,
 } from 'lucide-react'
-import type { FixedAsset, FixedAssetAuditLog, FixedAssetCategory, FixedAssetStatus, UserProfile } from '../../types/index.ts'
+import type { FixedAsset, FixedAssetAuditLog, FixedAssetCategory, FixedAssetStatus, PatrimonialLocationId, UserProfile } from '../../types/index.ts'
 import {
+  createFixedAssetBatch,
   manageFixedAsset,
   subscribeFixedAssets,
   subscribeAssetAuditLogs,
 } from '../../services/assetService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
+import { downloadFixedAssetLabelsPdf } from '../../services/fixedAssetLabelsPdfService.ts'
 
 interface FixedAssetsViewProps {
   currentBranchId: string
@@ -36,7 +40,10 @@ const CATEGORY_LABELS: Record<FixedAssetCategory, string> = {
   balanzas_pesaje: 'Balanzas y Básculas',
   oficina: 'Material y Oficina',
   otro: 'Otros Activos',
+  inmuebles: 'Inmuebles',
 }
+
+const LOCATION_LABELS: Record<PatrimonialLocationId, string> = { sede_punata: 'Sede Punata', oficina_punata: 'Oficina Punata', oficina_cochabamba: 'Oficina Cochabamba' }
 
 const STATUS_LABELS: Record<FixedAssetStatus, { label: string; color: string }> = {
   in_use: { label: 'En Uso Activo', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
@@ -59,13 +66,16 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
 
   // Filtros
   const [search, setSearch] = useState('')
-  const [branchFilter, setBranchFilter] = useState<'all' | 'punata' | 'cochabamba'>('all')
+  const [branchFilter, setBranchFilter] = useState<'all' | PatrimonialLocationId>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
 
   // Modales
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [selectedForLabels, setSelectedForLabels] = useState<string[]>([])
   const [selectedAssetForTransfer, setSelectedAssetForTransfer] = useState<FixedAsset | null>(null)
+  const [selectedAssetForEdit, setSelectedAssetForEdit] = useState<FixedAsset | null>(null)
+  const [editForm, setEditForm] = useState<Partial<FixedAsset>>({})
   const [selectedAssetForAudit, setSelectedAssetForAudit] = useState<FixedAsset | null>(null)
   const [selectedAssetForStatus, setSelectedAssetForStatus] = useState<FixedAsset | null>(null)
   const [selectedAssetForDispose, setSelectedAssetForDispose] = useState<FixedAsset | null>(null)
@@ -74,21 +84,25 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
 
   // Form states
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const batchRetryRef = useRef<{ fingerprint: string; key: string } | null>(null)
   const [newAsset, setNewAsset] = useState({
     name: '',
     category: 'oficina' as FixedAssetCategory,
     description: '',
     branchId: (currentBranchId === 'cochabamba' ? 'cochabamba' : 'punata') as 'punata' | 'cochabamba',
+    patrimonialLocationId: (currentBranchId === 'cochabamba' ? 'oficina_cochabamba' : 'oficina_punata') as PatrimonialLocationId,
     physicalLocation: '',
     responsiblePersonName: '',
     acquisitionDate: new Date().toISOString().slice(0, 10),
     acquisitionCostBob: '',
     notes: '',
+    quantity: '1',
+    propertyType: '',
+    address: '',
   })
 
   const [transferForm, setTransferForm] = useState({
-    branchId: 'punata' as 'punata' | 'cochabamba',
-    physicalLocation: '',
+    patrimonialLocationId: 'oficina_punata' as PatrimonialLocationId,
     responsiblePersonName: '',
   })
 
@@ -149,19 +163,23 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
   // Filtrado
   const filteredAssets = useMemo(() => {
     return assets.filter((a) => {
-      if (branchFilter !== 'all' && a.branchId !== branchFilter) return false
+      if (branchFilter !== 'all' && (a.patrimonialLocationId || (a.branchId === 'cochabamba' ? 'oficina_cochabamba' : 'oficina_punata')) !== branchFilter) return false
       if (categoryFilter !== 'all' && a.category !== categoryFilter) return false
       if (statusFilter !== 'all' && a.status !== statusFilter) return false
 
       if (search.trim()) {
         const q = search.toLowerCase().trim()
-        const matchCode = a.assetCode?.toLowerCase().includes(q)
+        const matchCode = a.assetCode?.toLowerCase().includes(q) || a.id.toLowerCase().includes(q) || a.qrPayload?.toLowerCase().includes(q)
         const matchName = a.name?.toLowerCase().includes(q)
         const matchResp = a.responsiblePersonName?.toLowerCase().includes(q)
-        const matchLoc = a.physicalLocation?.toLowerCase().includes(q)
+        const matchLoc = (a.patrimonialLocationId ? LOCATION_LABELS[a.patrimonialLocationId] : a.physicalLocation)?.toLowerCase().includes(q)
         if (!matchCode && !matchName && !matchResp && !matchLoc) return false
       }
       return true
+    }).sort((left, right) => {
+      const leftLocation = left.patrimonialLocationId ? LOCATION_LABELS[left.patrimonialLocationId] : left.branchId
+      const rightLocation = right.patrimonialLocationId ? LOCATION_LABELS[right.patrimonialLocationId] : right.branchId
+      return leftLocation.localeCompare(rightLocation, 'es') || left.assetCode.localeCompare(right.assetCode, 'es')
     })
   }, [assets, branchFilter, categoryFilter, statusFilter, search])
 
@@ -181,8 +199,8 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
   // Handlers
   const handleCreateAsset = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newAsset.name.trim() || !newAsset.physicalLocation.trim() || !newAsset.responsiblePersonName.trim()) {
-      setErrorMsg('Por favor complete los campos obligatorios (nombre, ubicación y responsable).')
+    if (!newAsset.name.trim() || !newAsset.patrimonialLocationId || !Number.isInteger(Number(newAsset.quantity)) || Number(newAsset.quantity) < 1 || Number(newAsset.quantity) > 200) {
+      setErrorMsg('Complete el nombre, la sede u oficina y una cantidad entera entre 1 y 200.')
       return
     }
 
@@ -190,33 +208,45 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
       setIsSubmitting(true)
       setErrorMsg(null)
       const costBob = parseFloat(newAsset.acquisitionCostBob) || 0
-      const res = await manageFixedAsset({
-        action: 'create',
+      const batchFingerprint = JSON.stringify({ ...newAsset, acquisitionCostBob: costBob })
+      if (!batchRetryRef.current || batchRetryRef.current.fingerprint !== batchFingerprint) batchRetryRef.current = { fingerprint: batchFingerprint, key: crypto.randomUUID() }
+      const res = await createFixedAssetBatch({
         name: newAsset.name.trim(),
         category: newAsset.category,
         description: newAsset.description.trim(),
         branchId: newAsset.branchId,
-        physicalLocation: newAsset.physicalLocation.trim(),
+        patrimonialLocationId: newAsset.patrimonialLocationId,
+        physicalLocation: '',
         responsiblePersonName: newAsset.responsiblePersonName.trim(),
         acquisitionDate: newAsset.acquisitionDate,
         acquisitionCostBob: costBob,
         acquisitionCostCents: Math.round(costBob * 100),
         status: 'available',
         notes: newAsset.notes.trim(),
+        quantity: Number(newAsset.quantity),
+        propertyType: newAsset.propertyType.trim(),
+        address: newAsset.address.trim(),
+        batchRequestId: batchRetryRef.current.key,
       })
 
       setSuccessMsg(res.message || 'Bien registrado exitosamente.')
+      setSelectedForLabels(res.assets.map((asset) => asset.id))
+      batchRetryRef.current = null
       setShowCreateModal(false)
       setNewAsset({
         name: '',
         category: 'oficina',
         description: '',
         branchId: currentBranchId === 'cochabamba' ? 'cochabamba' : 'punata',
+        patrimonialLocationId: currentBranchId === 'cochabamba' ? 'oficina_cochabamba' : 'oficina_punata',
         physicalLocation: '',
         responsiblePersonName: '',
         acquisitionDate: new Date().toISOString().slice(0, 10),
         acquisitionCostBob: '',
         notes: '',
+        quantity: '1',
+        propertyType: '',
+        address: '',
       })
     } catch (err: any) {
       console.error('Error registrando activo fijo:', err)
@@ -236,8 +266,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
       const res = await manageFixedAsset({
         id: selectedAssetForTransfer.id,
         action: 'transfer',
-        branchId: transferForm.branchId,
-        physicalLocation: transferForm.physicalLocation.trim(),
+        patrimonialLocationId: transferForm.patrimonialLocationId,
         responsiblePersonName: transferForm.responsiblePersonName.trim(),
       })
       setSuccessMsg(res.message || 'Transferencia registrada.')
@@ -248,6 +277,17 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleEditAsset = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!selectedAssetForEdit) return
+    try {
+      setIsSubmitting(true); setErrorMsg(null)
+      const costCents = Math.round(Number(editForm.acquisitionCostBob || 0) * 100)
+      await manageFixedAsset({ id: selectedAssetForEdit.id, action: 'update', name: editForm.name, category: editForm.category, description: editForm.description, patrimonialLocationId: editForm.patrimonialLocationId, propertyType: editForm.propertyType, address: editForm.address, acquisitionDate: editForm.acquisitionDate, acquisitionCostCents: costCents, responsiblePersonName: editForm.responsiblePersonName, status: editForm.status, notes: editForm.notes })
+      setSuccessMsg(`Activo ${selectedAssetForEdit.assetCode} actualizado; su identificador QR se conserva.`); setSelectedAssetForEdit(null)
+    } catch (err: any) { setErrorMsg(err.message || 'No se pudo actualizar el bien.') } finally { setIsSubmitting(false) }
   }
 
   const handleChangeStatus = async (e: React.FormEvent) => {
@@ -310,6 +350,15 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
       console.error('Error imprimiendo etiqueta de activo:', err)
       setErrorMsg(`Error de impresión: ${err.message}`)
     }
+  }
+
+  const handleBulkLabels = async () => {
+    try {
+      setErrorMsg(null)
+      const selected = assets.filter((asset) => selectedForLabels.includes(asset.id))
+      await downloadFixedAssetLabelsPdf(selected)
+      setSuccessMsg(`${selected.length} etiqueta(s) QR preparadas en PDF.`)
+    } catch (err: any) { setErrorMsg(err.message || 'No se pudo generar el PDF de etiquetas.') }
   }
 
   return (
@@ -394,7 +443,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Buscar por código, nombre o responsable..."
+            placeholder="Buscar por numeral, QR, nombre o responsable..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#064e3b] focus:border-[#064e3b]"
@@ -408,9 +457,10 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
             onChange={(e) => setBranchFilter(e.target.value as any)}
             className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#064e3b]"
           >
-            <option value="all">Todas las Agencias</option>
-            <option value="punata">Agencia Punata</option>
-            <option value="cochabamba">Agencia Cochabamba</option>
+            <option value="all">Todas las sedes y oficinas</option>
+            <option value="sede_punata">Sede Punata</option>
+            <option value="oficina_punata">Oficina Punata</option>
+            <option value="oficina_cochabamba">Oficina Cochabamba</option>
           </select>
 
           {/* Filtro Categoría */}
@@ -441,6 +491,11 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
             ))}
           </select>
         </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl p-3">
+        <label className="text-xs text-slate-600 flex items-center gap-2"><input type="checkbox" checked={filteredAssets.length > 0 && filteredAssets.every((asset) => selectedForLabels.includes(asset.id))} onChange={(event) => setSelectedForLabels(event.target.checked ? filteredAssets.map((asset) => asset.id) : [])} /> Seleccionar todos los bienes filtrados</label>
+        <button type="button" disabled={!selectedForLabels.length} onClick={handleBulkLabels} className="px-3 py-2 bg-[#064e3b] text-white rounded-lg text-xs font-bold flex gap-1 items-center disabled:opacity-40"><Download className="w-4 h-4"/> Imprimir etiquetas QR ({selectedForLabels.length})</button>
       </div>
 
       {/* LISTA / GRID DE ACTIVOS */}
@@ -480,6 +535,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
                 <div>
                   {/* Encabezado de la tarjeta */}
                   <div className="flex items-center justify-between gap-2">
+                    <input type="checkbox" aria-label={`Seleccionar ${asset.assetCode} para etiquetas`} checked={selectedForLabels.includes(asset.id)} onChange={(event) => setSelectedForLabels((previous) => event.target.checked ? [...previous, asset.id] : previous.filter((id) => id !== asset.id))} />
                     <span className="font-mono text-xs font-black bg-slate-100 px-2.5 py-1 rounded border border-slate-200 text-[#064e3b]">
                       {asset.assetCode}
                     </span>
@@ -505,7 +561,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
                     <div className="flex items-center gap-1.5">
                       <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                       <span className="truncate">
-                        Agencia: <strong className="text-slate-800 capitalize">{asset.branchId}</strong> — {asset.physicalLocation}
+                      Ubicación: <strong className="text-slate-800">{asset.patrimonialLocationId ? LOCATION_LABELS[asset.patrimonialLocationId] : `Registro histórico · ${asset.physicalLocation}`}</strong>
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -541,6 +597,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
                     <Printer className="w-3.5 h-3.5" />
                     <span>Etiqueta</span>
                   </button>
+                  <button type="button" onClick={() => void downloadFixedAssetLabelsPdf([asset]).then(() => setSuccessMsg(`Etiqueta QR ${asset.assetCode} descargada.`)).catch((err) => setErrorMsg(err.message || 'No se pudo generar la etiqueta.'))} title="Descargar etiqueta QR en PDF" className="p-1.5 bg-slate-100 text-slate-700 hover:bg-emerald-700 hover:text-white rounded-lg flex items-center gap-1 text-[11px] font-semibold"><QrCode className="w-3.5 h-3.5"/><span>PDF QR</span></button>
 
                   <div className="flex items-center gap-1">
                     <button
@@ -554,13 +611,13 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
 
                     {canManage && asset.status !== 'disposed' && (
                       <>
+                        <button type="button" onClick={() => { setSelectedAssetForEdit(asset); setEditForm({ ...asset, acquisitionCostBob: asset.acquisitionCostBob || 0 }) }} title="Editar ficha de inventario" className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg text-[10px] font-bold">Editar</button>
                         <button
                           type="button"
                           onClick={() => {
                             setSelectedAssetForTransfer(asset)
                             setTransferForm({
-                              branchId: asset.branchId as any,
-                              physicalLocation: asset.physicalLocation,
+                              patrimonialLocationId: asset.patrimonialLocationId || (asset.branchId === 'cochabamba' ? 'oficina_cochabamba' : 'oficina_punata'),
                               responsiblePersonName: asset.responsiblePersonName,
                             })
                           }}
@@ -608,7 +665,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-[#064e3b]" />
-                <h3 className="text-sm font-bold text-slate-900">Registrar Nuevo Activo Fijo</h3>
+                <h3 className="text-sm font-bold text-slate-900">Registrar bienes patrimoniales</h3>
               </div>
               <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
@@ -637,7 +694,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
                   </label>
                   <select
                     value={newAsset.category}
-                    onChange={(e) => setNewAsset({ ...newAsset, category: e.target.value as any })}
+                    onChange={(e) => setNewAsset({ ...newAsset, category: e.target.value as any, quantity: e.target.value === 'inmuebles' ? '1' : newAsset.quantity })}
                     className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#064e3b]"
                   >
                     {Object.entries(CATEGORY_LABELS).map(([cat, label]) => (
@@ -650,40 +707,32 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Agencia Asignada *
+                    Sede u oficina *
                   </label>
                   <select
-                    value={newAsset.branchId}
-                    onChange={(e) => setNewAsset({ ...newAsset, branchId: e.target.value as any })}
+                    value={newAsset.patrimonialLocationId}
+                    onChange={(e) => setNewAsset({ ...newAsset, patrimonialLocationId: e.target.value as PatrimonialLocationId, branchId: e.target.value === 'oficina_cochabamba' ? 'cochabamba' : 'punata' })}
                     className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#064e3b]"
                   >
-                    <option value="punata">Agencia Punata</option>
-                    <option value="cochabamba">Agencia Cochabamba</option>
+                    <option value="sede_punata">Sede Punata</option>
+                    <option value="oficina_punata">Oficina Punata</option>
+                    <option value="oficina_cochabamba">Oficina Cochabamba</option>
                   </select>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Ubicación Física Específica *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="ej. Ventanilla 1 - Recepción, Almacén Central Estante B"
-                  value={newAsset.physicalLocation}
-                  onChange={(e) => setNewAsset({ ...newAsset, physicalLocation: e.target.value })}
-                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#064e3b]"
-                />
+              <div className="grid grid-cols-2 gap-2.5">
+                <label className="text-[11px] font-bold text-slate-700">Cantidad de bienes<input type="number" min="1" max="200" step="1" disabled={newAsset.category === 'inmuebles'} value={newAsset.quantity} onChange={(e) => setNewAsset({ ...newAsset, quantity: e.target.value })} className="mt-1 w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg disabled:bg-slate-100" /></label>
+                {newAsset.category === 'inmuebles' && <label className="text-[11px] font-bold text-slate-700">Tipo de inmueble<input value={newAsset.propertyType} onChange={(e) => setNewAsset({ ...newAsset, propertyType: e.target.value })} placeholder="Sede, oficina..." className="mt-1 w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg" /></label>}
               </div>
+              {newAsset.category === 'inmuebles' && <input value={newAsset.address} onChange={(e) => setNewAsset({ ...newAsset, address: e.target.value })} placeholder="Dirección del inmueble" className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg" />}
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Responsable Asignado *
+                  Responsable Asignado (opcional)
                 </label>
                 <input
                   type="text"
-                  required
                   placeholder="Nombre y cargo del responsable"
                   value={newAsset.responsiblePersonName}
                   onChange={(e) => setNewAsset({ ...newAsset, responsiblePersonName: e.target.value })}
@@ -706,7 +755,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Costo en Bs (opcional)
+                    Valor registrado total en Bs (opcional, no se multiplica por cantidad)
                   </label>
                   <input
                     type="number"
@@ -772,46 +821,32 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
               <span className="font-mono font-bold text-[#064e3b]">{selectedAssetForTransfer.assetCode}</span>
               <p className="font-semibold text-slate-800">{selectedAssetForTransfer.name}</p>
               <p className="text-[11px] text-slate-500">
-                Ubicación actual: {selectedAssetForTransfer.branchId.toUpperCase()} — {selectedAssetForTransfer.physicalLocation}
+                Ubicación actual: {selectedAssetForTransfer.patrimonialLocationId ? LOCATION_LABELS[selectedAssetForTransfer.patrimonialLocationId] : `Registro histórico · ${selectedAssetForTransfer.physicalLocation}`}
               </p>
             </div>
 
             <form onSubmit={handleTransfer} className="space-y-3">
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Nueva Agencia Destino *
+                  Nueva sede u oficina patrimonial *
                 </label>
                 <select
-                  value={transferForm.branchId}
-                  onChange={(e) => setTransferForm({ ...transferForm, branchId: e.target.value as any })}
+                  value={transferForm.patrimonialLocationId}
+                  onChange={(e) => setTransferForm({ ...transferForm, patrimonialLocationId: e.target.value as PatrimonialLocationId })}
                   className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-600"
                 >
-                  <option value="punata">Agencia Punata</option>
-                  <option value="cochabamba">Agencia Cochabamba</option>
+                  <option value="sede_punata">Sede Punata</option>
+                  <option value="oficina_punata">Oficina Punata</option>
+                  <option value="oficina_cochabamba">Oficina Cochabamba</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Nueva Ubicación Física *
+                  Nuevo Responsable Asignado (opcional)
                 </label>
                 <input
                   type="text"
-                  required
-                  placeholder="ej. Mostrador de Caja 2"
-                  value={transferForm.physicalLocation}
-                  onChange={(e) => setTransferForm({ ...transferForm, physicalLocation: e.target.value })}
-                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Nuevo Responsable Asignado *
-                </label>
-                <input
-                  type="text"
-                  required
                   placeholder="Nombre de la persona que recibe"
                   value={transferForm.responsiblePersonName}
                   onChange={(e) => setTransferForm({ ...transferForm, responsiblePersonName: e.target.value })}
@@ -1029,6 +1064,22 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {selectedAssetForEdit && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <form onSubmit={handleEditAsset} className="bg-white rounded-2xl max-w-xl w-full p-5 space-y-3 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center"><div><h3 className="font-bold text-sm">Editar ficha patrimonial</h3><p className="font-mono text-xs text-[#064e3b]">{selectedAssetForEdit.assetCode} · QR estable</p></div><button type="button" onClick={() => setSelectedAssetForEdit(null)}><X className="w-4 h-4"/></button></div>
+            <input required minLength={2} value={editForm.name || ''} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} placeholder="Nombre del bien" className="w-full p-2.5 border rounded-lg text-sm"/>
+            <div className="grid grid-cols-2 gap-2"><select value={editForm.category || 'otro'} onChange={(event) => setEditForm({ ...editForm, category: event.target.value as FixedAssetCategory })} className="p-2.5 border rounded-lg text-sm">{Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select value={editForm.patrimonialLocationId || 'oficina_punata'} onChange={(event) => setEditForm({ ...editForm, patrimonialLocationId: event.target.value as PatrimonialLocationId })} className="p-2.5 border rounded-lg text-sm">{Object.entries(LOCATION_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></div>
+            <textarea rows={2} value={editForm.description || ''} onChange={(event) => setEditForm({ ...editForm, description: event.target.value })} placeholder="Descripción" className="w-full p-2.5 border rounded-lg text-sm"/>
+            {editForm.category === 'inmuebles' && <div className="grid grid-cols-2 gap-2"><input value={editForm.propertyType || ''} onChange={(event) => setEditForm({ ...editForm, propertyType: event.target.value })} placeholder="Tipo de inmueble" className="p-2.5 border rounded-lg text-sm"/><input value={editForm.address || ''} onChange={(event) => setEditForm({ ...editForm, address: event.target.value })} placeholder="Dirección" className="p-2.5 border rounded-lg text-sm"/></div>}
+            <div className="grid grid-cols-2 gap-2"><label className="text-xs">Fecha de adquisición/incorporación<input type="date" value={editForm.acquisitionDate || ''} onChange={(event) => setEditForm({ ...editForm, acquisitionDate: event.target.value })} className="mt-1 w-full p-2 border rounded text-sm"/></label><label className="text-xs">Valor registrado (Bs)<input type="number" min="0" step="0.01" value={editForm.acquisitionCostBob || 0} onChange={(event) => setEditForm({ ...editForm, acquisitionCostBob: Number(event.target.value) })} className="mt-1 w-full p-2 border rounded text-sm"/></label></div>
+            <div className="grid grid-cols-2 gap-2"><input value={editForm.responsiblePersonName || ''} onChange={(event) => setEditForm({ ...editForm, responsiblePersonName: event.target.value })} placeholder="Responsable (opcional)" className="p-2.5 border rounded-lg text-sm"/><select value={editForm.status || 'available'} onChange={(event) => setEditForm({ ...editForm, status: event.target.value as FixedAssetStatus })} className="p-2.5 border rounded-lg text-sm">{Object.entries(STATUS_LABELS).filter(([key]) => key !== 'disposed').map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></div>
+            <textarea rows={2} value={editForm.notes || ''} onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })} placeholder="Observaciones" className="w-full p-2.5 border rounded-lg text-sm"/>
+            <div className="flex justify-end gap-2"><button type="button" onClick={() => setSelectedAssetForEdit(null)} className="px-3 py-2 border rounded-lg text-sm">Cancelar</button><button disabled={isSubmitting} className="px-3 py-2 bg-[#064e3b] text-white rounded-lg text-sm">{isSubmitting ? 'Guardando…' : 'Guardar cambios'}</button></div>
+          </form>
         </div>
       )}
     </div>

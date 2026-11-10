@@ -1,7 +1,6 @@
 import * as XLSX from 'xlsx'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '../firebase/config.ts'
-import jsPDF from 'jspdf'
+import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
 export type ReportType =
@@ -12,6 +11,14 @@ export type ReportType =
   | 'payroll_expenses'
   | 'fixed_assets'
   | 'consolidated_dashboard'
+  | 'members'
+  | 'loans'
+  | 'fines'
+  | 'sports'
+  | 'physical_inventory'
+  | 'commissions'
+  | 'consumables'
+  | 'incidents'
 
 export interface GetSystemReportInput {
   reportType: ReportType
@@ -90,6 +97,7 @@ export interface ShipmentsReportResult {
 // B2: Cash & Financial
 export interface CashFinancialSummary {
   commercialIncomeCents: number
+  loanRepaymentsCents: number
   commercialIncomeBob: number
   contributionsIncomeCents: number
   contributionsIncomeBob: number
@@ -336,6 +344,9 @@ export interface ConsolidatedDashboardResult {
       totalCount: number
       deliveredCount: number
       inTransitCount: number
+      pendingCount?: number
+      cancelledCount?: number
+      byOriginAgency?: Record<string, number>
       totalBilledCents: number
       totalBilledBob: number
       totalCollectedCents: number
@@ -346,6 +357,8 @@ export interface ConsolidatedDashboardResult {
       commercialIncomeBob: number
       contributionsIncomeCents: number
       contributionsIncomeBob: number
+      loanRepaymentsCents?: number
+      loanRepaymentsBob?: number
       driverRemittancesCents: number
       driverRemittancesBob: number
       expensesCents: number
@@ -362,6 +375,11 @@ export interface ConsolidatedDashboardResult {
       totalValueCents: number
       totalValueBob: number
     }
+    members?: { totalCount: number; activeCount: number; retiredCount: number; duesCollectedCents: number; duesPendingCents: number }
+    loans?: { count: number; principalReceivableCents: number; capitalRecoveredCents: number; balanceReceivableCents: number; operatingIncomeCents: number }
+    fines?: { count: number; amountCents: number; collectedCents: number; pendingCents: number }
+    sports?: { eventCount: number; present: number; late: number; absent: number; exempt: number; exemptionRequests: number; authorizedExemptions: number; sanctioned: number }
+    physicalInventory?: { documentCount: number; documentSheets: number }
   }
 }
 
@@ -369,6 +387,7 @@ export interface ConsolidatedDashboardResult {
  * Consulta el endpoint centralizado de reportes en Cloud Functions
  */
 export async function fetchSystemReport(input: GetSystemReportInput): Promise<any> {
+  const { functions } = await import('../firebase/config.ts')
   const getSystemReportFn = httpsCallable<GetSystemReportInput, any>(functions, 'getSystemReport')
   const result = await getSystemReportFn(input)
   return result.data
@@ -381,10 +400,20 @@ export async function fetchSystemReport(input: GetSystemReportInput): Promise<an
 /**
  * Exportador auténtico a formato Microsoft Excel (.xlsx) nativo
  */
-export function exportToXlsx(filename: string, headers: string[], rows: (string | number)[][]) {
+export function exportToXlsx(
+  filename: string,
+  headers: string[],
+  rows: (string | number)[][],
+  metadata: (string | number)[][] = [],
+  additionalSheets: Array<{ name: string; headers: string[]; rows: (string | number)[][] }> = [],
+) {
   const wb = XLSX.utils.book_new()
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
-  XLSX.utils.book_append_sheet(wb, ws, 'Reporte Expreso Punata')
+  XLSX.utils.book_append_sheet(wb, ws, 'Registros')
+  if (metadata.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Filtro', 'Valor'], ...metadata]), 'Filtros')
+  for (const sheet of additionalSheets) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([sheet.headers, ...sheet.rows]), sheet.name.slice(0, 31))
+  }
   XLSX.writeFile(wb, `${filename}.xlsx`)
 }
 
@@ -453,8 +482,8 @@ export function exportReportToPdf(params: {
   // Metadatos de impresión a la derecha
   doc.setFontSize(8)
   doc.setTextColor(255, 255, 255)
-  doc.text(`Fecha: ${new Date().toLocaleDateString('es-BO')}`, pageWidth - 14, 12, { align: 'right' })
-  doc.text(`Hora: ${new Date().toLocaleTimeString('es-BO')}`, pageWidth - 14, 17, { align: 'right' })
+  doc.text(`Fecha: ${new Date().toLocaleDateString('es-BO', { timeZone: 'America/La_Paz' })}`, pageWidth - 14, 12, { align: 'right' })
+  doc.text(`Hora: ${new Date().toLocaleTimeString('es-BO', { timeZone: 'America/La_Paz' })}`, pageWidth - 14, 17, { align: 'right' })
   if (params.generatedByName) {
     doc.text(`Usuario: ${params.generatedByName}`, pageWidth - 14, 22, { align: 'right' })
   }
@@ -464,7 +493,9 @@ export function exportReportToPdf(params: {
   doc.setTextColor(17, 24, 39)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(14)
-  doc.text(params.title.toUpperCase(), 14, yPos)
+  const titleLines = doc.splitTextToSize(params.title.toUpperCase(), pageWidth - 28)
+  doc.text(titleLines, 14, yPos)
+  yPos += Math.max(0, titleLines.length - 1) * 5
 
   yPos += 6
   doc.setFont('helvetica', 'normal')
@@ -477,37 +508,38 @@ export function exportReportToPdf(params: {
     .filter(Boolean)
     .join('  |  ')
   if (metaText) {
-    doc.text(metaText, 14, yPos)
-    yPos += 6
+    const metaLines = doc.splitTextToSize(metaText, pageWidth - 28)
+    doc.text(metaLines, 14, yPos)
+    yPos += Math.max(6, metaLines.length * 4.5)
   }
 
   // 3. Tarjetas KPI / Resumen Ejecutivo
   if (params.kpiCards && params.kpiCards.length > 0) {
     yPos += 2
-    const cardCount = Math.min(params.kpiCards.length, 4)
+    const visibleCards = params.kpiCards.slice(0, 8)
+    const cardRows = Math.ceil(visibleCards.length / 4)
     const cardGap = 4
-    const totalGap = (cardCount - 1) * cardGap
-    const cardWidth = (pageWidth - 28 - totalGap) / cardCount
-    const cardHeight = 16
-
-    params.kpiCards.slice(0, 4).forEach((kpi, idx) => {
-      const xPos = 14 + idx * (cardWidth + cardGap)
-      doc.setFillColor(243, 244, 246)
-      doc.setDrawColor(209, 213, 219)
-      doc.roundedRect(xPos, yPos, cardWidth, cardHeight, 1.5, 1.5, 'FD')
-
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(7.5)
-      doc.setTextColor(107, 114, 128)
-      doc.text(kpi.label, xPos + 3, yPos + 5)
-
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(10.5)
-      doc.setTextColor(17, 24, 39)
-      doc.text(kpi.value, xPos + 3, yPos + 12)
-    })
-
-    yPos += cardHeight + 6
+    const cardHeight = 20
+    for (let row = 0; row < cardRows; row++) {
+      const rowCards = visibleCards.slice(row * 4, row * 4 + 4)
+      const totalGap = (rowCards.length - 1) * cardGap
+      const cardWidth = (pageWidth - 28 - totalGap) / rowCards.length
+      rowCards.forEach((kpi, idx) => {
+        const xPos = 14 + idx * (cardWidth + cardGap)
+        doc.setFillColor(243, 244, 246)
+        doc.setDrawColor(209, 213, 219)
+        doc.roundedRect(xPos, yPos, cardWidth, cardHeight, 1.5, 1.5, 'FD')
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(7.5)
+        doc.setTextColor(107, 114, 128)
+        doc.text(doc.splitTextToSize(kpi.label, cardWidth - 6).slice(0, 2), xPos + 3, yPos + 5)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9.5)
+        doc.setTextColor(17, 24, 39)
+        doc.text(doc.splitTextToSize(kpi.value, cardWidth - 6).slice(0, 2), xPos + 3, yPos + 16)
+      })
+      yPos += cardHeight + 4
+    }
   }
 
   // 4. Tabla de Datos usando autoTable

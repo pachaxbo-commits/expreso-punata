@@ -21,6 +21,7 @@ const shouldConnectEmulators =
   (import.meta.env.VITE_USE_FIREBASE_EMULATORS === undefined && (import.meta.env.DEV || isLocalhost))
 
 export const isEmulatedEnvironment = shouldConnectEmulators
+export const isPublicDemo = import.meta.env.VITE_PUBLIC_DEMO === 'true'
 
 // Lista de variables de entorno obligatorias para conectar a Firebase Cloud
 const REQUIRED_CLOUD_VARS = [

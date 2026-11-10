@@ -7,22 +7,91 @@ import {
   onSnapshot,
 } from 'firebase/firestore'
 import { functions, db } from '../firebase/config.ts'
-import type { UnionMember, UnionMonthlyDue } from '../types/index.ts'
+import type { DriverDirectoryEntry, UnionMember, UnionMonthlyDue, UnionSportsAttendance, UnionSportsEvent } from '../types/index.ts'
+import { listActiveDriversThroughBackend } from './dispatchService.ts'
 
 export interface ManageUnionMemberInput {
   id?: string
   memberNumber: string
   fullName: string
   ci?: string
+  ciComplement?: string
   phone?: string
+  alternatePhone?: string
+  address?: string
+  locality?: string
+  birthDate?: string
   joinedAt?: string
-  status?: 'active' | 'inactive' | 'suspended' | 'honorary'
+  retiredAt?: string
+  status?: 'active' | 'inactive' | 'suspended' | 'honorary' | 'retired'
   category?: 'propietario_transporte' | 'conductor' | 'socio_general'
   vehiclePlate?: string
   assignedMobileNumber?: string
   monthlyFeeBob?: number
   monthlyFeeCents?: number
   notes?: string
+}
+
+export interface AddUnionMemberChildInput {
+  memberId: string
+  child: {
+    fullName: string
+    ci?: string
+    birthDate?: string
+    phone?: string
+    address?: string
+    notes?: string
+  }
+}
+
+export interface AddUnionMemberChildResult {
+  success: boolean
+  child: {
+    id: string
+    memberId: string
+    fullName: string
+    ci: string
+    birthDate: string | null
+    phone: string
+    address: string
+    notes: string
+    createdAtIso: string
+    createdByUid: string
+    createdByName: string
+  }
+}
+
+export interface UnionMemberChild {
+  id: string
+  memberId: string
+  fullName: string
+  ci?: string
+  birthDate?: string | null
+  phone?: string
+  address?: string
+  notes?: string
+  createdAtIso?: string
+  createdByUid?: string
+  createdByName?: string
+  updatedAtIso?: string
+  updatedByUid?: string
+  updatedByName?: string
+  driverUid?: string | null
+  driverName?: string | null
+  driverLinkedAtIso?: string
+}
+
+export interface UnionRosterMember extends UnionMember {
+  ciComplement?: string
+  alternatePhone?: string
+  locality?: string
+  primaryDriverName?: string | null
+  children: UnionMemberChild[]
+}
+
+type ManageUnionMemberChildResponse = {
+  success: boolean
+  child?: UnionMemberChild
 }
 
 export interface CollectMemberDueInput {
@@ -58,6 +127,7 @@ export interface CollectMemberDueResult {
 export interface MemberAccountStatementResult {
   member: UnionMember
   dues: UnionMonthlyDue[]
+  children: UnionMemberChild[]
   summary: {
     totalDuesCount: number
     totalBilledCents: number
@@ -69,6 +139,192 @@ export interface MemberAccountStatementResult {
     overdueCount: number
     isUpToDate: boolean
   }
+}
+
+export interface UnionLoanInstallment {
+  id: string
+  sequence: number
+  amountCents: number
+  paidAmountCents: number
+  balanceCents: number
+  dueDate: string
+  status: 'pending' | 'partial' | 'paid' | 'overdue'
+  paidAtIso?: string | null
+}
+
+export interface UnionLoanPayment {
+  id: string
+  receiptNumber: string
+  amountCents: number
+  amountBob: number
+  paymentMethod: 'cash' | 'qr' | 'transfer'
+  paidAtIso: string
+  collectedByName: string
+  notes?: string | null
+  allocations: Array<{ installmentId: string; sequence: number; amountCents: number }>
+}
+
+export interface UnionLoan {
+  id: string
+  loanNumber: string
+  memberId: string
+  memberNumber: string
+  memberName: string
+  grantDate: string
+  principalCents: number
+  principalBob: number
+  installmentCount: number
+  installmentAmountCents: number
+  firstDueDate: string
+  notes: string
+  status: 'active' | 'overdue' | 'paid'
+  paidCents: number
+  balanceCents: number
+  balanceBob: number
+  overdueBalanceCents?: number
+  installments: UnionLoanInstallment[]
+  payments: UnionLoanPayment[]
+  createdAtIso: string
+}
+
+export type UnionFineCategory = 'transporte' | 'conflictos' | 'deportes' | 'otros'
+export interface UnionFine {
+  id: string
+  fineNumber: string
+  memberId: string
+  memberNumber: string
+  memberName: string
+  category: UnionFineCategory
+  reason: string
+  description: string
+  date: string
+  amountCents: number
+  balanceCents: number
+  paidCents: number
+  status: 'pending' | 'partial' | 'paid' | 'voided'
+  notes: string
+  createdAtIso: string
+  createdByName: string
+  payments: UnionFinePayment[]
+  source?: 'sports_attendance' | string
+  eventId?: string
+  attendanceStatus?: 'late' | 'absent'
+  financialReviewRequired?: boolean
+}
+export interface UnionFinePayment {
+  id: string
+  fineId: string
+  receiptNumber: string
+  amountCents: number
+  amountBob: number
+  paymentMethod: 'cash' | 'qr' | 'transfer'
+  shiftId: string
+  branchId: string
+  paidAtIso: string
+  collectedByUid: string
+  collectedByName: string
+  notes?: string | null
+}
+export interface CreateUnionFineInput {
+  memberId: string
+  category: UnionFineCategory
+  reason: string
+  description: string
+  date: string
+  amountCents: number
+  notes?: string
+}
+
+export interface CreateUnionLoanInput {
+  memberId: string
+  principalCents: number
+  installmentCount: number
+  firstDueDate: string
+  grantDate?: string
+  notes?: string
+}
+
+export interface CollectUnionLoanPaymentInput {
+  loanId: string
+  amountCents: number
+  paymentMethod: 'cash' | 'qr' | 'transfer'
+  shiftId?: string | null
+  branchId?: string
+  notes?: string
+  idempotencyKey: string
+}
+
+export async function createUnionLoanThroughBackend(input: CreateUnionLoanInput): Promise<{ success: boolean; loan: UnionLoan; installments: UnionLoanInstallment[] }> {
+  const callable = httpsCallable<CreateUnionLoanInput, { success: boolean; loan: UnionLoan; installments: UnionLoanInstallment[] }>(functions, 'createUnionLoan')
+  return (await callable(input)).data
+}
+
+export async function collectUnionLoanPaymentThroughBackend(input: CollectUnionLoanPaymentInput): Promise<{ success: boolean; payment: UnionLoanPayment; balanceCents: number; status: UnionLoan['status'] }> {
+  const callable = httpsCallable<CollectUnionLoanPaymentInput, { success: boolean; payment: UnionLoanPayment; balanceCents: number; status: UnionLoan['status'] }>(functions, 'collectUnionLoanPayment')
+  return (await callable(input)).data
+}
+
+export async function listUnionLoansThroughBackend(memberId?: string): Promise<UnionLoan[]> {
+  const callable = httpsCallable<{ memberId?: string }, { success: boolean; loans: UnionLoan[] }>(functions, 'listUnionLoans')
+  return (await callable(memberId ? { memberId } : {})).data.loans || []
+}
+
+export async function createUnionFineThroughBackend(input: CreateUnionFineInput): Promise<UnionFine> {
+  const callable = httpsCallable<CreateUnionFineInput, { success: boolean; fine: UnionFine }>(functions, 'createUnionFine')
+  return (await callable(input)).data.fine
+}
+
+export async function listUnionFinesThroughBackend(filters: { memberId?: string; category?: UnionFineCategory; status?: UnionFine['status'] } = {}): Promise<UnionFine[]> {
+  const callable = httpsCallable<typeof filters, { success: boolean; fines: UnionFine[] }>(functions, 'listUnionFines')
+  return (await callable(filters)).data.fines || []
+}
+
+export interface CollectUnionFinePaymentInput {
+  fineId: string
+  amountCents: number
+  paymentMethod: 'cash' | 'qr' | 'transfer'
+  shiftId: string
+  branchId: string
+  notes?: string
+  idempotencyKey: string
+}
+export async function collectUnionFinePaymentThroughBackend(input: CollectUnionFinePaymentInput): Promise<{ success: boolean; payment: UnionFinePayment; paidCents: number; balanceCents: number; status: UnionFine['status'] }> {
+  const callable = httpsCallable<CollectUnionFinePaymentInput, { success: boolean; payment: UnionFinePayment; paidCents: number; balanceCents: number; status: UnionFine['status'] }>(functions, 'collectUnionFinePayment')
+  return (await callable(input)).data
+}
+
+export interface CreateUnionSportsEventInput {
+  date: string
+  scheduledTime: string
+  activityName: string
+  place?: string
+  notes?: string
+  memberIds: string[]
+  idempotencyKey: string
+}
+export async function createUnionSportsEventThroughBackend(input: CreateUnionSportsEventInput): Promise<{ success: boolean; eventId: string }> {
+  const callable = httpsCallable<CreateUnionSportsEventInput, { success: boolean; eventId: string }>(functions, 'createUnionSportsEvent')
+  return (await callable(input)).data
+}
+export async function listUnionSportsEventsThroughBackend(filters: { eventId?: string; memberId?: string; startDate?: string; endDate?: string; status?: 'scheduled' | 'completed' } = {}): Promise<UnionSportsEvent[]> {
+  const callable = httpsCallable<typeof filters, { success: boolean; events: UnionSportsEvent[] }>(functions, 'listUnionSportsEvents')
+  return (await callable(filters)).data.events || []
+}
+export async function setUnionSportsAttendanceThroughBackend(input: { eventId: string; memberId: string; attendance: UnionSportsAttendance; reason?: string; idempotencyKey: string }): Promise<{ success: boolean; attendance: UnionSportsAttendance; fineId: string | null; financialReviewRequired: boolean }> {
+  const callable = httpsCallable<typeof input, { success: boolean; attendance: UnionSportsAttendance; fineId: string | null; financialReviewRequired: boolean }>(functions, 'setUnionSportsAttendance')
+  return (await callable(input)).data
+}
+export async function requestUnionSportsJustificationThroughBackend(input: { eventId: string; memberId: string; reason: string; requestDate: string; idempotencyKey: string }): Promise<{ success: boolean; justificationId: string }> {
+  const callable = httpsCallable<typeof input, { success: boolean; justificationId: string }>(functions, 'requestUnionSportsJustification')
+  return (await callable(input)).data
+}
+export async function decideUnionSportsJustificationThroughBackend(input: { eventId: string; memberId: string; justificationId: string; decision: 'approved' | 'rejected'; decisionNotes?: string; idempotencyKey: string }): Promise<{ success: boolean; attendance: UnionSportsAttendance; financialReviewRequired: boolean }> {
+  const callable = httpsCallable<typeof input, { success: boolean; attendance: UnionSportsAttendance; financialReviewRequired: boolean }>(functions, 'decideUnionSportsJustification')
+  return (await callable(input)).data
+}
+export async function completeUnionSportsEventThroughBackend(input: { eventId: string; idempotencyKey: string }): Promise<{ success: boolean }> {
+  const callable = httpsCallable<typeof input, { success: boolean }>(functions, 'completeUnionSportsEvent')
+  return (await callable(input)).data
 }
 
 /**
@@ -83,6 +339,80 @@ export async function manageUnionMemberThroughBackend(
   )
   const res = await callFn(input)
   return res.data
+}
+
+/** Registra un hijo en la subcolección del afiliado mediante la callable autorizada. */
+export async function addUnionMemberChildThroughBackend(
+  input: AddUnionMemberChildInput
+): Promise<AddUnionMemberChildResult> {
+  const callFn = httpsCallable<AddUnionMemberChildInput & { action: 'addChild' }, AddUnionMemberChildResult>(
+    functions,
+    'manageUnionMember'
+  )
+  const res = await callFn({
+    memberId: input.memberId,
+    action: 'addChild',
+    child: input.child,
+  })
+  return res.data
+}
+
+/** Actualiza únicamente los campos enviados del hijo, conservando el resto. */
+export async function updateUnionMemberChildThroughBackend(input: {
+  memberId: string
+  childId: string
+  child: Partial<Pick<UnionMemberChild, 'fullName' | 'ci' | 'birthDate' | 'phone' | 'address' | 'notes'>>
+}): Promise<UnionMemberChild> {
+  const callFn = httpsCallable<{
+    action: 'updateChild'
+    memberId: string
+    childId: string
+    child: typeof input.child
+  }, ManageUnionMemberChildResponse>(functions, 'manageUnionMember')
+  const result = await callFn({ action: 'updateChild', ...input })
+  if (!result.data.child) throw new Error('La respuesta del servidor no incluyó el hijo actualizado.')
+  return result.data.child
+}
+
+/** Carga el directorio vigente de conductores mediante la callable ya existente. */
+export async function listDriversForUnionLinksThroughBackend(): Promise<DriverDirectoryEntry[]> {
+  const result = await listActiveDriversThroughBackend()
+  return (result.drivers || []).filter((driver: DriverDirectoryEntry) => driver.isActive)
+}
+
+/** Actualiza el vínculo administrativo de chofer principal o de un hijo. */
+export async function setUnionMemberDriverLinkThroughBackend(input: {
+  memberId: string
+  driverUid: string | null
+  childId?: string
+}): Promise<{ success: boolean; relation: {
+  driverUid?: string | null
+  driverName?: string | null
+  primaryDriverUid?: string | null
+  primaryDriverName?: string | null
+  driverLinkedAtIso?: string
+  primaryDriverLinkedAtIso?: string
+  driver: { uid: string; fullName: string } | null
+} }> {
+  const callFn = httpsCallable<{
+    action: 'setDriverLink'
+    memberId: string
+    driverUid: string | null
+    childId?: string
+  }, {
+    success: boolean
+    relation: {
+      driverUid?: string | null
+      driverName?: string | null
+      primaryDriverUid?: string | null
+      primaryDriverName?: string | null
+      driverLinkedAtIso?: string
+      primaryDriverLinkedAtIso?: string
+      driver: { uid: string; fullName: string } | null
+    }
+  }>(functions, 'manageUnionMember')
+  const result = await callFn({ action: 'setDriverLink', ...input })
+  return result.data
 }
 
 /**
@@ -132,6 +462,22 @@ export async function getMemberAccountStatementThroughBackend(
   )
   const res = await callFn({ memberId })
   return res.data
+}
+
+/** Lee el padrón y los hijos agrupados mediante una callable con los permisos de lectura existentes. */
+export async function getUnionMembersRosterThroughBackend(memberIds?: string[]): Promise<UnionRosterMember[]> {
+  const callFn = httpsCallable<{ memberIds?: string[] }, { success: boolean; members: UnionRosterMember[] }>(
+    functions,
+    'getUnionMembersRoster'
+  )
+  if (!memberIds) {
+    const response = await callFn({})
+    return response.data.members || []
+  }
+  const chunks: string[][] = []
+  for (let index = 0; index < memberIds.length; index += 500) chunks.push(memberIds.slice(index, index + 500))
+  const responses = await Promise.all(chunks.map((chunk) => callFn({ memberIds: chunk })))
+  return responses.flatMap((response) => response.data.members || [])
 }
 
 /**

@@ -245,6 +245,10 @@ export interface Shipment {
   paidCashierUid?: string
   paidCashierName?: string
   paidShiftId?: string
+  cashShiftId?: string | null
+  financialMovementId?: string | null
+  singleTransfer?: boolean
+  manifestId?: string | null
 
   // Asignación de conductor/vehículo
   assignedVehicle?: {
@@ -289,6 +293,18 @@ export interface Shipment {
   }>
 }
 
+export interface ShipmentNotification {
+  id: string
+  trackingCode: string
+  originBranchId: string
+  destinationBranchId: string
+  status: string
+  createdAtIso: string
+  eventType: 'shipment_registered'
+  readByUids: string[]
+  isReadByCurrentUser: boolean
+}
+
 export interface CashShiftBreakdown {
   initialCashCents: number
   cashIncomeCents: number
@@ -298,6 +314,8 @@ export interface CashShiftBreakdown {
   shipmentsIncomeCents: number
   codIncomeCents: number
   driverRemittanceCents?: number
+  loanRepaymentsCents?: number
+  fineIncomeCents?: number
   contributionsIncomeCents: number
   monthlyFeesIncomeCents: number
   otherIncomeCents: number
@@ -381,7 +399,10 @@ export type FixedAssetCategory =
   | 'comunicacion'
   | 'balanzas_pesaje'
   | 'oficina'
+  | 'inmuebles'
   | 'otro'
+
+export type PatrimonialLocationId = 'sede_punata' | 'oficina_punata' | 'oficina_cochabamba'
 
 export type FixedAssetStatus =
   | 'available'
@@ -400,6 +421,13 @@ export interface FixedAsset {
   category: FixedAssetCategory
   description: string
   branchId: string // 'punata' | 'cochabamba'
+  patrimonialLocationId?: PatrimonialLocationId
+  quantityGroupId?: string
+  quantityIndex?: number
+  quantityTotal?: number
+  qrPayload?: string
+  propertyType?: string
+  address?: string
   physicalLocation: string
   responsiblePersonUid?: string
   responsiblePersonName: string
@@ -415,6 +443,21 @@ export interface FixedAsset {
   disposedAtIso?: string
   disposedByUid?: string
   disposedByName?: string
+}
+
+export interface PhysicalInventoryDocument {
+  id: string
+  title: string
+  documentType: string
+  description: string
+  patrimonialLocationId: PatrimonialLocationId
+  sheetCount: number
+  documentDate: string
+  responsibleReference?: string
+  status: 'active' | 'archived' | 'missing'
+  notes?: string
+  createdAtIso?: string
+  updatedAtIso?: string
 }
 
 export interface FixedAssetAuditLog {
@@ -522,17 +565,66 @@ export interface UnionMember {
   memberNumber: string
   fullName: string
   ci: string
+  ciComplement?: string
   phone: string
+  alternatePhone?: string
+  address?: string
+  locality?: string
+  birthDate?: string
   joinedAt: string
-  status: 'active' | 'inactive' | 'suspended' | 'honorary'
+  retiredAt?: string
+  status: 'active' | 'inactive' | 'suspended' | 'honorary' | 'retired'
   category: 'propietario_transporte' | 'conductor' | 'socio_general'
   vehiclePlate?: string
   assignedMobileNumber?: string
+  primaryDriverUid?: string | null
+  primaryDriverName?: string | null
+  primaryDriverLinkedAtIso?: string
   monthlyFeeBob: number
   monthlyFeeCents?: number
   notes?: string
   createdAtIso?: string
   updatedAtIso?: string
+}
+
+export type UnionSportsAttendance = 'pending' | 'present' | 'late' | 'absent' | 'exempt'
+export type UnionSportsEventStatus = 'scheduled' | 'completed'
+export interface UnionSportsJustification {
+  id: string
+  reason: string
+  requestDate: string
+  requestedAtIso: string
+  requestedByUid: string
+  requestedByName: string
+  status: 'pending' | 'approved' | 'rejected'
+  decisionByUid?: string
+  decisionByName?: string
+  decisionAtIso?: string
+  decisionNotes?: string
+}
+export interface UnionSportsParticipant {
+  id: string
+  memberId: string
+  memberNumber: string
+  memberName: string
+  attendance: UnionSportsAttendance
+  attendanceHistory: Array<{ attendance: UnionSportsAttendance; changedAtIso: string; changedByName: string; reason?: string }>
+  fineId?: string | null
+  sportsFine?: { id: string; fineNumber: string; amountCents: number; paidCents: number; balanceCents: number; status: string; financialReviewRequired?: boolean } | null
+  justifications: UnionSportsJustification[]
+}
+export interface UnionSportsEvent {
+  id: string
+  date: string
+  scheduledTime: string
+  activityName: string
+  place?: string
+  notes?: string
+  status: UnionSportsEventStatus
+  participantCount: number
+  createdAtIso: string
+  createdByName: string
+  participants: UnionSportsParticipant[]
 }
 
 export interface UnionMonthlyDue {
@@ -611,6 +703,7 @@ export interface ManifestDiscrepancy {
 }
 
 export interface DispatchManifest {
+  singleTransfer?: boolean
   id: string
   manifestNumber: string // ej. 'MAN-PUN-2026-0001'
   originBranchId: string

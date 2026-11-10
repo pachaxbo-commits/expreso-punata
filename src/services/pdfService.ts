@@ -46,12 +46,13 @@ import jsPDF from 'jspdf'
 import QRCode from 'qrcode'
 import type { Shipment, CashShift, DispatchManifest } from '../types/index.ts'
 import { formatCurrencyBob } from '../domain/parcelEngine.ts'
+import { fetchOfficialBranchPhone } from './branchContactService.ts'
 
 /**
  * Genera la Guía Oficial de Encomienda de Expreso Punata en PDF con código QR integrado.
  * Formato de media página / A5 horizontal o ticket oficial para impresión en ventanilla.
  */
-export async function generateShipmentGuidePdf(shipment: Shipment): Promise<Blob> {
+export async function generateShipmentGuidePdf(shipment: Shipment, agencyPhone = 'No configurado'): Promise<Blob> {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -83,7 +84,7 @@ export async function generateShipmentGuidePdf(shipment: Shipment): Promise<Blob
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'normal')
   doc.text('Transporte Interprovincial Punata - Cochabamba', 10, 20)
-  doc.text('Punata: 4-4571234 — Cochabamba: 4-4256789', 10, 25)
+  doc.text(`Teléfono de agencia: ${agencyPhone || 'No configurado'}`, 10, 25, { maxWidth: 72 })
 
   // Recuadro de Guía
   doc.setFillColor(255, 255, 255)
@@ -222,7 +223,7 @@ export async function generateShipmentGuidePdf(shipment: Shipment): Promise<Blob
   const isPaid = shipment.paymentStatus === 'paid'
   const payLabel = isPaid
     ? `PAGADO EN ORIGEN (${(shipment.paymentMethod || 'EFECTIVO').toUpperCase()})`
-    : 'COBRO CONTRAENTREGA EN DESTINO (COD)'
+    : 'PENDIENTE DE COBRO EN ORIGEN'
   doc.setTextColor(isPaid ? 22 : 185, isPaid ? 101 : 28, isPaid ? 52 : 28)
   doc.text(`Condición: ${payLabel}`, 52, 141)
 
@@ -255,7 +256,8 @@ export async function generateShipmentGuidePdf(shipment: Shipment): Promise<Blob
  * Dispara la visualización e impresión del PDF en una nueva pestaña del navegador.
  */
 export async function printShipmentGuidePdf(shipment: Shipment): Promise<void> {
-  const blob = await generateShipmentGuidePdf(shipment)
+  const agencyPhone = await fetchOfficialBranchPhone(shipment.originBranchId)
+  const blob = await generateShipmentGuidePdf(shipment, agencyPhone || 'No configurado')
   const url = URL.createObjectURL(blob)
   window.open(url, '_blank')
 }
@@ -648,7 +650,7 @@ export async function generateDispatchManifestPdf(manifest: DispatchManifest): P
     if (isCod) {
       doc.setFont('helvetica', 'bold')
       doc.setTextColor(180, 83, 9)
-      doc.text('CONTRAENTREGA', colX.timing, y + 4.2)
+      doc.text('POR PAGAR', colX.timing, y + 4.2)
       doc.text(formatCurrencyBob(item.finalAmountCents, true), colX.amount, y + 4.2)
     } else {
       doc.setFont('helvetica', 'normal')
@@ -817,7 +819,7 @@ export async function generateDispatchManifestTicket80mmPdf(manifest: DispatchMa
     const isCod = item.paymentTiming === 'destination_cod' && item.paymentStatus !== 'paid'
     if (isCod) {
       doc.setTextColor(180, 83, 9)
-      doc.text(`COD: ${formatCurrencyBob(item.finalAmountCents, true)}`, rightMargin, y, { align: 'right' })
+      doc.text(`POR PAGAR: ${formatCurrencyBob(item.finalAmountCents, true)}`, rightMargin, y, { align: 'right' })
     } else {
       doc.setTextColor(22, 101, 52)
       doc.text('PAGADO', rightMargin, y, { align: 'right' })
@@ -985,7 +987,7 @@ export async function generateDeliveryProofPdf(shipment: Shipment): Promise<Blob
   doc.setFontSize(8)
   doc.setTextColor(22, 101, 52)
   if (shipment.paymentTiming === 'destination_cod') {
-    doc.text('COBRO CONTRAENTREGA (COD) REALIZADO CONFORME', 14, y)
+    doc.text('COBRO DE ENCOMIENDA POR PAGAR REALIZADO CONFORME', 14, y)
     y += 4.5
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(7.5)
@@ -1139,7 +1141,7 @@ export async function generateDeliveryProofTicket80mmPdf(shipment: Shipment): Pr
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(7.5)
     doc.setTextColor(180, 83, 9)
-    doc.text('COBRO CONTRAENTREGA (COD):', leftMargin, y)
+    doc.text('COBRO DE ENCOMIENDA POR PAGAR:', leftMargin, y)
     doc.text(formatCurrencyBob(shipment.finalAmountCents, true), rightMargin, y, { align: 'right' })
     y += 3.5
     doc.setFont('helvetica', 'normal')

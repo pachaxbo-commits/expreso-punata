@@ -25,14 +25,17 @@ import { fetchSystemConfig } from '../../services/configService.ts'
 import { createShipmentThroughBackend, extractCustomerSuggestions } from '../../services/shipmentService.ts'
 import { printShipmentGuidePdf } from '../../services/pdfService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
+import { applyOfficialBranchPhone } from '../../services/branchContactService.ts'
 import { FileText } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext.tsx'
+import { subscribeActiveCashShift } from '../../services/cashService.ts'
 
 interface WizardProps {
   isOpen: boolean
   onClose: () => void
   onSuccess: (shipment: Shipment) => void
   existingShipments: Shipment[]
+  demo?: { branchId: string; operator: string; register: (shipment: Partial<Shipment>) => Shipment }
 }
 
 export const NewShipmentWizardModal: React.FC<WizardProps> = ({
@@ -40,8 +43,10 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   onClose,
   onSuccess,
   existingShipments,
+  demo,
 }) => {
-  const { currentBranchId, userProfile, hasRole } = useAuth()
+  const { currentBranchId: authBranchId, userProfile, hasRole } = useAuth()
+  const currentBranchId = demo?.branchId || authBranchId
   const isDirectiva = hasRole(['directiva_admin'])
 
   // Sugerencias de clientes para autocompletado rápido
@@ -99,17 +104,30 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   const [prohibitedNoticeAccepted, setProhibitedNoticeAccepted] = useState(true)
 
   // Estado del Paso 4: Pago
-  const [paymentTiming, setPaymentTiming] = useState<PaymentTiming>('origin_paid')
+  const [paymentTiming, setPaymentTiming] = useState<Exclude<PaymentTiming, 'origin_pending'>>('origin_paid')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
   const [discountBob, setDiscountBob] = useState<number>(0)
   const [customPriceBob, setCustomPriceBob] = useState<string>('')
   const [isPriceCustomized, setIsPriceCustomized] = useState(false)
   const [priceAdjustmentReason, setPriceAdjustmentReason] = useState('')
   const [systemTariffs, setSystemTariffs] = useState<Partial<ParcelTariffConfig> | null>(null)
+  const [cashShiftState, setCashShiftState] = useState<'checking' | 'open' | 'closed' | 'unavailable'>('checking')
+
+  useEffect(() => {
+    if (!isOpen || demo || !userProfile?.uid || !originBranchId) return
+    setCashShiftState('checking')
+    return subscribeActiveCashShift(
+      userProfile.uid,
+      originBranchId,
+      shift => setCashShiftState(shift ? 'open' : 'closed'),
+      () => setCashShiftState('unavailable'),
+    )
+  }, [isOpen, demo, originBranchId, userProfile?.uid])
 
   useEffect(() => {
     let isMounted = true
     if (isOpen) {
+      if (demo) return
       fetchSystemConfig().then(res => {
         if (isMounted && res.config?.tariffs) {
           setSystemTariffs({
@@ -268,7 +286,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
     setErrorMessage(null)
 
     try {
-      const result = await createShipmentThroughBackend({
+      const input: Parameters<typeof createShipmentThroughBackend>[0] = {
         originBranchId,
         destinationBranchId,
         deliveryType,
@@ -286,7 +304,13 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
           : (isZeroPrice ? priceAdjustmentReason.trim() : undefined),
         prohibitedGoodsNoticeAccepted: prohibitedNoticeAccepted,
         idempotencyKey,
-      })
+      }
+      const result = demo ? { shipment: demo.register({
+        ...input,
+        packageCount: items.reduce((total, item) => total + item.quantity, 0),
+        totalWeightKg: items.reduce((total, item) => total + (item.weightKg || 0) * item.quantity, 0),
+        finalAmountCents: effectiveFinalAmountCents,
+      }) } : await createShipmentThroughBackend(input)
 
       setCreatedShipment(result.shipment)
       setStep(5) // Pantalla de éxito
@@ -472,7 +496,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
                   Modalidad de Entrega en Destino
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {[
                     { id: 'agency', label: 'En Agencia', desc: 'Recojo en estante de sucursal', icon: Building },
                     { id: 'home', label: 'A Domicilio', desc: '+Bs. 12.00 (Entrega en puerta)', icon: Home },
@@ -958,9 +982,10 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
           {step === 4 && (
             <div className="space-y-4">
               {/* Opciones de Cobro */}
-              <div data-tutorial-target="shipment-payment-mode" className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div data-tutorial-target="shipment-payment-mode" className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <button
                   type="button"
+                  aria-pressed={paymentTiming === 'origin_paid'}
                   onClick={() => setPaymentTiming('origin_paid')}
                   className={`p-3 rounded-xl border text-left transition-all ${
                     paymentTiming === 'origin_paid'
@@ -970,58 +995,37 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-xs text-slate-800">
-                      🟢 Pagado en Origen
+                      Pagado en origen
                     </span>
                     <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
                       Cobrado
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 leading-snug">
-                    El remitente cancela en ventanilla ahora con caja activa.
+                    El remitente paga el envío al registrar la encomienda.
                   </p>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setPaymentTiming('origin_pending')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
-                    paymentTiming === 'origin_pending'
-                      ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-600'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs text-slate-800">
-                      🔵 Pendiente en Origen
-                    </span>
-                    <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
-                      Por Cobrar
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 leading-snug">
-                    El remitente deja el paquete y cancelará antes de despachar.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
+                  aria-pressed={paymentTiming === 'destination_cod'}
                   onClick={() => setPaymentTiming('destination_cod')}
                   className={`p-3 rounded-xl border text-left transition-all ${
                     paymentTiming === 'destination_cod'
-                      ? 'border-amber-600 bg-amber-50 ring-2 ring-amber-600'
+                      ? 'border-[#064e3b] bg-emerald-50 ring-2 ring-[#064e3b]'
                       : 'border-slate-200 bg-white hover:border-slate-300'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-xs text-slate-800">
-                      🟡 Contraentrega (COD)
+                      Por pagar
                     </span>
                     <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded">
                       Destino
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 leading-snug">
-                    El destinatario cancela en sucursal de destino al retirar.
+                    El destinatario paga el envío en la sucursal de destino cuando recoge la encomienda.
                   </p>
                 </button>
               </div>
@@ -1029,6 +1033,16 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
               {/* Si es pagado en origen, seleccionar medio de pago */}
               {paymentTiming === 'origin_paid' && (
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  {!demo && cashShiftState === 'closed' && (
+                    <div role="status" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      No hay una caja abierta para tu usuario en {INITIAL_BRANCHES.find(branch => branch.id === originBranchId)?.name || originBranchId}. Abre tu turno desde “Caja del Turno” antes de registrar un cobro en origen. También puedes elegir “Por pagar” si el destinatario pagará en destino.
+                    </div>
+                  )}
+                  {!demo && cashShiftState === 'unavailable' && (
+                    <div role="status" className="mb-3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">
+                      No se pudo comprobar el turno de caja. El servidor validará la sucursal, el operador y el estado del turno al emitir la guía.
+                    </div>
+                  )}
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
                     Medio de Cobro en Ventanilla
                   </label>
@@ -1079,7 +1093,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                     <span className="font-semibold text-slate-800">Bultos:</span> {items.length} paquete(s) • {totalWeight} kg
                   </div>
                   <div>
-                    <span className="font-semibold text-slate-800">Operador:</span> {userProfile?.fullName || 'Ventanilla'}
+                    <span className="font-semibold text-slate-800">Operador:</span> {demo?.operator || userProfile?.fullName || 'Ventanilla'}
                   </div>
                 </div>
 
@@ -1140,7 +1154,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
-                    const doc = printEngine.buildFromShipment(createdShipment, userProfile?.fullName || 'Operador')
+                    const doc = await applyOfficialBranchPhone(printEngine.buildFromShipment(createdShipment, userProfile?.fullName || 'Operador'), createdShipment.originBranchId)
                     await printEngine.printDocument(doc)
                   }}
                   className="px-5 py-2.5 bg-[#064e3b] hover:bg-[#065f46] text-[#facc15] font-bold text-xs rounded-xl shadow-md flex items-center gap-2"

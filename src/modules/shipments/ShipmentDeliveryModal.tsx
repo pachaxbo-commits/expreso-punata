@@ -1,4 +1,6 @@
+import { fetchCurrentShipment } from '../../services/shipmentService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
+import { applyOfficialBranchPhone } from '../../services/branchContactService.ts'
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import {
   X,
@@ -12,7 +14,7 @@ import {
   ShieldCheck,
   Boxes,
 } from 'lucide-react'
-import type { Shipment, UserProfile, Branch } from '../../types/index.ts'
+import type { Shipment, UserProfile, Branch, ParcelDeliveryRecord } from '../../types/index.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import { deliverShipmentThroughBackend } from '../../services/dispatchService.ts'
 import {
@@ -28,6 +30,7 @@ interface ShipmentDeliveryModalProps {
   currentBranch: Branch
   initialShipment?: Shipment | null
   availableShipments?: Shipment[]
+  onDemoDelivery?: (shipmentId: string, record: Partial<ParcelDeliveryRecord>) => void
 }
 
 export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
@@ -38,6 +41,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
   currentBranch,
   initialShipment,
   availableShipments = [],
+  onDemoDelivery,
 }) => {
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(initialShipment || null)
   const [searchCode, setSearchCode] = useState('')
@@ -56,6 +60,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
   // Estado de procesamiento y éxito
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [recoveredDelivery, setRecoveredDelivery] = useState(false)
   const [completedShipment, setCompletedShipment] = useState<Shipment | null>(null)
   const [savedSignatureDataUrl, setSavedSignatureDataUrl] = useState<string>('')
 
@@ -119,6 +124,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
       setAuthorizationNote('')
     }
     setCompletedShipment(null)
+    setRecoveredDelivery(false)
     setErrorMessage(null)
     clearSignature()
   }, [isOpen, initialShipment])
@@ -188,6 +194,17 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
 
     const signatureDataUrl = canvasRef.current.toDataURL('image/png')
 
+    if (onDemoDelivery) {
+      onDemoDelivery(selectedShipment.id, {
+        receivedByName: receivedByName.trim(),
+        receivedByDocType,
+        receivedByDocNumber: receivedByDocNumber.trim(),
+        recipientRelationship,
+        signatureDataUrl,
+      })
+      return
+    }
+
     setLoading(true)
     setErrorMessage(null)
 
@@ -215,9 +232,24 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
       setSavedSignatureDataUrl(signatureDataUrl)
       setCompletedShipment(updatedShipment)
       onSuccess(updatedShipment)
-    } catch (err: any) {
-      console.error('[ShipmentDeliveryModal] Error al entregar:', err)
-      setErrorMessage(err.message || 'Error al procesar la entrega en ventanilla.')
+    } catch (error) {
+      const current = await fetchCurrentShipment(selectedShipment.id).catch(() => null)
+      if (current?.status === 'delivered') {
+        setRecoveredDelivery(true)
+        setCompletedShipment(current)
+        onSuccess(current)
+      } else {
+        if (current) setSelectedShipment(current)
+        const paidDuringAttempt = current?.paymentStatus === 'paid' && selectedShipment.paymentStatus !== 'paid'
+        const code = (error as { code?: string } | null)?.code
+        if (paidDuringAttempt) {
+          setErrorMessage('El cobro ya está registrado. Revisa la guía antes de confirmar la entrega.')
+        } else if (current && ['functions/failed-precondition', 'functions/invalid-argument', 'functions/permission-denied'].includes(code || '') && error instanceof Error) {
+          setErrorMessage(error.message)
+        } else {
+          setErrorMessage('No se pudo confirmar el resultado. Consulta el estado de la guía antes de volver a intentar.')
+        }
+      }
     } finally {
       setLoading(false)
     }
@@ -275,7 +307,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
 
             <div className="space-y-1">
               <h3 className="text-lg font-extrabold text-slate-800">
-                ¡ENCOMIENDA ENTREGADA CONFORME!
+                {recoveredDelivery ? 'ENTREGA YA REGISTRADA' : '¡ENCOMIENDA ENTREGADA CONFORME!'}
               </h3>
               <p className="text-sm font-mono font-bold text-[#064e3b]">
                 Guía: {completedShipment.trackingCode}
@@ -283,9 +315,9 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
               <p className="text-xs text-slate-600">
                 Retirada por: <strong className="text-slate-800">{completedShipment.deliveryRecord?.receivedByName}</strong> ({completedShipment.deliveryRecord?.recipientRelationship})
               </p>
-              {completedShipment.paymentTiming === 'destination_cod' && (
+              {completedShipment.paymentTiming === 'destination_cod' && completedShipment.paymentStatus === 'paid' && (
                 <p className="text-xs font-semibold text-emerald-700 bg-emerald-50 py-1 px-3 rounded-full inline-block mt-1">
-                  ✓ Cobro COD de {formatCurrencyBob(completedShipment.finalAmountCents, true)} ingresado a caja.
+                  ✓ Cobro en destino de {formatCurrencyBob(completedShipment.finalAmountCents, true)} registrado.
                 </p>
               )}
             </div>
@@ -305,7 +337,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
-                    const doc = printEngine.buildFromShipment(completedShipment, currentUser.fullName, true, savedSignatureDataUrl)
+                    const doc = await applyOfficialBranchPhone(printEngine.buildFromShipment(completedShipment, currentUser.fullName, true, savedSignatureDataUrl), completedShipment.destinationBranchId)
                     await printEngine.printDocument(doc)
                   }}
                   className="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
@@ -387,7 +419,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
                               {formatCurrencyBob(s.finalAmountCents, true)}
                             </span>
                             <span className={`block text-[10px] font-bold ${s.paymentTiming === 'destination_cod' ? 'text-amber-800' : 'text-emerald-700'}`}>
-                              {s.paymentTiming === 'destination_cod' ? 'COBRAR COD' : 'PAGADO'}
+                              {s.paymentStatus === 'paid' ? 'PAGADO' : s.paymentTiming === 'destination_cod' ? 'POR PAGAR' : 'PENDIENTE EN ORIGEN'}
                             </span>
                           </div>
                         </div>
@@ -430,7 +462,7 @@ export const ShipmentDeliveryModal: React.FC<ShipmentDeliveryModalProps> = ({
                     <div className="flex items-center gap-2 text-amber-900">
                       <DollarSign className="w-5 h-5 text-amber-600 shrink-0" />
                       <div>
-                        <strong className="block">ENCOMIENDA CONTRAENTREGA (COD)</strong>
+                        <strong className="block">ENCOMIENDA POR PAGAR</strong>
                         <span>Debe cobrar antes de entregar al cliente.</span>
                       </div>
                     </div>

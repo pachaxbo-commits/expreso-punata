@@ -41,6 +41,34 @@ interface ReportsManagementViewProps {
 
 type DatePreset = 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'custom'
 
+const GENERIC_REPORTS: ReportType[] = ['members', 'loans', 'fines', 'sports', 'physical_inventory', 'commissions', 'consumables', 'incidents']
+const GENERIC_REPORT_LABELS: Record<string, string> = {
+  members: 'Afiliados y obligaciones', loans: 'Préstamos', fines: 'Multas y sanciones',
+  sports: 'Deportes y asistencia', physical_inventory: 'Patrimonio y documentos',
+  commissions: 'Comisiones de conductores', consumables: 'Almacén logístico', incidents: 'Incidencias de encomiendas',
+}
+const genericReportRecords = (data: any) => [
+  ...(Array.isArray(data?.records) ? data.records.map((record: any) => ({ ...record, tipoRegistro: data.reportType })) : []),
+  ...(Array.isArray(data?.documents) ? data.documents.map((record: any) => ({ ...record, tipoRegistro: 'documento_fisico' })) : []),
+  ...(Array.isArray(data?.fines) ? data.fines.map((record: any) => ({ ...record, tipoRegistro: 'multa' })) : []),
+  ...(Array.isArray(data?.attendanceRecords) ? data.attendanceRecords.map((record: any) => ({ ...record, tipoRegistro: 'asistencia_deportiva' })) : []),
+  ...(Array.isArray(data?.movements) ? data.movements.map((record: any) => ({ ...record, tipoRegistro: 'movimiento_insumo' })) : []),
+]
+const reportDetailCount = (data: any) => Array.isArray(data?.records) ? genericReportRecords(data).length :
+  (Array.isArray(data?.payrollPayments) ? data.payrollPayments.length : 0) + (Array.isArray(data?.expenses) ? data.expenses.length : 0)
+const dashboardExportRows = (dashboard: any) => Object.entries(dashboard || {}).flatMap(([section, values]) =>
+  Object.entries((values || {}) as Record<string, unknown>)
+    .filter(([, value]) => typeof value === 'number' || typeof value === 'string')
+    .map(([key, value]) => [section, key, typeof value === 'number' && key.endsWith('Cents') ? formatCurrencyBob(value, true) : String(value)])
+)
+const genericReportColumns = (records: any[]) => Array.from(new Set(records.flatMap((record) => Object.entries(record)
+  .filter(([, value]) => value === null || ['string', 'number', 'boolean'].includes(typeof value))
+  .map(([key]) => key))))
+const genericReportCell = (value: any) => value === null || value === undefined ? '' : typeof value === 'number' ? value : String(value)
+const laPazDateParts = () => Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit', day: '2-digit',
+}).formatToParts(new Date()).map(({ type, value }) => [type, value])) as { year: string; month: string; day: string }
+
 export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
   currentUser,
   currentBranch,
@@ -60,12 +88,16 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
   const [datePreset, setDatePreset] = useState<DatePreset>('this_month')
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
-  const [period, setPeriod] = useState<string>(new Date().toISOString().slice(0, 7))
+  const [period, setPeriod] = useState<string>(() => { const date = laPazDateParts(); return `${date.year}-${date.month}` })
   const [selectedBranch, setSelectedBranch] = useState<string>(
     isSecretaria ? currentBranch.id : 'all'
   )
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [paymentConditionFilter, setPaymentConditionFilter] = useState<string>('all')
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('all')
+  const [memberIdFilter, setMemberIdFilter] = useState<string>('')
+  const [patrimonialLocationFilter, setPatrimonialLocationFilter] = useState<string>('all')
   const [currentPage, setCurrentPage] = useState<number>(1)
 
   // Estados de datos y carga
@@ -76,44 +108,45 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
   // Inicializar fechas según preset
   const applyDatePreset = useCallback((preset: DatePreset) => {
     setDatePreset(preset)
-    const now = new Date()
-    const y = now.getFullYear()
-    const m = now.getMonth()
-    const d = now.getDate()
+    const parts = laPazDateParts()
+    const y = Number(parts.year)
+    const m = Number(parts.month) - 1
+    const d = Number(parts.day)
 
     const formatDate = (date: Date) => {
-      const year = date.getFullYear()
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const day = String(date.getDate()).padStart(2, '0')
+      const year = date.getUTCFullYear()
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+      const day = String(date.getUTCDate()).padStart(2, '0')
       return `${year}-${month}-${day}`
     }
 
     if (preset === 'today') {
-      const todayStr = formatDate(now)
+      const todayStr = `${parts.year}-${parts.month}-${parts.day}`
       setStartDate(todayStr)
       setEndDate(todayStr)
     } else if (preset === 'yesterday') {
-      const yest = new Date(y, m, d - 1)
+      const yest = new Date(Date.UTC(y, m, d - 1))
       const yestStr = formatDate(yest)
       setStartDate(yestStr)
       setEndDate(yestStr)
     } else if (preset === 'this_week') {
-      const dayOfWeek = now.getDay() || 7 // Lunes = 1
-      const monday = new Date(y, m, d - dayOfWeek + 1)
+      const todayUtc = new Date(Date.UTC(y, m, d))
+      const dayOfWeek = todayUtc.getUTCDay() || 7 // Lunes = 1
+      const monday = new Date(Date.UTC(y, m, d - dayOfWeek + 1))
       setStartDate(formatDate(monday))
-      setEndDate(formatDate(now))
+      setEndDate(`${parts.year}-${parts.month}-${parts.day}`)
     } else if (preset === 'this_month') {
-      const firstDay = new Date(y, m, 1)
+      const firstDay = new Date(Date.UTC(y, m, 1))
       setStartDate(formatDate(firstDay))
-      setEndDate(formatDate(now))
+      setEndDate(`${parts.year}-${parts.month}-${parts.day}`)
       setPeriod(`${y}-${String(m + 1).padStart(2, '0')}`)
     } else if (preset === 'last_month') {
-      const firstDayLastMonth = new Date(y, m - 1, 1)
-      const lastDayLastMonth = new Date(y, m, 0)
+      const firstDayLastMonth = new Date(Date.UTC(y, m - 1, 1))
+      const lastDayLastMonth = new Date(Date.UTC(y, m, 0))
       setStartDate(formatDate(firstDayLastMonth))
       setEndDate(formatDate(lastDayLastMonth))
       setPeriod(
-        `${firstDayLastMonth.getFullYear()}-${String(firstDayLastMonth.getMonth() + 1).padStart(2, '0')}`
+        `${firstDayLastMonth.getUTCFullYear()}-${String(firstDayLastMonth.getUTCMonth() + 1).padStart(2, '0')}`
       )
     }
   }, [])
@@ -135,8 +168,12 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         period: activeTab === 'dues' ? period : undefined,
         status: statusFilter !== 'all' ? statusFilter : undefined,
         category: categoryFilter !== 'all' ? categoryFilter : undefined,
+        paymentCondition: paymentConditionFilter,
+        paymentMethod: paymentMethodFilter,
+        memberId: memberIdFilter.trim() || undefined,
+        patrimonialLocationId: patrimonialLocationFilter,
         page: currentPage,
-        pageSize: 50,
+        pageSize: 500,
       }
       if (isConductor) {
         params.driverUid = currentUser.uid
@@ -162,6 +199,10 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
     period,
     statusFilter,
     categoryFilter,
+    paymentConditionFilter,
+    paymentMethodFilter,
+    memberIdFilter,
+    patrimonialLocationFilter,
     currentPage,
   ])
 
@@ -213,6 +254,14 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
       icon: Building2,
       visible: canViewAll,
     },
+    { id: 'members' as ReportType, label: GENERIC_REPORT_LABELS.members, icon: Users, visible: ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(role) },
+    { id: 'loans' as ReportType, label: GENERIC_REPORT_LABELS.loans, icon: Wallet, visible: ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(role) },
+    { id: 'fines' as ReportType, label: GENERIC_REPORT_LABELS.fines, icon: FileText, visible: ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(role) },
+    { id: 'sports' as ReportType, label: GENERIC_REPORT_LABELS.sports, icon: Users, visible: ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(role) },
+    { id: 'physical_inventory' as ReportType, label: GENERIC_REPORT_LABELS.physical_inventory, icon: Building2, visible: canViewAll },
+    { id: 'commissions' as ReportType, label: GENERIC_REPORT_LABELS.commissions, icon: Truck, visible: canViewAll },
+    { id: 'consumables' as ReportType, label: GENERIC_REPORT_LABELS.consumables, icon: Layers, visible: canViewAll },
+    { id: 'incidents' as ReportType, label: GENERIC_REPORT_LABELS.incidents, icon: AlertTriangle, visible: canViewAll },
   ].filter((t) => t.visible)
 
   // Formateador de sucursal
@@ -231,7 +280,28 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
     if (!reportData) return
     const dateRangeStr =
       startDate && endDate ? `${startDate} al ${endDate}` : `Período: ${period || 'Actual'}`
-    const branchLabel = getBranchLabel(selectedBranch)
+    const branchLabel = `${getBranchLabel(selectedBranch)} · Estado: ${statusFilter} · Categoría: ${categoryFilter} · Condición de pago: ${paymentConditionFilter} · Método: ${paymentMethodFilter}${memberIdFilter ? ` · Afiliado: ${memberIdFilter}` : ''}${patrimonialLocationFilter !== 'all' ? ` · Sede: ${patrimonialLocationFilter}` : ''}`
+
+    if (GENERIC_REPORTS.includes(activeTab)) {
+      const records = genericReportRecords(reportData)
+      const headers = genericReportColumns(records)
+      const rows = records.map((record) => headers.map((key) => genericReportCell(record[key])))
+      const summary = reportData.summary || {}
+      const kpiCards = Object.entries(summary).filter(([key, value]) => typeof value === 'number' && !key.endsWith('Bob'))
+        .slice(0, 4).map(([key, value]) => ({ label: key.replace(/([A-Z])/g, ' $1').replace(/Cents$/, ' (centavos)'), value: key.endsWith('Cents') ? formatCurrencyBob(Number(value), true) : String(value) }))
+      exportReportToPdf({ title: `Reporte ${GENERIC_REPORT_LABELS[activeTab] || activeTab}`, dateRangeStr,
+        branchLabel,
+        generatedByName: currentUser.fullName, kpiCards, tableHeaders: headers.map((key) => key.replace(/([A-Z])/g, ' $1')),
+        tableRows: rows, filename: `Reporte_${activeTab}_${startDate || 'periodo'}` })
+      return
+    }
+    if (activeTab === 'consolidated_dashboard') {
+      exportReportToPdf({ title: 'Reporte General de Expreso Punata', dateRangeStr, branchLabel,
+        generatedByName: currentUser.fullName,
+        tableHeaders: ['Sección', 'Indicador', 'Resultado'],
+        tableRows: dashboardExportRows(reportData.dashboard), filename: `Reporte_General_${startDate || 'periodo'}` })
+      return
+    }
 
     if (activeTab === 'shipments') {
       const data = reportData as ShipmentsReportResult
@@ -268,7 +338,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           { label: 'Total Envíos', value: String(data.summary?.totalShipments || 0) },
           { label: 'Total Facturado', value: formatCurrencyBob(data.summary?.totalBilledCents || 0, true) },
           { label: 'Cobrado', value: formatCurrencyBob(data.summary?.totalCollectedCents || 0, true) },
-          { label: 'Por Cobrar (COD)', value: formatCurrencyBob(data.summary?.totalPendingCodCents || 0, true) },
+          { label: 'Por pagar en destino', value: formatCurrencyBob(data.summary?.totalPendingCodCents || 0, true) },
         ],
         tableHeaders: headers,
         tableRows: rows,
@@ -293,6 +363,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         kpiCards: [
           { label: 'Ingresos Comerciales', value: formatCurrencyBob(data.summary?.commercialIncomeCents || 0, true) },
           { label: 'Aportes Mensuales', value: formatCurrencyBob(data.summary?.contributionsIncomeCents || 0, true) },
+          { label: 'Recuperación de capital de préstamos', value: formatCurrencyBob(data.summary?.loanRepaymentsCents || 0, true) },
           { label: 'Remesas Conductores', value: formatCurrencyBob(data.summary?.driverRemittancesCents || 0, true) },
           { label: 'Egresos / Gastos', value: formatCurrencyBob(data.summary?.expensesCents || 0, true) },
         ],
@@ -428,12 +499,44 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
 
   const handleExportData = (format: 'csv' | 'xlsx') => {
     if (!reportData) return
-    const saveExport = (filename: string, headers: string[], rows: (string | number)[][]) => {
+    const saveExport = (filename: string, headers: string[], rows: (string | number)[][], additionalSheets: Array<{ name: string; headers: string[]; rows: (string | number)[][] }> = []) => {
+      const metadata: (string | number)[][] = [
+        ['Reporte', GENERIC_REPORT_LABELS[activeTab] || activeTab],
+        ['Período', startDate && endDate ? `${startDate} a ${endDate}` : period],
+        ['Agencia', getBranchLabel(selectedBranch)],
+        ['Afiliado ID', memberIdFilter || 'Todos'],
+        ['Estado', statusFilter],
+        ['Categoría', categoryFilter],
+        ['Condición de pago', paymentConditionFilter],
+        ['Método de pago', paymentMethodFilter],
+        ['Sede patrimonial', patrimonialLocationFilter],
+        ['Generado', new Date().toLocaleString('es-BO', { timeZone: 'America/La_Paz' })],
+      ]
       if (format === 'csv') {
-        exportToCsv(filename, headers, rows)
+        exportToCsv(filename, [...metadata.map(([key]) => String(key)), ...headers], [
+          [...metadata.map(([, value]) => String(value)), ...headers.map(() => '')],
+          ...rows.map((row) => [...metadata.map(() => ''), ...row]),
+        ])
       } else {
-        exportToXlsx(filename, headers, rows)
+        exportToXlsx(filename, headers, rows, metadata, additionalSheets)
       }
+    }
+    if (GENERIC_REPORTS.includes(activeTab)) {
+      const records = genericReportRecords(reportData)
+      const headers = genericReportColumns(records)
+      const rows = records.map((record) => headers.map((key) => genericReportCell(record[key])))
+      const filename = `Expreso_Punata_${activeTab}_${startDate || 'periodo'}`
+      const additionalSheets = activeTab === 'physical_inventory' ? [
+        { name: 'Bienes patrimoniales', headers: genericReportColumns(reportData.records || []), rows: (reportData.records || []).map((record: any) => genericReportColumns(reportData.records || []).map((key) => genericReportCell(record[key]))) },
+        { name: 'Documentos físicos', headers: genericReportColumns(reportData.documents || []), rows: (reportData.documents || []).map((record: any) => genericReportColumns(reportData.documents || []).map((key) => genericReportCell(record[key]))) },
+      ] : []
+      saveExport(filename, headers, rows, additionalSheets)
+      return
+    }
+    if (activeTab === 'consolidated_dashboard') {
+      const rows = dashboardExportRows(reportData.dashboard)
+      saveExport(`Expreso_Punata_Reporte_General_${startDate || 'periodo'}`, ['Sección', 'Indicador', 'Resultado'], rows)
+      return
     }
     if (activeTab === 'shipments') {
       const data = reportData as ShipmentsReportResult
@@ -597,6 +700,12 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                 type="button"
                 onClick={() => {
                   setActiveTab(tab.id)
+                  setStatusFilter('all')
+                  setCategoryFilter('all')
+                  setPaymentConditionFilter('all')
+                  setPaymentMethodFilter('all')
+                  setMemberIdFilter('')
+                  setPatrimonialLocationFilter('all')
                   setCurrentPage(1)
                 }}
                 className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-all ${
@@ -682,7 +791,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           )}
 
           {/* Filtro de Estado para Encomiendas */}
-          {activeTab === 'shipments' && (
+          {['shipments', 'loans', 'fines', 'sports', 'members', 'fixed_assets', 'physical_inventory'].includes(activeTab) && (
             <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
               <Filter className="w-3.5 h-3.5 text-slate-500" />
               <select
@@ -691,16 +800,13 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                 className="bg-transparent text-slate-800 font-bold focus:outline-none cursor-pointer"
               >
                 <option value="all">Todos los estados</option>
-                <option value="received">Recibido</option>
-                <option value="in_transit">En Tránsito</option>
-                <option value="delivered">Entregado</option>
-                <option value="cancelled">Cancelado</option>
+                {activeTab === 'shipments' ? <><option value="received">Recibido</option><option value="in_transit">En Tránsito</option><option value="delivered">Entregado</option><option value="cancelled">Cancelado</option></> : activeTab === 'fines' ? <><option value="pending">Pendiente</option><option value="partial">Parcial</option><option value="paid">Pagada</option><option value="voided">Anulada</option></> : activeTab === 'loans' ? <><option value="active">Activo</option><option value="overdue">Vencido</option><option value="paid">Pagado</option></> : activeTab === 'members' ? <><option value="active">Activo</option><option value="inactive">Inactivo</option><option value="suspended">Suspendido</option><option value="retired">Retirado</option></> : activeTab === 'sports' ? <><option value="scheduled">Programada</option><option value="completed">Concluida</option></> : <option value="in_use">En uso</option>}
               </select>
             </div>
           )}
 
           {/* Filtro de Categoría para Gastos o Activos */}
-          {['payroll_expenses', 'fixed_assets'].includes(activeTab) && (
+          {['payroll_expenses', 'fixed_assets', 'fines', 'members', 'consumables', 'cash_financial'].includes(activeTab) && (
             <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
               <Filter className="w-3.5 h-3.5 text-slate-500" />
               <select
@@ -717,6 +823,14 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                     <option value="mantenimiento">Mantenimiento</option>
                     <option value="viaticos">Viáticos</option>
                   </>
+                ) : activeTab === 'cash_financial' ? (
+                  <><option value="shipment_income">Ingreso de encomienda</option><option value="cod_income">Cobro contraentrega</option><option value="contribution_income">Cuota de afiliado</option><option value="loan_repayment">Recuperación de préstamo</option><option value="fine_income">Cobro de multa</option><option value="expense">Gasto</option><option value="refund">Devolución</option></>
+                ) : activeTab === 'fines' ? (
+                  <><option value="transporte">Transporte</option><option value="conflictos">Conflictos</option><option value="deportes">Deportes</option><option value="otros">Otros</option></>
+                ) : activeTab === 'members' ? (
+                  <><option value="propietario_transporte">Propietario</option><option value="conductor">Conductor</option><option value="socio_general">Socio general</option></>
+                ) : activeTab === 'consumables' ? (
+                  <><option value="thermal_rolls">Rollos térmicos</option><option value="security_seals">Precintos</option><option value="tape">Cinta</option><option value="packaging_boxes">Cajas</option><option value="envelopes">Sobres</option><option value="labels">Etiquetas</option><option value="other">Otros</option></>
                 ) : (
                   <>
                     <option value="computacion">Computación</option>
@@ -729,6 +843,13 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
             </div>
           )}
 
+          {activeTab === 'physical_inventory' && <select value={patrimonialLocationFilter} onChange={(event) => setPatrimonialLocationFilter(event.target.value)} aria-label="Filtrar por sede patrimonial" className="px-3 py-1.5 text-xs border border-slate-200 rounded-xl"><option value="all">Todas las sedes patrimoniales</option><option value="sede_punata">Sede Punata</option><option value="oficina_punata">Oficina Punata</option><option value="oficina_cochabamba">Oficina Cochabamba</option></select>}
+
+          {activeTab === 'shipments' && <select value={paymentConditionFilter} onChange={(event) => setPaymentConditionFilter(event.target.value)} aria-label="Filtrar por condición de pago" className="px-3 py-1.5 text-xs border border-slate-200 rounded-xl"><option value="all">Todas las condiciones</option><option value="origin_paid">Pagado en origen</option><option value="origin_pending">Pendiente en origen</option><option value="destination_cod">Contraentrega en destino</option></select>}
+          {['shipments', 'cash_financial'].includes(activeTab) && <select value={paymentMethodFilter} onChange={(event) => setPaymentMethodFilter(event.target.value)} aria-label="Filtrar por método de pago" className="px-3 py-1.5 text-xs border border-slate-200 rounded-xl"><option value="all">Todos los métodos</option><option value="cash">Efectivo</option><option value="qr">QR</option><option value="transfer">Transferencia</option></select>}
+
+          {['members', 'loans', 'fines', 'sports'].includes(activeTab) && <input value={memberIdFilter} onChange={(event) => setMemberIdFilter(event.target.value)} placeholder="ID de afiliado (opcional)" aria-label="Filtrar por ID de afiliado" className="px-3 py-1.5 text-xs border border-slate-200 rounded-xl" />}
+
           <button
             type="button"
             onClick={loadReport}
@@ -739,7 +860,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-700' : ''}`} />
           </button>
 
-          {activeTab !== 'consolidated_dashboard' && (
+          {
             <div data-tutorial-target="reports-export-actions" className="flex items-center gap-1.5">
               <button
                 type="button"
@@ -773,7 +894,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                 <span>CSV</span>
               </button>
             </div>
-          )}
+          }
         </div>
       </div>
 
@@ -797,6 +918,8 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           </p>
         </div>
       )}
+
+      {!loading && (reportData?.truncated || (Number(reportData?.pagination?.totalRecords) > reportDetailCount(reportData))) && <p role="status" className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">La consulta alcanzó el límite de lectura o de registros por página. Los indicadores pueden cubrir un conjunto mayor que el detalle exportado; ajuste los filtros para acotar el período.</p>}
 
       {/* 5. VISTAS DE REPORTES ESPECIALIZADOS */}
       {!loading && reportData && (
@@ -897,8 +1020,27 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                   </div>
                 </div>
               </div>
+
+              <div className="grid grid-cols-2 xl:grid-cols-6 gap-3">
+                <article className="bg-white p-4 rounded-xl border border-slate-200"><p className="text-xs text-slate-500">Afiliados activos / retirados</p><p className="mt-1 font-black text-lg">{reportData.dashboard?.members?.activeCount || 0} / {reportData.dashboard?.members?.retiredCount || 0}</p><p className="text-[11px] text-slate-500">Total: {reportData.dashboard?.members?.totalCount || 0} · Cuotas cobradas {formatCurrencyBob(reportData.dashboard?.members?.duesCollectedCents || 0, true)} · pendientes {formatCurrencyBob(reportData.dashboard?.members?.duesPendingCents || 0, true)}</p></article>
+                <article className="bg-white p-4 rounded-xl border border-slate-200"><p className="text-xs text-slate-500">Saldo de préstamos por cobrar</p><p className="mt-1 font-black text-lg text-amber-700">{formatCurrencyBob(reportData.dashboard?.loans?.balanceReceivableCents || 0, true)}</p><p className="text-[11px] text-slate-500">Capital recuperado: {formatCurrencyBob(reportData.dashboard?.loans?.capitalRecoveredCents || 0, true)} · no es ingreso operativo</p></article>
+                <article className="bg-white p-4 rounded-xl border border-slate-200"><p className="text-xs text-slate-500">Multas cobradas / pendientes</p><p className="mt-1 font-black text-lg">{formatCurrencyBob(reportData.dashboard?.fines?.collectedCents || 0, true)} / {formatCurrencyBob(reportData.dashboard?.fines?.pendingCents || 0, true)}</p><p className="text-[11px] text-slate-500">Solo el cobro efectivo cuenta como entrada de Caja.</p></article>
+                <article className="bg-white p-4 rounded-xl border border-slate-200"><p className="text-xs text-slate-500">Capital de préstamo recuperado en el período</p><p className="mt-1 font-black text-lg text-blue-700">{formatCurrencyBob(reportData.dashboard?.finances?.loanRepaymentsCents || 0, true)}</p><p className="text-[11px] text-slate-500">Entrada de caja separada del ingreso operativo.</p></article>
+                <article className="bg-white p-4 rounded-xl border border-slate-200"><p className="text-xs text-slate-500">Deportes y documentos físicos</p><p className="mt-1 font-black text-lg">{reportData.dashboard?.sports?.eventCount || 0} jornadas · {reportData.dashboard?.physicalInventory?.documentCount || 0} documentos</p><p className="text-[11px] text-slate-500">Presentes {reportData.dashboard?.sports?.present || 0} · tardanzas {reportData.dashboard?.sports?.late || 0} · ausencias {reportData.dashboard?.sports?.absent || 0} · exenciones autorizadas {reportData.dashboard?.sports?.authorizedExemptions || 0} · solicitudes {reportData.dashboard?.sports?.exemptionRequests || 0} · sanciones {reportData.dashboard?.sports?.sanctioned || 0} · hojas {reportData.dashboard?.physicalInventory?.documentSheets || 0}</p></article>
+              </div>
+              <article className="bg-white p-4 rounded-xl border border-slate-200"><h3 className="text-xs font-bold text-slate-700 mb-3">Encomiendas por agencia de origen</h3><div className="space-y-2">{Object.entries(reportData.dashboard?.shipments?.byOriginAgency || {}).map(([agency, count]: any) => { const total = Math.max(1, reportData.dashboard?.shipments?.totalCount || 0); return <div key={agency} className="grid grid-cols-[120px_1fr_40px] items-center gap-2 text-xs"><span className="capitalize text-slate-600">{agency.replace(/_/g, ' ')}</span><div className="h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-emerald-700" style={{ width: `${Math.max(4, (Number(count) / total) * 100)}%` }} /></div><strong className="text-right">{count}</strong></div> })}</div></article>
             </div>
           )}
+
+          {GENERIC_REPORTS.includes(activeTab) && (() => {
+            const records = genericReportRecords(reportData)
+            const columns = genericReportColumns(records)
+            const metrics = Object.entries(reportData.summary || {}).filter(([key, value]) => typeof value === 'number' && !key.endsWith('Bob'))
+            return <section className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">{metrics.map(([key, value]) => <article key={key} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm"><div className="text-[11px] text-slate-500 capitalize">{key.replace(/([A-Z])/g, ' $1').replace(/Cents$/, ' (centavos)')}</div><div className="text-lg font-black text-slate-900 mt-1">{key.endsWith('Cents') ? formatCurrencyBob(Number(value), true) : Number(value).toLocaleString('es-BO')}</div></article>)}</div>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b text-xs font-bold text-slate-700">{GENERIC_REPORT_LABELS[activeTab] || activeTab} · {records.length} registros</div><div className="overflow-auto max-h-[70vh]"><table className="min-w-full text-left text-xs"><thead className="sticky top-0 bg-slate-100 text-slate-600"><tr>{columns.map((key) => <th key={key} className="px-3 py-2 whitespace-nowrap">{key.replace(/([A-Z])/g, ' $1')}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{records.map((record, index) => <tr key={record.id || `${record.tipoRegistro}-${index}`} className="hover:bg-slate-50">{columns.map((key) => <td key={key} className="px-3 py-2 max-w-xs truncate" title={String(record[key] ?? '')}>{typeof record[key] === 'number' && key.endsWith('Cents') ? formatCurrencyBob(record[key], true) : genericReportCell(record[key])}</td>)}</tr>)}{records.length === 0 && <tr><td colSpan={Math.max(columns.length, 1)} className="px-4 py-8 text-center text-slate-500">No hay registros para los filtros seleccionados.</td></tr>}</tbody></table></div></div>
+            </section>
+          })()}
 
           {/* ================================================================= */}
           {/* REPORTE B1: ENCOMIENDAS Y LOGÍSTICA */}
@@ -934,7 +1076,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                 </div>
 
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-                  <span className="text-[11px] text-slate-500">Por Cobrar (COD)</span>
+                  <span className="text-[11px] text-slate-500">Por pagar en destino</span>
                   <div className="text-lg font-black text-amber-700 mt-1 font-mono">
                     {formatCurrencyBob(reportData.summary?.totalPendingCodCents || 0, true)}
                   </div>
@@ -1019,7 +1161,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                                   : 'bg-amber-50 text-amber-800 border border-amber-200'
                               }`}
                             >
-                              {s.paymentTiming === 'origin_paid' ? 'Pagado' : 'COD'}
+                              {s.paymentTiming === 'destination_cod' ? 'Por pagar' : s.paymentTiming === 'origin_pending' ? 'Pendiente en origen' : 'Pagado en origen'}
                             </span>
                           </td>
                           <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-900">
@@ -1047,13 +1189,13 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           {activeTab === 'cash_financial' && (
             <div className="space-y-5">
               {/* Tarjetas KPI Financieras */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
                   <span className="text-[11px] text-slate-500">Ingresos Encomiendas</span>
                   <div className="text-lg font-black text-emerald-700 mt-1 font-mono">
                     {formatCurrencyBob(reportData.summary?.commercialIncomeCents || 0, true)}
                   </div>
-                  <span className="text-[10px] text-slate-400">Ventanilla Origen + COD Destino</span>
+                  <span className="text-[10px] text-slate-400">Ventanilla Origen + Por pagar en destino</span>
                 </div>
 
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
@@ -1062,6 +1204,14 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                     {formatCurrencyBob(reportData.summary?.contributionsIncomeCents || 0, true)}
                   </div>
                   <span className="text-[10px] text-slate-400">Recaudado de socios</span>
+                </div>
+
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+                  <span className="text-[11px] text-slate-500">Capital recuperado de préstamos</span>
+                  <div className="text-lg font-black text-blue-700 mt-1 font-mono">
+                    {formatCurrencyBob(reportData.summary?.loanRepaymentsCents || 0, true)}
+                  </div>
+                  <span className="text-[10px] text-slate-400">Entrada efectiva de caja; excluida del ingreso operativo</span>
                 </div>
 
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">

@@ -264,7 +264,7 @@ export class PrintEngineService {
       mType === 'driver_remittance'
         ? (movement.settlementType === 'partial' ? 'RENDICIÓN PARCIAL EN CAJA' : 'RENDICIÓN COMPLETA EN CAJA')
         : mType === 'cod_income'
-        ? 'CONTRAENTREGA COBRADA EN DESTINO'
+        ? 'POR PAGAR — COBRADO EN DESTINO'
         : mType === 'origin_paid' || mType === 'shipment_income'
         ? 'PAGADO EN ORIGEN (ENCOMIENDA)'
         : mType === 'contribution_income' || mType === 'monthly_fee_income' || mType === 'contribution'
@@ -354,9 +354,10 @@ export class PrintEngineService {
       items: [
         { description: 'Fondo Inicial de Caja', quantity: 1, totalBob: (shift.initialCashCents || 0) / 100 },
         { description: 'Ingresos por Encomiendas (Origen)', quantity: 1, totalBob: (b.shipmentsIncomeCents || 0) / 100 },
-        { description: 'Ingresos por Contraentrega (COD)', quantity: 1, totalBob: (b.codIncomeCents || 0) / 100 },
+        { description: 'Ingresos por encomiendas Por pagar', quantity: 1, totalBob: (b.codIncomeCents || 0) / 100 },
         { description: 'Remesas Rendidas por Choferes', quantity: 1, totalBob: driverRemittanceCents / 100 },
         { description: 'Aportes y Cuotas de Socios', quantity: 1, totalBob: contributionsIncomeCents / 100 },
+        { description: 'Recaudación de Préstamos (no es ingreso)', quantity: 1, totalBob: (b.loanRepaymentsCents || 0) / 100 },
         { description: 'Egresos de Caja Autorizados', quantity: 1, totalBob: -((b.expensesCents || 0) / 100) },
       ],
       signatures: {
@@ -453,7 +454,7 @@ export class PrintEngineService {
         subtotalBob: codBob,
         totalBob: codBob,
         amountCents: manifest.totalCodAmountCents || 0,
-        paymentConditionLabel: codBob > 0 ? `COD A COBRAR EN DESTINO: Bs ${codBob.toFixed(2)}` : 'SIN COBROS PENDIENTES',
+        paymentConditionLabel: codBob > 0 ? `POR PAGAR EN DESTINO: Bs ${codBob.toFixed(2)}` : 'SIN COBROS PENDIENTES',
       },
       items: (manifest.shipmentSummaries || []).map((s) => ({
         description: `Guía: ${s.trackingCode} (${s.packageCount || 1} bulto(s) - ${s.senderName} ➔ ${s.recipientName})`,
@@ -714,7 +715,7 @@ export class PrintEngineService {
       documentNumber: asset.assetCode,
       timestampIso: new Date().toISOString(),
       operatorName: asset.responsiblePersonName || 'Encargado',
-      qrContent: `EXPRESO-PUNATA:ACTIVO:${asset.assetCode}:${asset.branchId}`,
+      qrContent: asset.qrPayload || (asset.id ? `EXPRESO-PUNATA:ACTIVO:${asset.id}` : `EXPRESO-PUNATA:ACTIVO:${asset.assetCode}:${asset.branchId}`),
       items: [
         {
           description: asset.name,

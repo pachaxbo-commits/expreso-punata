@@ -119,7 +119,7 @@ test('3. MOTOR DE IMPRESIÓN: Matriz exhaustiva de condiciones de pago', () => {
       paymentTiming: 'destination_cod',
       paymentStatus: 'pending',
     }),
-    'CONTRAENTREGA PENDIENTE DE COBRO'
+    'POR PAGAR EN DESTINO'
   )
 
   // 4. Contraentrega cobrada en ventanilla destino
@@ -131,7 +131,7 @@ test('3. MOTOR DE IMPRESIÓN: Matriz exhaustiva de condiciones de pago', () => {
       paymentTiming: 'destination_cod',
       paymentStatus: 'paid',
     }),
-    'CONTRAENTREGA COBRADA EN DESTINO'
+    'POR PAGAR — COBRADO EN DESTINO'
   )
 
   // 5. Cobrado en ruta por chofer pero pendiente de rendición
@@ -370,7 +370,7 @@ test('10. MOTOR DE IMPRESIÓN: Generación de Etiqueta Térmica de Activo Fijo (
   assert.equal(doc.documentType, 'fixed_asset_label')
   assert.equal(doc.documentNumber, 'ACT-PUN-0001')
   assert.ok(doc.title?.includes('ACTIVO FIJO'))
-  assert.ok(doc.qrContent?.includes('EXPRESO-PUNATA:ACTIVO:ACT-PUN-0001'))
+  assert.equal(doc.qrContent, 'EXPRESO-PUNATA:ACTIVO:asset-1')
   assert.equal(doc.items?.[0]?.description, 'Impresora Térmica Xprinter 80mm')
 })
 
@@ -439,6 +439,7 @@ test('12. MOTOR DE IMPRESIÓN: buildFromCashShift incluye aportes de socios y re
       codIncomeCents: 5000,
       driverRemittanceCents: 8000,
       contributionsIncomeCents: 7000,
+      loanRepaymentsCents: 3000,
       expensesCents: 5000,
     },
   } as any
@@ -455,6 +456,8 @@ test('12. MOTOR DE IMPRESIÓN: buildFromCashShift incluye aportes de socios y re
   const aportesItem = items.find(i => i.description.includes('Aportes y Cuotas de Socios'))
   assert.ok(aportesItem)
   assert.equal(aportesItem?.totalBob, 70) // 7000 cents / 100
+  const loanRepaymentsItem = items.find(i => i.description.includes('Recaudación de Préstamos'))
+  assert.equal(loanRepaymentsItem?.totalBob, 30)
 })
 
 test('13. MOTOR DE IMPRESIÓN: buildFromDriverSettlement no duplica monto de rendición por cada guía', () => {

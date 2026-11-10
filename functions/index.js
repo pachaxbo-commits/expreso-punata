@@ -398,6 +398,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     }
 
     const shipmentDocRef = db.collection('shipments').doc(trackingCode)
+    const shipmentNotificationRef = db.collection('shipment_notifications').doc(trackingCode)
     const initialStatusLogRef = shipmentDocRef.collection('status_logs').doc()
     const nowIso = new Date().toISOString()
 
@@ -539,6 +540,19 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     }, { merge: true })
 
     transaction.set(shipmentDocRef, newShipment)
+    if (originBranchId !== destinationBranchId) {
+      transaction.create(shipmentNotificationRef, {
+        id: trackingCode,
+        eventType: 'shipment_registered',
+        trackingCode,
+        originBranchId,
+        destinationBranchId,
+        status: newShipment.status,
+        createdAtIso: nowIso,
+        createdAt: FieldValue.serverTimestamp(),
+        readByUids: [],
+      })
+    }
     transaction.set(initialStatusLogRef, initialStatusLog)
     transaction.set(idempotencyDocRef, {
       trackingCode,
@@ -563,6 +577,76 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     isDuplicate: result.isDuplicate,
     shipment: result.shipment,
   }
+})
+
+function assertShipmentNotificationBranchAccess(caller, branchId) {
+  if (!['punata', 'cochabamba'].includes(branchId)) throw new HttpsError('invalid-argument', 'Agencia de notificaciones no válida.')
+  if (!['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tiene acceso a las notificaciones operativas de agencias.')
+  }
+  if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+    const allowed = new Set([caller.primaryBranchId, ...(Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : [])])
+    if (!allowed.has(branchId)) throw new HttpsError('permission-denied', 'No tiene autorización para consultar notificaciones de esta agencia.')
+  }
+}
+
+export const listShipmentNotifications = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (caller.isActive !== true) throw new HttpsError('permission-denied', 'El usuario debe estar activo para consultar notificaciones.')
+  const branchId = request.data?.branchId
+  assertShipmentNotificationBranchAccess(caller, branchId)
+  const snapshot = await db.collection('shipment_notifications')
+    .where('destinationBranchId', '==', branchId)
+    .orderBy('createdAtIso', 'desc')
+    .limit(100)
+    .get()
+  const shipmentSnapshots = snapshot.empty ? [] : await db.getAll(...snapshot.docs.map((doc) => db.collection('shipments').doc(doc.data().trackingCode)))
+  const shipmentByCode = new Map(shipmentSnapshots.filter((shipment) => shipment.exists).map((shipment) => [shipment.id, shipment.data()]))
+  return {
+    notifications: snapshot.docs.map((doc) => {
+      const data = doc.data()
+      const readByUids = Array.isArray(data.readByUids) ? data.readByUids : []
+      return {
+        id: doc.id,
+        trackingCode: data.trackingCode,
+        originBranchId: data.originBranchId,
+        destinationBranchId: data.destinationBranchId,
+        status: shipmentByCode.get(data.trackingCode)?.status || data.status,
+        createdAtIso: data.createdAtIso,
+        eventType: data.eventType,
+        readByUids,
+        isReadByCurrentUser: readByUids.includes(caller.uid),
+      }
+    }),
+  }
+})
+
+export const markShipmentNotificationRead = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (caller.isActive !== true) throw new HttpsError('permission-denied', 'El usuario debe estar activo para marcar notificaciones.')
+  const { notificationId, branchId } = request.data || {}
+  assertShipmentNotificationBranchAccess(caller, branchId)
+  if (!notificationId || typeof notificationId !== 'string') throw new HttpsError('invalid-argument', 'Falta el identificador de notificación.')
+  const notificationRef = db.collection('shipment_notifications').doc(notificationId)
+  const auditRef = db.collection('audit_logs').doc(`shipment_notification_read_${notificationId}_${caller.uid}`)
+  return db.runTransaction(async (transaction) => {
+    const notificationDoc = await transaction.get(notificationRef)
+    if (!notificationDoc.exists) throw new HttpsError('not-found', 'La notificación ya no está disponible.')
+    const notification = notificationDoc.data()
+    if (notification.destinationBranchId !== branchId) throw new HttpsError('permission-denied', 'La notificación no pertenece a la agencia consultada.')
+    const readByUids = Array.isArray(notification.readByUids) ? notification.readByUids : []
+    if (!readByUids.includes(caller.uid)) {
+      transaction.update(notificationRef, { readByUids: FieldValue.arrayUnion(caller.uid) })
+      transaction.create(auditRef, {
+        entityType: 'shipment_notification', entityId: notificationId,
+        action: 'shipment_notification_read', performedByUid: caller.uid,
+        performedByName: caller.fullName || 'Operador',
+        details: { trackingCode: notification.trackingCode, destinationBranchId: branchId },
+        timestamp: FieldValue.serverTimestamp(), timestampIso: new Date().toISOString(),
+      })
+    }
+    return { success: true, notificationId, isRead: true, changed: !readByUids.includes(caller.uid) }
+  })
 })
 
 /**
@@ -749,14 +833,17 @@ export const updateShipment = onCall({ cors: true }, async (request) => {
     }
 
     // 5. Registrar entrada en historial de auditoría
+    const auditSafeValues = (values) => Object.fromEntries(
+      Object.entries(values).map(([key, value]) => [key, value === undefined ? null : value])
+    )
     const auditEntry = {
       changedAt: nowIso,
       operatorUid: callerUid,
       operatorName: userProfile.fullName || 'Operador',
       operatorRole: userProfile.role,
       reason: rectificationReason ? rectificationReason.trim() : (priceAdjustmentReason || 'Corrección operativa de datos'),
-      previousValues,
-      newValues,
+      previousValues: auditSafeValues(previousValues),
+      newValues: auditSafeValues(newValues),
     }
 
     const currentAuditHistory = Array.isArray(currentData.auditHistory) ? currentData.auditHistory : []
@@ -786,26 +873,27 @@ export const updateShipment = onCall({ cors: true }, async (request) => {
 export const cancelShipment = onCall({ cors: true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión para anular encomiendas.')
   const callerUid = request.auth.uid
-  const callerSnap = await db.collection('users').doc(callerUid).get()
-  const caller = callerSnap.data() || {}
-  if (!callerSnap.exists || caller.isActive === false || !['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
-    throw new HttpsError('permission-denied', 'No tiene permisos para anular encomiendas.')
-  }
   const { trackingCode, reason } = request.data || {}
   if (typeof trackingCode !== 'string' || trackingCode.trim().length < 6) throw new HttpsError('invalid-argument', 'Código de guía requerido.')
   if (typeof reason !== 'string' || reason.trim().length < 5) throw new HttpsError('invalid-argument', 'El motivo de anulación es obligatorio (mínimo 5 caracteres).')
   const shipmentRef = db.collection('shipments').doc(trackingCode.trim())
+  const callerRef = db.collection('users').doc(callerUid)
   const nowIso = new Date().toISOString()
   return db.runTransaction(async (transaction) => {
+    const callerSnap = await transaction.get(callerRef)
+    const caller = callerSnap.data() || {}
+    if (!callerSnap.exists || caller.isActive !== true || !['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'No tiene permisos para anular encomiendas.')
+    }
     const shipmentSnap = await transaction.get(shipmentRef)
     if (!shipmentSnap.exists) throw new HttpsError('not-found', 'No existe la encomienda indicada.')
     const current = shipmentSnap.data() || {}
-    const allowedBranches = caller.allowedBranchIds || [caller.primaryBranchId]
-    if (caller.role !== 'directiva_admin' && !allowedBranches.includes(current.originBranchId) && !allowedBranches.includes(current.destinationBranchId)) {
-      throw new HttpsError('permission-denied', 'No tiene permisos sobre la sucursal de esta encomienda.')
+    const allowedBranches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : [caller.primaryBranchId]
+    if (caller.role !== 'directiva_admin' && !allowedBranches.includes(current.originBranchId)) {
+      throw new HttpsError('permission-denied', 'Solo la sucursal de origen puede anular esta encomienda.')
     }
     if (current.status === 'cancelled') throw new HttpsError('already-exists', 'La encomienda ya está anulada.')
-    if (current.paymentStatus === 'paid' || current.cashShiftId || current.manifestId || current.deliveryRecord || !['received', 'pending_dispatch'].includes(current.status)) {
+    if (current.paymentStatus === 'paid' || current.cashShiftId || current.financialMovementId || current.manifestId || current.assignedVehicle?.manifestId || current.driverCustody || current.deliveryRecord || !['received', 'pending_dispatch'].includes(current.status)) {
       throw new HttpsError('failed-precondition', 'Solo pueden anularse encomiendas sin pagos, despacho, custodia ni entrega y antes de salir de origen.')
     }
     const auditEntry = {
@@ -2140,7 +2228,9 @@ export const collectShipmentPayment = onCall({ cors: true }, async (request) => 
  * Bloquea guías en tránsito, genera correlativo inmutable (MAN-PUN-YYYY-XXXX / MAN-CBBA-YYYY-XXXX),
  * previene doble asignación a viajes activos y actualiza estados de forma atómica.
  */
-export const createDispatchManifest = onCall({ cors: true }, async (request) => {
+const singleTransfer = Symbol('singleTransfer')
+
+async function createDispatch(request) {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para despachar encomiendas.')
   }
@@ -2205,6 +2295,7 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
   }
 
   return await db.runTransaction(async (transaction) => {
+    if (request[singleTransfer]) await assertTransferBranch(transaction, callerUid, originBranchId)
     // 1. TODAS LAS LECTURAS PRIMERO (Regla estricta de Firestore)
     const vehicleRef = db.collection('vehicles').doc(vehicleId)
     const vehicleDoc = await transaction.get(vehicleRef)
@@ -2237,6 +2328,9 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       throw new HttpsError('not-found', 'El conductor seleccionado no existe en el sistema.')
     }
     const driverData = driverDoc.data() || {}
+    if (request[singleTransfer] && (driverData.isActive !== true || vehicleData.status !== 'active' || vehicleData.branchId !== originBranchId)) {
+      throw new HttpsError('failed-precondition', 'Selecciona un conductor activo y un vehículo activo de la agencia de origen.')
+    }
     if (driverData.isActive === false) {
       throw new HttpsError('failed-precondition', 'El conductor seleccionado se encuentra inactivo.')
     }
@@ -2266,6 +2360,10 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       const validDispatchStatuses = ['received', 'pending_dispatch']
       if (!validDispatchStatuses.includes(sData.status)) {
         throw new HttpsError('failed-precondition', `La encomienda '${sData.trackingCode || item.id}' tiene estado '${sData.status}' y no puede ser incorporada al despacho.`)
+      }
+
+      if (request[singleTransfer] && (sData.manifestId || sData.assignedVehicle?.manifestId || sData.deliveryRecord)) {
+        throw new HttpsError('failed-precondition', 'La guía ya tiene un traslado o una entrega registrada.')
       }
 
       if (sData.manifestId && (sData.status === 'in_transit' || sData.status === 'dispatched')) {
@@ -2326,6 +2424,7 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       driverName: driverData.fullName || 'Conductor',
       driverPhone: driverData.phone || '',
       shipmentIds,
+      ...(request[singleTransfer] ? { singleTransfer: true } : {}),
       shipmentSummaries,
       totalShipments: shipmentIds.length,
       totalPackages,
@@ -2353,6 +2452,14 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
     for (const item of shipmentRefsAndDocs) {
       transaction.update(item.ref, {
         status: 'in_transit',
+        ...(request[singleTransfer] ? {
+          singleTransfer: true,
+          auditHistory: FieldValue.arrayUnion(transferAudit({
+            action: 'confirm_shipment_departure', previousStatus: item.doc.data().status,
+            newStatus: 'in_transit', callerUid, callerData, branchId: originBranchId, nowIso,
+            reason: 'Salida confirmada en agencia.', newValues: { vehicleId, driverUid },
+          })),
+        } : {}),
         currentLocation: 'in_transit',
         manifestId,
         manifestNumber,
@@ -2371,6 +2478,7 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       const statusLogRef = item.ref.collection('status_logs').doc()
       transaction.set(statusLogRef, {
         status: 'in_transit',
+        previousStatus: item.doc.data().status,
         operatorUid: callerUid,
         operatorName: callerData.fullName || 'Operador',
         branchId: originBranchId,
@@ -2414,7 +2522,9 @@ export const createDispatchManifest = onCall({ cors: true }, async (request) => 
       dispatchedAtIso: nowIso,
     }
   })
-})
+}
+
+export const createDispatchManifest = onCall({ cors: true }, createDispatch)
 
 /**
  * Cloud Function Callable para que el conductor asignado confirme la recepción formal y custodia de la carga.
@@ -2550,7 +2660,7 @@ export const driverConfirmCustody = onCall({ cors: true }, async (request) => {
  * Cloud Function Callable para la recepción formal del manifiesto en agencia de destino,
  * con verificación bulto a bulto, registro de discrepancias y actualización de custodia.
  */
-export const receiveDispatchManifest = onCall({ cors: true }, async (request) => {
+async function receiveDispatch(request) {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para recibir manifiestos.')
   }
@@ -2622,13 +2732,23 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
         supervisorOverride.reason.trim().length >= 10
 
       if (isSupervisor && hasValidOverride) {
-        custOverrideApplied = true
+        custodyOverrideApplied = true
       } else {
         throw new HttpsError('failed-precondition', 'El conductor aún no ha aceptado la custodia formal del manifiesto. Se requiere confirmación de custodia o autorización explícita de supervisor para contingencia.')
       }
     }
 
     const expectedShipmentIds = manifestData.shipmentIds || []
+    const simplified = manifestData.singleTransfer === true
+    if (request[singleTransfer] && (!simplified || expectedShipmentIds.length !== 1)) {
+      throw new HttpsError('failed-precondition', 'Usa el flujo avanzado para este viaje.')
+    }
+    if (simplified) {
+      const profile = await assertTransferBranch(transaction, callerUid, manifestData.destinationBranchId)
+      if (custodyOverrideApplied && !['encargado_agencia', 'directiva_admin'].includes(profile.role)) {
+        throw new HttpsError('permission-denied', 'La contingencia requiere un supervisor autorizado.')
+      }
+    }
 
     // A2: No dar por recibida conforme una encomienda que no esté marcada explícitamente en la lista de recepción
     if (!Array.isArray(receivedShipments) || receivedShipments.length !== expectedShipmentIds.length) {
@@ -2655,6 +2775,7 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
     }
 
     for (const item of shipmentRefsAndDocs) {
+      if (!item.doc.exists && simplified) throw new HttpsError('not-found', 'No se encontró la encomienda del traslado.')
       if (!item.doc.exists) continue
       const sData = item.doc.data() || {}
       const itemInput = receivedMap.get(item.id)
@@ -2670,6 +2791,12 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
         throw new HttpsError('invalid-argument', `El conteo de bultos recibidos para la encomienda ${sData.trackingCode || item.id} debe ser un entero mayor o igual a 0.`)
       }
 
+      if (simplified && (sData.manifestId !== manifestId || !['in_transit', 'dispatched'].includes(sData.status))) {
+        throw new HttpsError('failed-precondition', 'La encomienda ya no está en traslado.')
+      }
+      if (simplified && !['good', 'damaged', 'missing'].includes(itemInput.condition)) {
+        throw new HttpsError('invalid-argument', 'Indica la condición física de los bultos.')
+      }
       const condition = itemInput.condition || 'good'
       const isDiscrepant = (recPkg !== expectedPkg) || (condition !== 'good')
       const notesStr = (itemInput.notes || itemInput.discrepancyNote || itemInput.discrepancyNotes || '').trim()
@@ -2702,6 +2829,9 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
       } else if (condition === 'missing' || recPkg === 0) {
         newStatus = condition === 'missing' ? 'lost' : 'incident_investigation'
         statusNote = `DISCREPANCIA: Paquete no encontrado al arribo del manifiesto ${manifestData.manifestNumber}. Declarado ${newStatus}.`
+      } else if (simplified && isDiscrepant) {
+        newStatus = 'incident_investigation'
+        statusNote = `Recepción observada: ${recPkg}/${expectedPkg} bultos, ${condition}. ${notesStr}`
       } else if (condition === 'damaged') {
         statusNote += ` OBSERVACIÓN: Recibido con daños (${notesStr || 'sin detalle'}).`
       }
@@ -2719,11 +2849,21 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
         updatePayload.incidentNotes = itemInput.notes || `Condición: ${condition}, Bultos: ${recPkg}/${expectedPkg}`
       }
 
+      if (simplified) {
+        updatePayload.auditHistory = FieldValue.arrayUnion(transferAudit({
+          action: 'confirm_shipment_reception', previousStatus: sData.status, newStatus,
+          callerUid, callerData, branchId: manifestData.destinationBranchId, nowIso,
+          reason: notesStr || 'Recepción conforme.', newValues: { receivedPackages: recPkg, condition },
+        }))
+      }
       transaction.update(item.ref, updatePayload)
 
       const statusLogRef = item.ref.collection('status_logs').doc()
       transaction.set(statusLogRef, {
         status: newStatus,
+        previousStatus: sData.status,
+        receivedPackages: recPkg,
+        condition,
         operatorUid: callerUid,
         operatorName: callerData.fullName || 'Operador',
         branchId: manifestData.destinationBranchId,
@@ -2783,6 +2923,57 @@ export const receiveDispatchManifest = onCall({ cors: true }, async (request) =>
       totalDiscrepancies: discrepancies.length,
       receivedAtIso: nowIso,
     }
+  })
+}
+
+export const receiveDispatchManifest = onCall({ cors: true }, receiveDispatch)
+
+async function assertTransferBranch(transaction, uid, branchId) {
+  const profile = (await transaction.get(db.collection('users').doc(uid))).data()
+  const allowed = profile?.primaryBranchId === branchId ||
+    (Array.isArray(profile?.allowedBranchIds) && profile.allowedBranchIds.includes(branchId))
+  if (!branchId || !allowed || profile?.isActive !== true ||
+      !['secretaria', 'encargado_agencia', 'directiva_admin'].includes(profile.role)) {
+    throw new HttpsError('permission-denied', 'Se requiere un perfil activo autorizado en la sucursal.')
+  }
+  return profile
+}
+
+function transferAudit({ action, previousStatus, newStatus, callerUid, callerData, branchId, nowIso, reason, newValues }) {
+  return {
+    action, previousStatus, newStatus, branchId, reason, newValues,
+    previousValues: { status: previousStatus },
+    changedAt: nowIso, operatorUid: callerUid,
+    operatorName: callerData.fullName || 'Operador', operatorRole: callerData.role,
+  }
+}
+
+export const confirmShipmentDeparture = onCall({ cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión.')
+  if (process.env.SIMPLE_SHIPMENT_TRANSFER !== 'true') {
+    throw new HttpsError('failed-precondition', 'El traslado simplificado está deshabilitado.')
+  }
+  const { shipmentId, originBranchId, destinationBranchId, vehicleId, driverUid } = request.data || {}
+  return createDispatch({
+    ...request,
+    [singleTransfer]: true,
+    data: { shipmentIds: [shipmentId], originBranchId, destinationBranchId, vehicleId, driverUid },
+  })
+})
+
+export const confirmShipmentReception = onCall({ cors: true }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión.')
+  if (process.env.SIMPLE_SHIPMENT_TRANSFER !== 'true') {
+    throw new HttpsError('failed-precondition', 'El traslado simplificado está deshabilitado.')
+  }
+  const { shipmentId, manifestId, receivedPackages, condition, notes = '' } = request.data || {}
+  if (!Number.isInteger(receivedPackages) || receivedPackages < 0 || typeof notes !== 'string') {
+    throw new HttpsError('invalid-argument', 'Indica la cantidad de bultos y una observación válida.')
+  }
+  return receiveDispatch({
+    ...request,
+    [singleTransfer]: true,
+    data: { manifestId, receivedShipments: [{ shipmentId, receivedPackages, condition, notes }] },
   })
 })
 
@@ -2880,7 +3071,7 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
     const occupied = occupancySnap.docs.some((doc) => {
       if (doc.id === shipmentId) return false
       const location = doc.data().storageLocation || {}
-      return ['stored', 'uncollected'].includes(doc.data().status) &&
+      return doc.data().status === 'stored' &&
         location.branchId === destBranch &&
         location.warehouseId === warehouseId &&
         location.shelfId === shelfId &&
@@ -2970,9 +3161,8 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
       storedByName: callerData.fullName || 'Operador',
     }
 
-    const nextStatus = sData.status === 'uncollected' ? 'uncollected' : 'stored'
     transaction.update(shipmentRef, {
-      status: nextStatus,
+      status: 'stored',
       storageLocation: newLocation,
       ...(photo ? {
         storagePhoto: {
@@ -3008,7 +3198,7 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
 
     const statusLogRef = shipmentRef.collection('status_logs').doc()
     transaction.set(statusLogRef, {
-      status: nextStatus,
+      status: 'stored',
       operatorUid: callerUid,
       operatorName: callerData.fullName || 'Operador',
       branchId: destBranch,
@@ -3592,7 +3782,9 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
           }
         }
 
-        const driverDeliverable = ['in_transit', 'dispatched', 'received_at_dest', 'stored']
+        const driverDeliverable = sData.singleTransfer
+          ? ['received_at_dest', 'stored']
+          : ['in_transit', 'dispatched', 'received_at_dest', 'stored']
         if (!driverDeliverable.includes(sData.status)) {
           throw new HttpsError('failed-precondition', `No se puede entregar la encomienda en estado '${sData.status}'.`)
         }
@@ -3680,6 +3872,9 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
           finMovementRef = db.collection('financial_movements').doc()
           transaction.set(finMovementRef, {
             type: 'driver_route_cod_collected',
+            // El cobro COD en ruta es ingreso comercial desde que el cliente paga.
+            // La rendición posterior se registra aparte como transferencia de custodia.
+            branchId: sData.destinationBranchId,
             concept: `Cobro en ruta por conductor: Guía ${sData.trackingCode || shipmentId}`,
             amountCents,
             amountBob: amountCents / 100,
@@ -4453,13 +4648,169 @@ export const manageUnionMember = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden administrar socios.')
   }
 
+  const requestData = request.data || {}
+  if (requestData.action === 'addChild') {
+    const { memberId, child } = requestData
+    if (typeof memberId !== 'string' || !memberId.trim()) {
+      throw new HttpsError('invalid-argument', 'El afiliado responsable es obligatorio.')
+    }
+    if (!child || typeof child !== 'object' || typeof child.fullName !== 'string' || child.fullName.trim().length < 2) {
+      throw new HttpsError('invalid-argument', 'El nombre completo del hijo es obligatorio.')
+    }
+    const childBirthDate = child.birthDate || ''
+    if (childBirthDate && !(typeof childBirthDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(childBirthDate) && !Number.isNaN(Date.parse(`${childBirthDate}T00:00:00Z`)) && new Date(`${childBirthDate}T00:00:00Z`).toISOString().slice(0, 10) === childBirthDate)) {
+      throw new HttpsError('invalid-argument', 'La fecha de nacimiento debe tener formato válido AAAA-MM-DD.')
+    }
+    const memberRef = db.collection('union_members').doc(memberId.trim())
+    const memberDoc = await memberRef.get()
+    if (!memberDoc.exists) {
+      throw new HttpsError('not-found', 'No se encontró el afiliado responsable.')
+    }
+    const nowIso = new Date().toISOString()
+    const childRef = memberRef.collection('children').doc()
+    const childData = {
+      id: childRef.id,
+      memberId: memberRef.id,
+      fullName: child.fullName.trim(),
+      ci: typeof child.ci === 'string' ? child.ci.trim().toUpperCase().replace(/\s+/g, '') : '',
+      birthDate: childBirthDate || null,
+      phone: typeof child.phone === 'string' ? child.phone.trim() : '',
+      address: typeof child.address === 'string' ? child.address.trim() : '',
+      notes: typeof child.notes === 'string' ? child.notes.trim() : '',
+      createdAtIso: nowIso,
+      createdByUid: callerUid,
+      createdByName: caller.fullName || 'Operador',
+    }
+    await childRef.create(childData)
+    await db.collection('audit_logs').add({
+      action: 'union_member_child_created', targetCollection: 'union_members', targetId: memberRef.id,
+      childId: childRef.id, memberNumber: memberDoc.data().memberNumber, fullName: childData.fullName,
+      performedByUid: callerUid, performedByName: caller.fullName || 'Operador',
+      performedByRole: caller.role, timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    return { success: true, child: childData }
+  }
+
+  if (requestData.action === 'updateChild') {
+    const { memberId, childId, child } = requestData
+    if (typeof memberId !== 'string' || !memberId.trim() || typeof childId !== 'string' || !childId.trim()) {
+      throw new HttpsError('invalid-argument', 'El afiliado y el hijo son obligatorios.')
+    }
+    if (!child || typeof child !== 'object' || Array.isArray(child)) {
+      throw new HttpsError('invalid-argument', 'Los datos del hijo son obligatorios.')
+    }
+    if (Object.prototype.hasOwnProperty.call(child, 'fullName') && (typeof child.fullName !== 'string' || child.fullName.trim().length < 2)) {
+      throw new HttpsError('invalid-argument', 'El nombre completo del hijo debe tener al menos 2 caracteres.')
+    }
+    if (Object.prototype.hasOwnProperty.call(child, 'birthDate') && child.birthDate && !(typeof child.birthDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(child.birthDate) && !Number.isNaN(Date.parse(`${child.birthDate}T00:00:00Z`)) && new Date(`${child.birthDate}T00:00:00Z`).toISOString().slice(0, 10) === child.birthDate)) {
+      throw new HttpsError('invalid-argument', 'La fecha de nacimiento debe tener formato válido AAAA-MM-DD.')
+    }
+    const memberRef = db.collection('union_members').doc(memberId.trim())
+    const memberDoc = await memberRef.get()
+    if (!memberDoc.exists) {
+      throw new HttpsError('not-found', 'No se encontró el afiliado responsable.')
+    }
+    const childRef = memberRef.collection('children').doc(childId.trim())
+    const childDoc = await childRef.get()
+    if (!childDoc.exists || childDoc.data().memberId !== memberRef.id) {
+      throw new HttpsError('not-found', 'No se encontró el hijo asociado a este afiliado.')
+    }
+    const allowedFields = ['fullName', 'ci', 'birthDate', 'phone', 'address', 'notes']
+    const updates = {}
+    for (const field of allowedFields) {
+      if (!Object.prototype.hasOwnProperty.call(child, field)) continue
+      const value = child[field]
+      if (field === 'birthDate') updates.birthDate = value || null
+      else if (typeof value !== 'string') throw new HttpsError('invalid-argument', `El campo ${field} debe ser texto.`)
+      else updates[field] = field === 'ci' ? value.trim().toUpperCase().replace(/\s+/g, '') : value.trim()
+    }
+    if (Object.keys(updates).length === 0) {
+      throw new HttpsError('invalid-argument', 'No se recibieron campos para actualizar.')
+    }
+    const nowIso = new Date().toISOString()
+    updates.updatedAtIso = nowIso
+    updates.updatedByUid = callerUid
+    updates.updatedByName = caller.fullName || 'Operador'
+    await childRef.update(updates)
+    await db.collection('audit_logs').add({
+      action: 'union_member_child_updated', targetCollection: 'union_members', targetId: memberRef.id,
+      childId: childRef.id, memberNumber: memberDoc.data().memberNumber, fullName: updates.fullName || childDoc.data().fullName,
+      performedByUid: callerUid, performedByName: caller.fullName || 'Operador',
+      performedByRole: caller.role, timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    const updatedDoc = await childRef.get()
+    return { success: true, child: { id: updatedDoc.id, ...updatedDoc.data() } }
+  }
+
+  if (requestData.action === 'setDriverLink') {
+    const { memberId, childId = null, driverUid = null } = requestData
+    if (typeof memberId !== 'string' || !memberId.trim()) {
+      throw new HttpsError('invalid-argument', 'El afiliado es obligatorio para vincular un conductor.')
+    }
+    if (childId !== null && (typeof childId !== 'string' || !childId.trim())) {
+      throw new HttpsError('invalid-argument', 'El identificador del hijo no es válido.')
+    }
+    if (driverUid !== null && (typeof driverUid !== 'string' || !driverUid.trim())) {
+      throw new HttpsError('invalid-argument', 'El identificador del conductor no es válido.')
+    }
+    const memberRef = db.collection('union_members').doc(memberId.trim())
+    const memberDoc = await memberRef.get()
+    if (!memberDoc.exists) {
+      throw new HttpsError('not-found', 'No se encontró el afiliado indicado.')
+    }
+    let targetRef = memberRef
+    let targetData = memberDoc.data()
+    if (childId) {
+      targetRef = memberRef.collection('children').doc(childId.trim())
+      const childDoc = await targetRef.get()
+      if (!childDoc.exists || childDoc.data().memberId !== memberRef.id) {
+        throw new HttpsError('not-found', 'El hijo no pertenece al afiliado indicado.')
+      }
+      targetData = childDoc.data()
+    }
+    let selectedDriver = null
+    if (driverUid) {
+      const [driverDoc, directoryDoc] = await Promise.all([
+        db.collection('users').doc(driverUid.trim()).get(),
+        db.collection('driver_directory').doc(driverUid.trim()).get(),
+      ])
+      if (!driverDoc.exists || driverDoc.data()?.role !== 'conductor' || driverDoc.data()?.isActive !== true ||
+          !directoryDoc.exists || directoryDoc.data()?.isActive !== true) {
+        throw new HttpsError('failed-precondition', 'Selecciona un conductor activo que exista en el directorio de conductores.')
+      }
+      selectedDriver = { uid: driverDoc.id, fullName: driverDoc.data().fullName || directoryDoc.data().fullName || 'Conductor' }
+    }
+    const nowIso = new Date().toISOString()
+    const relationUpdate = childId
+      ? { driverUid: selectedDriver?.uid || null, driverName: selectedDriver?.fullName || null, driverLinkedAtIso: nowIso }
+      : { primaryDriverUid: selectedDriver?.uid || null, primaryDriverName: selectedDriver?.fullName || null, primaryDriverLinkedAtIso: nowIso }
+    await targetRef.update(relationUpdate)
+    await db.collection('audit_logs').add({
+      action: childId ? 'union_member_child_driver_link_updated' : 'union_member_primary_driver_link_updated',
+      targetCollection: childId ? 'union_members/children' : 'union_members',
+      targetId: memberRef.id, childId: childId || null,
+      previousDriverUid: childId ? (targetData.driverUid || null) : (targetData.primaryDriverUid || null),
+      driverUid: selectedDriver?.uid || null, driverName: selectedDriver?.fullName || null,
+      performedByUid: callerUid, performedByName: caller.fullName || 'Operador',
+      performedByRole: caller.role, timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    const updatedDoc = await targetRef.get()
+    return { success: true, relation: { ...relationUpdate, driver: selectedDriver }, ...(childId ? { child: { id: updatedDoc.id, ...updatedDoc.data() } } : { member: { id: updatedDoc.id, ...updatedDoc.data() } }) }
+  }
+
   const {
     id,
     memberNumber,
     fullName,
     ci,
+    ciComplement,
     phone,
+    alternatePhone,
+    address,
+    locality,
+    birthDate,
     joinedAt,
+    retiredAt,
     status = 'active',
     category = 'propietario_transporte',
     vehiclePlate,
@@ -4467,13 +4818,22 @@ export const manageUnionMember = onCall({ cors: true }, async (request) => {
     monthlyFeeBob,
     monthlyFeeCents,
     notes,
-  } = request.data || {}
+  } = requestData
 
   if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 3) {
     throw new HttpsError('invalid-argument', 'El nombre completo del socio es obligatorio.')
   }
   if (!memberNumber || typeof memberNumber !== 'string' || memberNumber.trim().length < 2) {
     throw new HttpsError('invalid-argument', 'El número de socio es obligatorio.')
+  }
+
+  const validDate = (value) => !value || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value)
+  if (![birthDate, joinedAt, retiredAt].every(validDate)) {
+    throw new HttpsError('invalid-argument', 'Las fechas deben tener formato válido AAAA-MM-DD.')
+  }
+  const effectiveJoinedAt = joinedAt || (id ? (await db.collection('union_members').doc(id).get()).data()?.joinedAt : null) || new Date().toISOString().slice(0, 10)
+  if (retiredAt && retiredAt < effectiveJoinedAt) {
+    throw new HttpsError('invalid-argument', 'La fecha de retiro no puede ser anterior a la fecha de ingreso.')
   }
 
   const cleanMemberNumber = memberNumber.trim().toUpperCase()
@@ -4507,10 +4867,16 @@ export const manageUnionMember = onCall({ cors: true }, async (request) => {
     id: memberId,
     memberNumber: cleanMemberNumber,
     fullName: cleanFullName,
-    ci: ci ? String(ci).trim() : '',
-    phone: phone ? String(phone).trim() : '',
+    ci: ci ? String(ci).trim().toUpperCase().replace(/\s+/g, '') : '',
+    ciComplement: ciComplement === undefined ? (existingDoc.data()?.ciComplement || '') : String(ciComplement).trim().toUpperCase(),
+    phone: phone === undefined ? (existingDoc.data()?.phone || '') : String(phone).trim(),
+    alternatePhone: alternatePhone === undefined ? (existingDoc.data()?.alternatePhone || '') : String(alternatePhone).trim(),
+    address: address === undefined ? (existingDoc.data()?.address || '') : String(address).trim(),
+    locality: locality === undefined ? (existingDoc.data()?.locality || '') : String(locality).trim(),
+    birthDate: birthDate === undefined ? (existingDoc.data()?.birthDate || null) : birthDate || null,
     joinedAt: joinedAt || existingDoc.data()?.joinedAt || nowIso.slice(0, 10),
-    status: ['active', 'inactive', 'suspended', 'honorary'].includes(status) ? status : 'active',
+    retiredAt: retiredAt === undefined ? (existingDoc.data()?.retiredAt || null) : retiredAt || null,
+    status: ['active', 'inactive', 'suspended', 'honorary', 'retired'].includes(status) ? status : (existingDoc.data()?.status || 'active'),
     category: ['propietario_transporte', 'conductor', 'socio_general'].includes(category) ? category : 'propietario_transporte',
     vehiclePlate: vehiclePlate ? String(vehiclePlate).trim().toUpperCase() : null,
     assignedMobileNumber: assignedMobileNumber ? String(assignedMobileNumber).trim() : null,
@@ -5060,6 +5426,10 @@ export const getMemberAccountStatement = onCall({ cors: true }, async (request) 
     .get()
 
   const dues = duesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const childrenSnap = await db.collection('union_members').doc(memberId).collection('children').get()
+  const children = childrenSnap.docs
+    .map((childDoc) => ({ id: childDoc.id, ...childDoc.data() }))
+    .sort((a, b) => String(a.createdAtIso || '').localeCompare(String(b.createdAtIso || '')))
 
   let totalDuesCount = dues.length
   let totalBilledCents = 0
@@ -5081,6 +5451,7 @@ export const getMemberAccountStatement = onCall({ cors: true }, async (request) 
   return {
     member,
     dues,
+    children,
     summary: {
       totalDuesCount,
       totalBilledCents,
@@ -5093,6 +5464,79 @@ export const getMemberAccountStatement = onCall({ cors: true }, async (request) 
       isUpToDate: totalBalanceCents === 0,
     },
   }
+})
+
+/**
+ * Lectura agrupada del padrón con hijos para impresión.
+ * Conserva exactamente los roles ya autorizados para consultar extractos.
+ */
+export const getUnionMembersRoster = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debe iniciar sesión para consultar el padrón de afiliados.')
+  }
+  const callerDoc = await db.collection('users').doc(request.auth.uid).get()
+  if (!callerDoc.exists || callerDoc.data()?.isActive === false) {
+    throw new HttpsError('permission-denied', 'Usuario no activo.')
+  }
+  const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia']
+  if (!allowedRoles.includes(callerDoc.data()?.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permisos para consultar el padrón completo de afiliados.')
+  }
+
+  const requestedIds = request.data?.memberIds
+  if (requestedIds !== undefined && (!Array.isArray(requestedIds) || requestedIds.length > 1000 || requestedIds.some((id) => typeof id !== 'string' || !id.trim()))) {
+    throw new HttpsError('invalid-argument', 'La lista de afiliados solicitada no es válida.')
+  }
+  let memberDocs
+  if (requestedIds === undefined) {
+    const snapshot = await db.collection('union_members').get()
+    memberDocs = snapshot.docs.sort((a, b) => String(a.data()?.memberNumber || '').localeCompare(String(b.data()?.memberNumber || ''), 'es'))
+  } else {
+    const uniqueIds = [...new Set(requestedIds.map((id) => id.trim()))]
+    const snapshots = await Promise.all(uniqueIds.map((id) => db.collection('union_members').doc(id).get()))
+    memberDocs = snapshots.filter((snapshot) => snapshot.exists)
+  }
+
+  const members = await Promise.all(memberDocs.map(async (memberDoc) => {
+    const data = memberDoc.data() || {}
+    const childrenSnapshot = await memberDoc.ref.collection('children').get()
+    const children = childrenSnapshot.docs.map((childDoc) => {
+      const child = childDoc.data() || {}
+      return {
+        id: childDoc.id,
+        memberId: memberDoc.id,
+        fullName: child.fullName || '',
+        ci: child.ci || '',
+        birthDate: child.birthDate || null,
+        phone: child.phone || '',
+        address: child.address || '',
+        notes: child.notes || '',
+        driverUid: child.driverUid || null,
+        driverName: child.driverName || null,
+      }
+    }).sort((a, b) => String(a.fullName).localeCompare(String(b.fullName), 'es'))
+    return {
+      id: memberDoc.id,
+      memberNumber: data.memberNumber || '',
+      fullName: data.fullName || '',
+      ci: data.ci || '',
+      ciComplement: data.ciComplement || '',
+      phone: data.phone || '',
+      alternatePhone: data.alternatePhone || '',
+      address: data.address || '',
+      locality: data.locality || '',
+      birthDate: data.birthDate || '',
+      joinedAt: data.joinedAt || '',
+      retiredAt: data.retiredAt || '',
+      status: data.status || 'active',
+      category: data.category || '',
+      primaryDriverUid: data.primaryDriverUid || null,
+      primaryDriverName: data.primaryDriverName || null,
+      notes: data.notes || '',
+      children,
+    }
+  }))
+  return { success: true, members }
 })
 
 // =========================================================================
@@ -5744,10 +6188,89 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     photoUrl,
     notes,
     disposedReason,
+    patrimonialLocationId,
+    propertyType,
+    address,
+    quantity = 1,
+    batchRequestId,
   } = request.data || {}
 
   const nowIso = new Date().toISOString()
   const callerName = caller.fullName || caller.email || 'Admin'
+
+  if (action === 'create_batch') {
+    const allowedLocations = ['sede_punata', 'oficina_punata', 'oficina_cochabamba']
+    if (!allowedLocations.includes(patrimonialLocationId)) throw new HttpsError('invalid-argument', 'Seleccione una sede u oficina patrimonial válida.')
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 200) throw new HttpsError('invalid-argument', 'La cantidad debe ser un entero entre 1 y 200.')
+    if (category === 'inmuebles' && quantity !== 1) throw new HttpsError('invalid-argument', 'Los inmuebles deben registrarse individualmente, con cantidad 1.')
+    if (!['computacion', 'muebles', 'herramientas', 'comunicacion', 'balanzas_pesaje', 'oficina', 'inmuebles', 'otro'].includes(category)) throw new HttpsError('invalid-argument', 'La categoría patrimonial no es válida.')
+    if (!name || typeof name !== 'string' || name.trim().length < 2) throw new HttpsError('invalid-argument', 'El nombre del bien es obligatorio.')
+    if (!batchRequestId || typeof batchRequestId !== 'string' || batchRequestId.length < 12 || batchRequestId.length > 100) throw new HttpsError('invalid-argument', 'La clave de lote no es válida.')
+    const cleanCategory = category === 'inmuebles' ? 'inmuebles' : category
+    const locationBranch = patrimonialLocationId === 'oficina_cochabamba' ? 'cochabamba' : 'punata'
+    const prefix = locationBranch === 'cochabamba' ? 'CBB' : 'PUN'
+    const fingerprint = JSON.stringify({ name: name.trim(), category: cleanCategory, description: description || '', patrimonialLocationId, quantity, acquisitionDate: acquisitionDate || '', acquisitionCostCents: acquisitionCostCents ?? acquisitionCostBob ?? 0, propertyType: propertyType || '', address: address || '', responsiblePersonUid: responsiblePersonUid || '', responsiblePersonName: responsiblePersonName || '', status, notes: notes || '', photoUrl: photoUrl || '' })
+    const batchRef = db.collection('fixed_asset_batches').doc(batchRequestId.replace(/[^a-zA-Z0-9_-]/g, '_'))
+    const counterRef = db.collection('counters').doc(`asset_${locationBranch}`)
+    const inventoryQuery = db.collection('fixed_assets').where('assetCode', '>=', `ACT-${prefix}-`).where('assetCode', '<=', `ACT-${prefix}-9999999999`)
+    const assetRefs = Array.from({ length: quantity }, () => db.collection('fixed_assets').doc())
+    const logRefs = assetRefs.map((ref) => ref.collection('audit_logs').doc())
+    const globalLogRefs = assetRefs.map(() => db.collection('audit_logs').doc())
+    const created = await db.runTransaction(async (transaction) => {
+      const existingBatch = await transaction.get(batchRef)
+      if (existingBatch.exists) {
+        if (existingBatch.data().fingerprint !== fingerprint) throw new HttpsError('already-exists', 'La clave de lote ya fue utilizada para otros datos.')
+        const ids = existingBatch.data().assetIds || []
+        const docs = await Promise.all(ids.map((assetId) => transaction.get(db.collection('fixed_assets').doc(assetId))))
+        return docs.filter((doc) => doc.exists).map((doc) => doc.data())
+      }
+      const [counterSnap, inventorySnap] = await Promise.all([transaction.get(counterRef), transaction.get(inventoryQuery)])
+      let next = counterSnap.exists ? Number(counterSnap.data().lastSeq || 0) : 0
+      for (const doc of inventorySnap.docs) {
+        const match = new RegExp(`^ACT-${prefix}-(\\d+)$`).exec(doc.data().assetCode || '')
+        if (match) next = Math.max(next, Number(match[1]))
+      }
+      const amountCents = Number.isInteger(acquisitionCostCents)
+        ? acquisitionCostCents
+        : (acquisitionCostBob !== undefined ? Math.round(Number(acquisitionCostBob) * 100) : 0)
+      if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw new HttpsError('invalid-argument', 'El valor registrado debe ser un importe no negativo válido en centavos.')
+      if (!['available', 'in_use', 'in_maintenance', 'damaged', 'out_of_service', 'lost'].includes(status)) throw new HttpsError('invalid-argument', 'El estado patrimonial no es válido.')
+      const groupId = quantity > 1 ? batchRef.id : null
+      const items = assetRefs.map((ref, index) => {
+        const code = `ACT-${prefix}-${String(next + index + 1).padStart(4, '0')}`
+        const qrPayload = `EXPRESO-PUNATA:ACTIVO:${ref.id}`
+        const item = {
+          id: ref.id, assetCode: code, barcodeQr: code, qrPayload,
+          name: name.trim(), category: cleanCategory,
+          description: description ? description.trim() : '', branchId: locationBranch,
+          patrimonialLocationId, physicalLocation: physicalLocation || '',
+          propertyType: propertyType || '', address: address || '',
+          responsiblePersonUid: responsiblePersonUid || null, responsiblePersonName: responsiblePersonName?.trim() || '',
+          acquisitionDate: acquisitionDate || nowIso.slice(0, 10),
+          acquisitionCostBob: index === 0 ? amountCents / 100 : 0,
+          acquisitionCostCents: index === 0 ? amountCents : 0,
+          status, photoUrl: photoUrl || '', notes: notes || '',
+          quantityGroupId: groupId, quantityIndex: index + 1, quantityTotal: quantity,
+          createdAtIso: nowIso, createdByUid: callerUid, createdByName: callerName, updatedAtIso: nowIso,
+        }
+        transaction.create(ref, item)
+        transaction.create(logRefs[index], {
+          assetId: ref.id, assetCode: code, action: 'created', details: `Registro patrimonial por ${callerName}`,
+          performedByUid: callerUid, performedByName: callerName, timestampIso: nowIso,
+        })
+        transaction.create(globalLogRefs[index], {
+          timestamp: nowIso, action: 'fixed_asset_created', performedBy: callerUid, performedByName: callerName,
+          details: `Activo registrado: ${code} - ${name.trim()} en ${patrimonialLocationId}`,
+          assetId: ref.id, assetCode: code,
+        })
+        return item
+      })
+      transaction.set(counterRef, { lastSeq: next + quantity, branchId: locationBranch }, { merge: true })
+      transaction.create(batchRef, { assetIds: items.map((item) => item.id), quantity, fingerprint, createdAtIso: nowIso, createdByUid: callerUid })
+      return items
+    })
+    return { success: true, assets: created, quantity: created.length, message: `${created.length} bien(es) registrado(s).` }
+  }
 
   // OPERACIÓN 1: ACTUALIZACIÓN / EDICIÓN GENERAL
   if (action === 'update' && id) {
@@ -5757,6 +6280,10 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
       throw new HttpsError('not-found', 'El activo no existe.')
     }
     const currentAsset = assetSnap.data()
+
+    if (request.data?.category === 'inmuebles' && (currentAsset.quantityTotal || 1) !== 1) {
+      throw new HttpsError('failed-precondition', 'Los inmuebles deben mantenerse como registros individuales.')
+    }
 
     if (currentAsset.status === 'disposed') {
       if (caller.role !== 'directiva_admin') {
@@ -5773,11 +6300,15 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
       updatedByUid: callerUid,
     }
     if (name) updates.name = name.trim()
-    if (category) updates.category = category
+    if (request.data?.category) updates.category = category
     if (description !== undefined) updates.description = description
     if (physicalLocation) updates.physicalLocation = physicalLocation.trim()
+    if (patrimonialLocationId) updates.patrimonialLocationId = patrimonialLocationId
+    if (propertyType !== undefined) updates.propertyType = propertyType
+    if (address !== undefined) updates.address = address
     if (responsiblePersonName) updates.responsiblePersonName = responsiblePersonName.trim()
     if (responsiblePersonUid !== undefined) updates.responsiblePersonUid = responsiblePersonUid
+    if (acquisitionDate !== undefined) updates.acquisitionDate = acquisitionDate
     if (notes !== undefined) updates.notes = notes
     if (photoUrl !== undefined) updates.photoUrl = photoUrl
     if (status) updates.status = status
@@ -5786,6 +6317,7 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
       ? acquisitionCostCents
       : (acquisitionCostBob !== undefined ? Math.round(Number(acquisitionCostBob) * 100) : undefined)
     if (costCents !== undefined) {
+      if (!Number.isSafeInteger(costCents) || costCents < 0) throw new HttpsError('invalid-argument', 'El valor registrado debe ser un importe no negativo válido.')
       updates.acquisitionCostCents = costCents
       updates.acquisitionCostBob = costCents / 100
     }
@@ -5823,7 +6355,7 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
       throw new HttpsError('failed-precondition', 'Un activo dado de baja no puede ser transferido de sucursal ni responsable.')
     }
 
-    if (!physicalLocation && !branchId && !responsiblePersonName) {
+    if (!physicalLocation && !branchId && !patrimonialLocationId && !responsiblePersonName) {
       throw new HttpsError('invalid-argument', 'Debe especificar la nueva ubicación, sucursal o responsable.')
     }
 
@@ -5833,6 +6365,10 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     }
     if (branchId) updates.branchId = branchId
     if (physicalLocation) updates.physicalLocation = physicalLocation.trim()
+    if (patrimonialLocationId) {
+      if (!['sede_punata', 'oficina_punata', 'oficina_cochabamba'].includes(patrimonialLocationId)) throw new HttpsError('invalid-argument', 'La sede u oficina patrimonial no es válida.')
+      updates.patrimonialLocationId = patrimonialLocationId
+    }
     if (responsiblePersonName) updates.responsiblePersonName = responsiblePersonName.trim()
     if (responsiblePersonUid !== undefined) updates.responsiblePersonUid = responsiblePersonUid
 
@@ -5842,8 +6378,8 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
       assetId: id,
       assetCode: currentAsset.assetCode,
       action: 'transfer',
-      previousLocation: currentAsset.physicalLocation,
-      newLocation: updates.physicalLocation || currentAsset.physicalLocation,
+      previousLocation: currentAsset.patrimonialLocationId || currentAsset.physicalLocation,
+      newLocation: updates.patrimonialLocationId || updates.physicalLocation || currentAsset.patrimonialLocationId || currentAsset.physicalLocation,
       previousResponsible: currentAsset.responsiblePersonName,
       newResponsible: updates.responsiblePersonName || currentAsset.responsiblePersonName,
       details: `Transferencia registrada por ${callerName}`,
@@ -5994,6 +6530,9 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     category,
     description: description ? description.trim() : '',
     branchId: cleanBranch,
+    ...(patrimonialLocationId ? { patrimonialLocationId } : {}),
+    ...(propertyType ? { propertyType } : {}),
+    ...(address ? { address } : {}),
     physicalLocation: physicalLocation.trim(),
     responsiblePersonUid: responsiblePersonUid || null,
     responsiblePersonName: responsiblePersonName.trim(),
@@ -6038,6 +6577,65 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     asset: assetData,
     message: `Activo ${finalAssetCode} registrado exitosamente.`,
   }
+})
+
+const PATRIMONIAL_READ_ROLES = ['directiva_admin', 'encargado_agencia', 'tesoreria', 'secretaria']
+const PATRIMONIAL_MANAGE_ROLES = ['directiva_admin', 'encargado_agencia', 'tesoreria']
+
+async function requirePatrimonialUser(request, allowedRoles, message) {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión.')
+  const snap = await db.collection('users').doc(request.auth.uid).get()
+  if (!snap.exists || snap.data().isActive === false || !allowedRoles.includes(snap.data().role)) {
+    throw new HttpsError('permission-denied', message)
+  }
+  return { uid: request.auth.uid, profile: snap.data() }
+}
+
+export const managePhysicalInventoryDocument = onCall({ cors: true }, async (request) => {
+  const { uid, profile } = await requirePatrimonialUser(request, PATRIMONIAL_MANAGE_ROLES, 'No tiene permisos para administrar documentos físicos.')
+  const { action = 'create', id, title, documentType, description = '', patrimonialLocationId, sheetCount, documentDate, responsibleReference = '', status = 'active', notes = '' } = request.data || {}
+  const validLocations = ['sede_punata', 'oficina_punata', 'oficina_cochabamba']
+  if (!['create', 'update'].includes(action)) throw new HttpsError('invalid-argument', 'Acción documental no válida.')
+  if (!title || typeof title !== 'string' || title.trim().length < 2) throw new HttpsError('invalid-argument', 'El título debe tener al menos dos caracteres.')
+  if (!documentType || typeof documentType !== 'string' || documentType.trim().length < 2) throw new HttpsError('invalid-argument', 'Indique el tipo de documento o carpeta.')
+  if (!validLocations.includes(patrimonialLocationId)) throw new HttpsError('invalid-argument', 'Seleccione una ubicación patrimonial válida.')
+  if (!Number.isInteger(sheetCount) || sheetCount < 0) throw new HttpsError('invalid-argument', 'La cantidad de hojas debe ser un entero no negativo.')
+  const nowIso = new Date().toISOString()
+  const actor = { updatedAtIso: nowIso, updatedByUid: uid, updatedByName: profile.fullName || profile.email || 'Usuario' }
+  const collection = db.collection('physical_inventory_documents')
+  if (action === 'update') {
+    if (!id) throw new HttpsError('invalid-argument', 'Falta el identificador del documento.')
+    const ref = collection.doc(id)
+    const existing = await ref.get()
+    if (!existing.exists) throw new HttpsError('not-found', 'El documento físico no existe.')
+    const previous = existing.data()
+    const next = { title: title.trim(), documentType: documentType.trim(), description: String(description).trim(), patrimonialLocationId, sheetCount, documentDate: documentDate || previous.documentDate || nowIso.slice(0, 10), responsibleReference: String(responsibleReference).trim(), status, notes: String(notes).trim(), ...actor }
+    await ref.update(next)
+    await collection.doc(id).collection('audit_logs').add({ action: 'updated', before: previous, after: next, performedByUid: uid, performedByName: actor.updatedByName, timestampIso: nowIso })
+    return { success: true, id, document: { id, ...previous, ...next } }
+  }
+  const ref = collection.doc()
+  const document = { id: ref.id, title: title.trim(), documentType: documentType.trim(), description: String(description).trim(), patrimonialLocationId, sheetCount, documentDate: documentDate || nowIso.slice(0, 10), responsibleReference: String(responsibleReference).trim(), status, notes: String(notes).trim(), createdAtIso: nowIso, createdByUid: uid, ...actor }
+  await ref.set(document)
+  await ref.collection('audit_logs').add({ action: 'created', after: document, performedByUid: uid, performedByName: actor.updatedByName, timestampIso: nowIso })
+  return { success: true, id: ref.id, document }
+})
+
+export const listPhysicalInventoryDocuments = onCall({ cors: true }, async (request) => {
+  await requirePatrimonialUser(request, PATRIMONIAL_READ_ROLES, 'No tiene permisos de lectura para el inventario patrimonial.')
+  const { patrimonialLocationId, search = '' } = request.data || {}
+  const query = db.collection('physical_inventory_documents').orderBy('title').limit(500)
+  const snap = await query.get()
+  const normalized = String(search).trim().toLowerCase()
+  const documents = snap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((doc) => {
+      const matchesLocation = !patrimonialLocationId || patrimonialLocationId === 'all' || doc.patrimonialLocationId === patrimonialLocationId
+      const matchesSearch = !normalized || [doc.title, doc.documentType, doc.description, doc.patrimonialLocationId]
+        .some((value) => String(value || '').toLowerCase().includes(normalized))
+      return matchesLocation && matchesSearch
+    })
+  return { documents }
 })
 
 // =========================================================================
@@ -6086,6 +6684,20 @@ function resolveLaPazBounds(startDateStr, endDateStr, periodStr) {
   return { startIso, endIso }
 }
 
+async function getFinancialMovementsForRange(startIso, endIso) {
+  // Los registros históricos de Caja no usan todos el mismo campo de fecha:
+  // algunos tienen `timestamp` y otros `createdAtIso`. Consultar ambos evita
+  // omitir ingresos válidos en reportes y deduplicar por ID evita contarlos dos veces.
+  const collection = db.collection('financial_movements')
+  const [timestampSnapshot, createdAtSnapshot] = await Promise.all([
+    collection.where('timestamp', '>=', startIso).where('timestamp', '<=', endIso).limit(5000).get(),
+    collection.where('createdAtIso', '>=', startIso).where('createdAtIso', '<=', endIso).limit(5000).get(),
+  ])
+  const byId = new Map()
+  for (const doc of [...timestampSnapshot.docs, ...createdAtSnapshot.docs]) byId.set(doc.id, { id: doc.id, ...doc.data() })
+  return [...byId.values()]
+}
+
 export const getSystemReport = onCall({ cors: true }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para consultar reportes del sistema.')
@@ -6108,6 +6720,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     paymentCondition = 'all',
     paymentMethod = 'all',
     category = 'all',
+    patrimonialLocationId = 'all',
     operatorUid,
     driverUid,
     memberId,
@@ -6134,6 +6747,193 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
   const safePage = Math.max(1, parseInt(page, 10) || 1)
   const safePageSize = Math.min(500, Math.max(10, parseInt(pageSize, 10) || 100))
 
+  // Reportes asociativos: conjuntos acotados para evitar lecturas ilimitadas.
+  // Los saldos de deuda se presentan por separado del efectivo realmente cobrado.
+  if (['members', 'loans', 'fines', 'sports', 'physical_inventory'].includes(reportType)) {
+    const boundedRead = async (collection, orderField = 'createdAtIso') => {
+      const snapshot = await db.collection(collection).orderBy(orderField, 'desc').limit(500).get()
+      return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    }
+    const inDateRange = (value) => {
+      if (!value) return true
+      const iso = typeof value === 'string' ? value : value?.toDate?.()?.toISOString?.() || ''
+      return (!startDate || iso.slice(0, 10) >= startDate) && (!endDate || iso.slice(0, 10) <= endDate)
+    }
+    const byMember = (record) => !memberId || record.memberId === memberId
+    const byStatus = (record) => status === 'all' || !status || record.status === status
+
+    if (reportType === 'members') {
+      let members = (await boundedRead('union_members')).filter((member) =>
+        (!status || status === 'all' || member.status === status) &&
+        (!category || category === 'all' || member.category === category) &&
+        inDateRange(member.createdAtIso || member.registeredAtIso)
+      )
+      if (memberId) members = members.filter((member) => member.id === memberId)
+      const allDues = (await boundedRead('union_dues')).filter(byMember)
+      const allLoans = (await boundedRead('union_loans')).filter(byMember)
+      const allFines = (await boundedRead('union_fines')).filter(byMember)
+      const records = members.map((member) => {
+        const dues = allDues.filter((item) => item.memberId === member.id)
+        const loans = allLoans.filter((item) => item.memberId === member.id)
+        const fines = allFines.filter((item) => item.memberId === member.id)
+        return {
+          ...member,
+          duesPaidCents: dues.reduce((sum, item) => sum + (item.paidAmountCents || 0), 0),
+          duesPendingCents: dues.reduce((sum, item) => sum + (item.balanceCents || 0), 0),
+          loanPrincipalCents: loans.reduce((sum, item) => sum + (item.principalCents || 0), 0),
+          loanRecoveredCents: loans.reduce((sum, item) => sum + (item.paidCents || 0), 0),
+          loanPendingCents: loans.reduce((sum, item) => sum + (item.balanceCents || 0), 0),
+          finesPaidCents: fines.reduce((sum, item) => sum + (item.paidCents || 0), 0),
+          finesPendingCents: fines.reduce((sum, item) => sum + (item.balanceCents || 0), 0),
+        }
+      })
+      return {
+        success: true, reportType, dateRange: { startIso, endIso }, branchId: effectiveBranchId,
+        summary: {
+          totalMembers: records.length,
+          activeMembers: records.filter((member) => member.status === 'active').length,
+          retiredMembers: records.filter((member) => ['retired', 'inactive', 'withdrawn'].includes(member.status)).length,
+          duesPaidCents: records.reduce((sum, member) => sum + member.duesPaidCents, 0),
+          duesPendingCents: records.reduce((sum, member) => sum + member.duesPendingCents, 0),
+          loanPrincipalCents: records.reduce((sum, member) => sum + member.loanPrincipalCents, 0),
+          loanRecoveredCents: records.reduce((sum, member) => sum + member.loanRecoveredCents, 0),
+          loanPendingCents: records.reduce((sum, member) => sum + member.loanPendingCents, 0),
+          finesPaidCents: records.reduce((sum, member) => sum + member.finesPaidCents, 0),
+          finesPendingCents: records.reduce((sum, member) => sum + member.finesPendingCents, 0),
+        }, records: records.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+        pagination: { page: safePage, pageSize: safePageSize, totalRecords: records.length, totalPages: Math.ceil(records.length / safePageSize) },
+        truncated: members.length >= 500,
+      }
+    }
+
+    if (reportType === 'loans' || reportType === 'fines') {
+      const collection = reportType === 'loans' ? 'union_loans' : 'union_fines'
+      let records = (await boundedRead(collection)).filter(byMember).filter(byStatus)
+      records = records.filter((record) => inDateRange(record.createdAtIso || record.date || record.grantDate))
+      if (category !== 'all' && reportType === 'fines') records = records.filter((record) => record.category === category)
+      const pageStart = (safePage - 1) * safePageSize
+      const pageRecords = records.slice(pageStart, safePage * safePageSize)
+      const detailedRecords = await Promise.all(pageRecords.map(async (record) => {
+        if (reportType === 'loans') {
+          const [installments, payments] = await Promise.all([
+            db.collection('union_loans').doc(record.id).collection('installments').orderBy('sequence', 'asc').limit(120).get(),
+            db.collection('union_loans').doc(record.id).collection('payments').orderBy('paidAtIso', 'asc').limit(120).get(),
+          ])
+          return {
+            ...record,
+            installmentSchedule: installments.docs.map((doc) => {
+              const item = doc.data()
+              return `${item.sequence}: ${item.dueDate} · ${item.status} · saldo ${item.balanceCents ?? 0}¢`
+            }).join(' | '),
+            repaymentHistory: payments.docs.map((doc) => {
+              const payment = doc.data()
+              return `${payment.paidAtIso || ''} · ${payment.amountCents || 0}¢ · ${payment.receiptNumber || ''}`
+            }).join(' | '),
+          }
+        }
+        const payments = await db.collection('union_fines').doc(record.id).collection('payments').orderBy('paidAtIso', 'asc').limit(120).get()
+        return { ...record, paymentHistory: payments.docs.map((doc) => {
+          const payment = doc.data()
+          return `${payment.paidAtIso || ''} · ${payment.amountCents || 0}¢ · ${payment.receiptNumber || ''}`
+        }).join(' | ') }
+      }))
+      const principalCents = reportType === 'loans'
+        ? records.reduce((sum, record) => sum + (record.principalCents || 0), 0)
+        : records.reduce((sum, record) => sum + (record.amountCents || 0), 0)
+      const recoveredCents = records.reduce((sum, record) => sum + (record.paidCents || 0), 0)
+      const pendingCents = records.reduce((sum, record) => sum + (record.balanceCents || 0), 0)
+      return {
+        success: true, reportType, dateRange: { startIso, endIso }, branchId: effectiveBranchId,
+        summary: {
+          totalRecords: records.length,
+          principalCents,
+          amountCents: principalCents,
+          recoveredCents,
+          collectedCents: recoveredCents,
+          pendingCents,
+          // Principal desembolsado y recuperación de capital no se declaran ingreso operativo.
+          isOperatingIncome: false,
+        }, records: detailedRecords,
+        pagination: { page: safePage, pageSize: safePageSize, totalRecords: records.length, totalPages: Math.ceil(records.length / safePageSize) },
+        truncated: records.length >= 500,
+      }
+    }
+
+    if (reportType === 'sports') {
+      const sportsSnapshot = await db.collection('union_sports_events')
+        .where('date', '>=', startIso.slice(0, 10)).where('date', '<=', endIso.slice(0, 10))
+        .orderBy('date', 'desc').limit(50).get()
+      let records = sportsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })).filter((event) =>
+        inDateRange(event.date) && byStatus(event) && (!category || category === 'all' || event.activityType === category)
+      )
+      let participantsTruncated = false
+      const events = await Promise.all(records.map(async (event) => {
+        const participants = await db.collection('union_sports_events').doc(event.id).collection('participants').limit(200).get()
+        if (participants.size >= 200) participantsTruncated = true
+        const attendance = participants.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+        return { ...event, participantCount: attendance.length,
+          presentCount: attendance.filter((item) => item.attendance === 'present').length,
+          lateCount: attendance.filter((item) => item.attendance === 'late').length,
+          absentCount: attendance.filter((item) => item.attendance === 'absent').length,
+          exemptCount: attendance.filter((item) => item.attendance === 'exempt').length,
+          exemptionRequests: attendance.reduce((sum, item) => sum + (Array.isArray(item.justifications) ? item.justifications.length : 0), 0),
+          authorizedExemptions: attendance.filter((item) => item.attendance === 'exempt' && Array.isArray(item.justifications) && item.justifications.some((entry) => entry.status === 'approved')).length,
+          sanctionedCount: attendance.filter((item) => Boolean(item.fineId)).length,
+          attendanceRecords: attendance.map((item) => ({
+            eventId: event.id, date: event.date, activityName: event.activityName,
+            memberId: item.memberId || item.id, memberNumber: item.memberNumber || '',
+            memberName: item.memberName || '', attendance: item.attendance,
+            exemptionRequests: Array.isArray(item.justifications) ? item.justifications.length : 0,
+            authorizedExemption: item.attendance === 'exempt' && Array.isArray(item.justifications) && item.justifications.some((entry) => entry.status === 'approved'),
+            fineId: item.fineId || null, financialReviewRequired: Boolean(item.financialReviewRequired),
+          })) }
+      }))
+      const summary = events.reduce((acc, event) => {
+        acc.events += 1; acc.participants += event.participantCount; acc.present += event.presentCount
+        acc.late += event.lateCount; acc.absent += event.absentCount; acc.exempt += event.exemptCount
+        acc.exemptionRequests += event.exemptionRequests; acc.authorizedExemptions += event.authorizedExemptions
+        acc.sanctioned += event.sanctionedCount; return acc
+      }, { events: 0, participants: 0, present: 0, late: 0, absent: 0, exempt: 0, exemptionRequests: 0, authorizedExemptions: 0, sanctioned: 0 })
+      const sportsFines = (await boundedRead('union_fines')).filter((fine) => fine.category === 'deportes' && inDateRange(fine.date || fine.createdAtIso))
+      summary.sanctionRecords = sportsFines.length
+      summary.sanctionsAmountCents = sportsFines.reduce((sum, fine) => sum + (fine.amountCents || 0), 0)
+      summary.sanctionsCollectedCents = sportsFines.reduce((sum, fine) => sum + (fine.paidCents || 0), 0)
+      summary.sanctionsPendingCents = sportsFines.reduce((sum, fine) => sum + (fine.balanceCents || 0), 0)
+      const pageEvents = events.slice((safePage - 1) * safePageSize, safePage * safePageSize)
+      return { success: true, reportType, dateRange: { startIso, endIso }, branchId: effectiveBranchId,
+        summary,
+        records: pageEvents.map(({ attendanceRecords, ...event }) => event),
+        attendanceRecords: pageEvents.flatMap((event) => event.attendanceRecords),
+        pagination: { page: safePage, pageSize: safePageSize, totalRecords: events.length, totalPages: Math.ceil(events.length / safePageSize) },
+        truncated: sportsSnapshot.size >= 50 || participantsTruncated || sportsFines.length >= 500 }
+    }
+
+    if (reportType === 'physical_inventory') {
+      let assets = await db.collection('fixed_assets').limit(500).get()
+      let documents = await db.collection('physical_inventory_documents').orderBy('title').limit(500).get()
+      let assetRecords = assets.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      let documentRecords = documents.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      if (effectiveBranchId && effectiveBranchId !== 'all') assetRecords = assetRecords.filter((record) => record.branchId === effectiveBranchId)
+      if (startDate) assetRecords = assetRecords.filter((record) => record.acquisitionDate && record.acquisitionDate >= startDate)
+      if (endDate) assetRecords = assetRecords.filter((record) => record.acquisitionDate && record.acquisitionDate <= endDate)
+      if (category !== 'all') assetRecords = assetRecords.filter((record) => record.category === category)
+      if (status !== 'all') { assetRecords = assetRecords.filter((record) => record.status === status); documentRecords = documentRecords.filter((record) => record.status === status) }
+      if (category !== 'all') documentRecords = documentRecords.filter((record) => record.documentType === category)
+      if (patrimonialLocationId !== 'all') documentRecords = documentRecords.filter((record) => record.patrimonialLocationId === patrimonialLocationId)
+      if (patrimonialLocationId !== 'all') assetRecords = assetRecords.filter((record) => record.patrimonialLocationId === patrimonialLocationId)
+      documentRecords = documentRecords.filter((record) => inDateRange(record.documentDate))
+      const totalValueCents = assetRecords.reduce((sum, record) => sum + (record.acquisitionCostCents || 0), 0)
+      const totalQuantity = assetRecords.reduce((sum, record) => sum + (record.quantity || 1), 0)
+      const sheets = documentRecords.reduce((sum, record) => sum + (record.sheetCount || 0), 0)
+      return { success: true, reportType, dateRange: { startIso, endIso }, branchId: effectiveBranchId,
+        summary: { assetCount: assetRecords.length, totalQuantity, totalValueCents, documentCount: documentRecords.length, documentSheets: sheets,
+          assetsByLocation: assetRecords.reduce((acc, record) => { const key = record.physicalLocation || 'sin_ubicacion'; acc[key] = (acc[key] || 0) + (record.quantity || 1); return acc }, {}) },
+        records: assetRecords.slice((safePage - 1) * safePageSize, safePage * safePageSize), documents: documentRecords.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+        pagination: { page: safePage, pageSize: safePageSize, totalRecords: assetRecords.length + documentRecords.length, totalPages: Math.ceil((assetRecords.length + documentRecords.length) / safePageSize) },
+        truncated: assets.size >= 500 || documents.size >= 500 }
+    }
+  }
+
   // =========================================================================
   // REPORTE B1: ENCOMIENDAS Y LOGÍSTICA
   // =========================================================================
@@ -6149,6 +6949,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         .where('createdAt', '>=', startTimestamp)
         .where('createdAt', '<=', endTimestamp)
         .orderBy('createdAt', 'desc')
+        .limit(5000)
         .get()
       if (!snap.empty) {
         docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -6165,6 +6966,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
           .where('createdAtIso', '>=', startIso)
           .where('createdAtIso', '<=', endIso)
           .orderBy('createdAtIso', 'desc')
+          .limit(5000)
           .get()
         if (!isoSnap.empty) {
           docs = isoSnap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -6182,6 +6984,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
           .where('createdAt', '>=', startIso)
           .where('createdAt', '<=', endIso)
           .orderBy('createdAt', 'desc')
+          .limit(5000)
           .get()
         if (!strSnap.empty) {
           docs = strSnap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -6189,23 +6992,6 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       } catch (err) {
         queryError = err
       }
-    }
-
-    // Algunos registros históricos pueden conservar simultáneamente createdAt
-    // como Timestamp y createdAtIso como cadena. Completar la ventana con la
-    // representación alternativa evita perder encomiendas válidas cuando la
-    // primera consulta devuelve resultados parciales.
-    try {
-      const isoSnap = await db.collection('shipments')
-        .where('createdAtIso', '>=', startIso)
-        .where('createdAtIso', '<=', endIso)
-        .orderBy('createdAtIso', 'desc')
-        .get()
-      const byId = new Map(docs.map((doc) => [doc.id, doc]))
-      isoSnap.docs.forEach((doc) => { if (!byId.has(doc.id)) byId.set(doc.id, { id: doc.id, ...doc.data() }) })
-      docs = Array.from(byId.values())
-    } catch (err) {
-      queryError = queryError || err
     }
 
     // Si las consultas indexadas fallaron por falta de índice compuesto, fallar rápido con el error explícito
@@ -6256,7 +7042,6 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       ready_for_pickup: 0,
       in_delivery: 0,
       delivered: 0,
-      uncollected: 0,
       returned: 0,
       cancelled: 0,
       lost: 0,
@@ -6406,6 +7191,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         totalPages: Math.ceil(totalRecords / safePageSize) || 1,
       },
       records: paginatedDocs,
+      truncated: docs.length >= 5000,
     }
   }
 
@@ -6413,13 +7199,8 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
   // REPORTE B2: CAJA Y FINANZAS
   // =========================================================================
   if (reportType === 'cash_financial') {
-    let movQuery = db.collection('financial_movements')
-      .where('timestamp', '>=', startIso)
-      .where('timestamp', '<=', endIso)
-      .orderBy('timestamp', 'desc')
-
-    const movSnap = await movQuery.get()
-    let movements = movSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    let movements = await getFinancialMovementsForRange(startIso, endIso)
+    movements.sort((a, b) => String(b.timestamp || b.createdAtIso || '').localeCompare(String(a.timestamp || a.createdAtIso || '')))
 
     if (effectiveBranchId && effectiveBranchId !== 'all') {
       movements = movements.filter(m => m.branchId === effectiveBranchId)
@@ -6427,9 +7208,13 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     if (operatorUid) {
       movements = movements.filter(m => m.operatorUid === operatorUid)
     }
+    if (category && category !== 'all') movements = movements.filter(m => m.type === category || m.category === category)
+    if (paymentMethod && paymentMethod !== 'all') movements = movements.filter(m => m.paymentMethod === paymentMethod)
 
     let commercialIncomeCents = 0
     let contributionsIncomeCents = 0
+    let fineIncomeCents = 0
+    let loanRepaymentsCents = 0
     let driverRemittancesCents = 0
     let expensesCents = 0
     let refundsCents = 0
@@ -6448,13 +7233,17 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
 
     for (const m of movements) {
       const amt = m.amountCents || Math.round((Number(m.amountBob) || 0) * 100) || 0
-      const isIncome = ['shipment_income', 'cod_income', 'origin_paid', 'contribution_income', 'monthly_fee_income', 'driver_remittance'].includes(m.type)
+      const isIncome = ['shipment_income', 'cod_income', 'origin_paid', 'driver_route_cod_collected', 'contribution_income', 'monthly_fee_income', 'driver_remittance', 'fine_income', 'loan_repayment'].includes(m.type)
       const isExpense = ['expense', 'general_expense', 'worker_payroll', 'refund'].includes(m.type)
 
-      if (['shipment_income', 'cod_income', 'origin_paid'].includes(m.type)) {
+      if (['shipment_income', 'cod_income', 'origin_paid', 'driver_route_cod_collected'].includes(m.type)) {
         commercialIncomeCents += amt
       } else if (['contribution_income', 'monthly_fee_income'].includes(m.type)) {
         contributionsIncomeCents += amt
+      } else if (m.type === 'fine_income') {
+        fineIncomeCents += amt
+      } else if (m.type === 'loan_repayment') {
+        loanRepaymentsCents += amt
       } else if (m.type === 'driver_remittance') {
         driverRemittancesCents += amt
       } else if (['expense', 'general_expense', 'worker_payroll'].includes(m.type)) {
@@ -6485,7 +7274,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     let shiftsQuery = db.collection('cash_shifts')
       .where('openedAt', '>=', startIso)
       .where('openedAt', '<=', endIso)
-      .orderBy('openedAt', 'desc')
+      .orderBy('openedAt', 'desc').limit(2000)
 
     const shiftsSnap = await shiftsQuery.get()
     let shifts = shiftsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -6510,7 +7299,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       }
     }
 
-    const netOperatingCents = (commercialIncomeCents + contributionsIncomeCents + driverRemittancesCents) - (expensesCents + refundsCents)
+    // Remesas de custodia y recuperación de préstamos son movimientos reales de efectivo,
+    // pero no ingresos operativos propios de la empresa.
+    const netOperatingCents = (commercialIncomeCents + contributionsIncomeCents + fineIncomeCents) - (expensesCents + refundsCents)
 
     const totalRecords = movements.length
     const startIndex = (safePage - 1) * safePageSize
@@ -6526,6 +7317,10 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         commercialIncomeBob: commercialIncomeCents / 100,
         contributionsIncomeCents,
         contributionsIncomeBob: contributionsIncomeCents / 100,
+        fineIncomeCents,
+        fineIncomeBob: fineIncomeCents / 100,
+        loanRepaymentsCents,
+        loanRepaymentsBob: loanRepaymentsCents / 100,
         driverRemittancesCents,
         driverRemittancesBob: driverRemittancesCents / 100,
         expensesCents,
@@ -6558,6 +7353,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         totalPages: Math.ceil(totalRecords / safePageSize) || 1,
       },
       records: paginatedMovements,
+      truncated: movements.length >= 5000,
     }
   }
 
@@ -6568,7 +7364,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     let manifestsQuery = db.collection('manifests')
       .where('createdAtIso', '>=', startIso)
       .where('createdAtIso', '<=', endIso)
-      .orderBy('createdAtIso', 'desc')
+      .orderBy('createdAtIso', 'desc').limit(5000)
 
     const manSnap = await manifestsQuery.get()
     let manifests = manSnap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -6581,7 +7377,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     }
 
     // Consultar cuentas de custodia activas
-    const custodySnap = await db.collection('driver_custody_accounts').get()
+    const custodySnap = await db.collection('driver_custody_accounts').limit(5000).get()
     const custodyMap = {}
     custodySnap.docs.forEach(d => {
       custodyMap[d.id] = d.data()
@@ -6641,7 +7437,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         activeDriversWithCustody: Object.values(custodyMap).filter(c => (c.pendingRemittanceCents || 0) > 0).length,
       },
       driverSummaries,
-      records: manifests.slice(0, safePageSize),
+      records: manifests.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+      pagination: { page: safePage, pageSize: safePageSize, totalRecords: manifests.length, totalPages: Math.ceil(manifests.length / safePageSize) },
+      truncated: manSnap.size >= 5000 || custodySnap.size >= 5000,
     }
   }
 
@@ -6653,6 +7451,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     if (period) {
       duesQuery = duesQuery.where('period', '==', period)
     }
+    duesQuery = duesQuery.limit(5000)
     const duesSnap = await duesQuery.get()
     let dues = duesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
 
@@ -6663,7 +7462,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       dues = dues.filter(d => d.status === status)
     }
 
-    const membersSnap = await db.collection('union_members').get()
+    const membersSnap = await db.collection('union_members').limit(5000).get()
     const members = membersSnap.docs.map(d => ({ id: d.id, ...d.data() }))
 
     const membersCount = {
@@ -6736,7 +7535,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         overdueAmountBob: overdueAmountCents / 100,
       },
       debtors: Object.values(debtorsMap).sort((a, b) => b.totalDebtCents - a.totalDebtCents),
-      records: dues.slice(0, safePageSize),
+      records: dues.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+      pagination: { page: safePage, pageSize: safePageSize, totalRecords: dues.length, totalPages: Math.ceil(dues.length / safePageSize) },
+      truncated: duesSnap.size >= 5000 || membersSnap.size >= 5000,
     }
   }
 
@@ -6748,7 +7549,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     let payQuery = db.collection('union_worker_payments')
       .where('paidAtIso', '>=', startIso)
       .where('paidAtIso', '<=', endIso)
-      .orderBy('paidAtIso', 'desc')
+      .orderBy('paidAtIso', 'desc').limit(5000)
 
     const paySnap = await payQuery.get()
     let payments = paySnap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -6757,7 +7558,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     let expQuery = db.collection('union_expenses')
       .where('createdAtIso', '>=', startIso)
       .where('createdAtIso', '<=', endIso)
-      .orderBy('createdAtIso', 'desc')
+      .orderBy('createdAtIso', 'desc').limit(5000)
 
     const expSnap = await expQuery.get()
     let expenses = expSnap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -6806,7 +7607,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       }
     }
 
-    const workersSnap = await db.collection('union_workers').get()
+    const workersSnap = await db.collection('union_workers').limit(5000).get()
     const workers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() }))
 
     const totalDisbursedCents = totalPayrollPaidCents + totalOperatingExpensesCents
@@ -6828,8 +7629,10 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         byExpenseCategory,
         topSuppliers: Object.values(supplierMap).sort((a, b) => b.totalCents - a.totalCents).slice(0, 10),
       },
-      payrollPayments: payments.slice(0, safePageSize),
-      expenses: expenses.slice(0, safePageSize),
+      payrollPayments: payments.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+      expenses: expenses.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+      pagination: { page: safePage, pageSize: safePageSize, totalRecords: payments.length + expenses.length, totalPages: Math.ceil(Math.max(payments.length, expenses.length) / safePageSize) },
+      truncated: paySnap.size >= 5000 || expSnap.size >= 5000 || workersSnap.size >= 5000,
     }
   }
 
@@ -6841,7 +7644,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     if (effectiveBranchId && effectiveBranchId !== 'all') {
       assetsQuery = assetsQuery.where('branchId', '==', effectiveBranchId)
     }
-    const assetsSnap = await assetsQuery.get()
+    const assetsSnap = await assetsQuery.limit(5000).get()
     let assets = assetsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
 
     if (category && category !== 'all') {
@@ -6850,6 +7653,8 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     if (status && status !== 'all') {
       assets = assets.filter(a => a.status === status)
     }
+    if (startDate) assets = assets.filter(a => a.acquisitionDate && a.acquisitionDate >= startDate)
+    if (endDate) assets = assets.filter(a => a.acquisitionDate && a.acquisitionDate <= endDate)
 
     let totalAcquisitionValueCents = 0
     const byStatus = {
@@ -6917,7 +7722,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         disposedCount: disposedAssets.length,
       },
       disposedAssets,
-      records: assets.slice(0, safePageSize),
+      records: assets.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+      pagination: { page: safePage, pageSize: safePageSize, totalRecords: assets.length, totalPages: Math.ceil(assets.length / safePageSize) },
+      truncated: assetsSnap.size >= 5000,
     }
   }
 
@@ -6929,8 +7736,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     const shipmentsTodaySnap = await db.collection('shipments')
       .where('createdAt', '>=', startIso)
       .where('createdAt', '<=', endIso)
-      .get()
-    const shipments = shipmentsTodaySnap.docs.map(d => d.data())
+      .limit(5000).get()
+    let shipments = shipmentsTodaySnap.docs.map(d => d.data())
+    if (effectiveBranchId && effectiveBranchId !== 'all') shipments = shipments.filter(s => s.originBranchId === effectiveBranchId || s.destinationBranchId === effectiveBranchId)
 
     let totalBilledCents = 0
     let totalCollectedCents = 0
@@ -6941,38 +7749,73 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     }
 
     // 2. Movimientos financieros del período
-    const movSnap = await db.collection('financial_movements')
-      .where('timestamp', '>=', startIso)
-      .where('timestamp', '<=', endIso)
-      .get()
-    const movements = movSnap.docs.map(d => d.data())
+    let movements = await getFinancialMovementsForRange(startIso, endIso)
+    if (effectiveBranchId && effectiveBranchId !== 'all') movements = movements.filter(m => m.branchId === effectiveBranchId)
 
     let commercialIncomeCents = 0
     let contributionsIncomeCents = 0
+    let fineIncomeCents = 0
+    let loanRepaymentsCents = 0
     let driverRemittancesCents = 0
     let expensesCents = 0
 
     for (const m of movements) {
       const amt = m.amountCents || Math.round((Number(m.amountBob) || 0) * 100) || 0
-      if (['shipment_income', 'cod_income', 'origin_paid'].includes(m.type)) commercialIncomeCents += amt
+      if (['shipment_income', 'cod_income', 'origin_paid', 'driver_route_cod_collected'].includes(m.type)) commercialIncomeCents += amt
       else if (['contribution_income', 'monthly_fee_income'].includes(m.type)) contributionsIncomeCents += amt
+      else if (m.type === 'fine_income') fineIncomeCents += amt
+      else if (m.type === 'loan_repayment') loanRepaymentsCents += amt
       else if (m.type === 'driver_remittance') driverRemittancesCents += amt
       else if (['expense', 'general_expense', 'worker_payroll'].includes(m.type)) expensesCents += amt
     }
 
     // 3. Custodia pendiente de conductores
-    const custodySnap = await db.collection('driver_custody_accounts').get()
+    const custodySnap = await db.collection('driver_custody_accounts').limit(500).get()
     let totalPendingDriverCustodyCents = 0
     custodySnap.docs.forEach(d => {
       totalPendingDriverCustodyCents += (d.data().pendingRemittanceCents || 0)
     })
 
     // 4. Bienes fijos
-    const assetsSnap = await db.collection('fixed_assets').get()
+    const assetsSnap = await db.collection('fixed_assets').limit(500).get()
+    const scopedAssetDocs = effectiveBranchId && effectiveBranchId !== 'all'
+      ? assetsSnap.docs.filter(doc => doc.data().branchId === effectiveBranchId)
+      : assetsSnap.docs
     let totalAssetsValueCents = 0
-    assetsSnap.docs.forEach(d => {
+    scopedAssetDocs.forEach(d => {
       totalAssetsValueCents += (d.data().acquisitionCostCents || 0)
     })
+
+    // Deudas, afiliados, asistencia y documentos físicos se informan como
+    // dominios separados; no se agregan préstamos otorgados al ingreso operativo.
+    const [membersSnap, duesSnap, loansSnap, finesSnap, sportsSnap, physicalDocsSnap] = await Promise.all([
+      db.collection('union_members').limit(500).get(),
+      db.collection('union_dues').limit(500).get(),
+      db.collection('union_loans').limit(500).get(),
+      db.collection('union_fines').limit(500).get(),
+      db.collection('union_sports_events').where('date', '>=', startIso.slice(0, 10)).where('date', '<=', endIso.slice(0, 10)).orderBy('date', 'desc').limit(50).get(),
+      db.collection('physical_inventory_documents').orderBy('title').limit(500).get(),
+    ])
+    const members = membersSnap.docs.map(d => d.data())
+    const dues = duesSnap.docs.map(d => d.data())
+    const loans = loansSnap.docs.map(d => d.data())
+    const fines = finesSnap.docs.map(d => d.data())
+    let sportsAttendance = { present: 0, late: 0, absent: 0, exempt: 0, exemptionRequests: 0, authorizedExemptions: 0, sanctioned: 0 }
+    for (const eventDoc of sportsSnap.docs) {
+      const participants = await eventDoc.ref.collection('participants').limit(200).get()
+      for (const participant of participants.docs) {
+        const attendance = participant.data()
+        if (attendance.attendance === 'present') sportsAttendance.present++
+        if (attendance.attendance === 'late') sportsAttendance.late++
+        if (attendance.attendance === 'absent') sportsAttendance.absent++
+        if (attendance.attendance === 'exempt') sportsAttendance.exempt++
+        const justifications = Array.isArray(attendance.justifications) ? attendance.justifications : []
+        sportsAttendance.exemptionRequests += justifications.length
+        if (attendance.attendance === 'exempt' && justifications.some((item) => item.status === 'approved')) sportsAttendance.authorizedExemptions++
+        if (attendance.fineId) sportsAttendance.sanctioned++
+      }
+    }
+    const sumField = (records, field) => records.reduce((sum, record) => sum + (Number(record[field]) || 0), 0)
 
     return {
       success: true,
@@ -6983,6 +7826,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
           totalCount: shipments.length,
           deliveredCount: shipments.filter(s => s.status === 'delivered').length,
           inTransitCount: shipments.filter(s => s.status === 'in_transit').length,
+          pendingCount: shipments.filter(s => !['delivered', 'cancelled'].includes(s.status)).length,
+          cancelledCount: shipments.filter(s => s.status === 'cancelled').length,
+          byOriginAgency: shipments.reduce((acc, s) => { const key = s.originBranchId || 'sin_agencia'; acc[key] = (acc[key] || 0) + 1; return acc }, {}),
           totalBilledCents,
           totalBilledBob: totalBilledCents / 100,
           totalCollectedCents,
@@ -6993,22 +7839,52 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
           commercialIncomeBob: commercialIncomeCents / 100,
           contributionsIncomeCents,
           contributionsIncomeBob: contributionsIncomeCents / 100,
+          fineIncomeCents,
+          fineIncomeBob: fineIncomeCents / 100,
+          loanRepaymentsCents,
+          loanRepaymentsBob: loanRepaymentsCents / 100,
           driverRemittancesCents,
           driverRemittancesBob: driverRemittancesCents / 100,
           expensesCents,
           expensesBob: expensesCents / 100,
-          netOperatingCents: (commercialIncomeCents + contributionsIncomeCents + driverRemittancesCents) - expensesCents,
-          netOperatingBob: ((commercialIncomeCents + contributionsIncomeCents + driverRemittancesCents) - expensesCents) / 100,
+          netOperatingCents: (commercialIncomeCents + contributionsIncomeCents + fineIncomeCents) - expensesCents,
+          netOperatingBob: ((commercialIncomeCents + contributionsIncomeCents + fineIncomeCents) - expensesCents) / 100,
         },
         drivers: {
           totalPendingCustodyCents: totalPendingDriverCustodyCents,
           totalPendingCustodyBob: totalPendingDriverCustodyCents / 100,
         },
         fixedAssets: {
-          totalCount: assetsSnap.docs.length,
+          totalCount: scopedAssetDocs.length,
           totalValueCents: totalAssetsValueCents,
           totalValueBob: totalAssetsValueCents / 100,
         },
+        members: {
+          totalCount: members.length,
+          activeCount: members.filter(m => m.status === 'active').length,
+          retiredCount: members.filter(m => ['retired', 'inactive', 'withdrawn'].includes(m.status)).length,
+          duesCollectedCents: sumField(dues, 'paidAmountCents'),
+          duesPendingCents: sumField(dues, 'balanceCents'),
+        },
+        loans: {
+          count: loans.length,
+          principalReceivableCents: sumField(loans, 'principalCents'),
+          capitalRecoveredCents: sumField(loans, 'paidCents'),
+          balanceReceivableCents: sumField(loans, 'balanceCents'),
+          operatingIncomeCents: 0,
+        },
+        fines: {
+          count: fines.length,
+          amountCents: sumField(fines, 'amountCents'),
+          collectedCents: sumField(fines, 'paidCents'),
+          pendingCents: sumField(fines, 'balanceCents'),
+        },
+        sports: { eventCount: sportsSnap.size, ...sportsAttendance },
+        physicalInventory: {
+          documentCount: physicalDocsSnap.size,
+          documentSheets: physicalDocsSnap.docs.reduce((sum, doc) => sum + (Number(doc.data().sheetCount) || 0), 0),
+        },
+        readCaps: { collections: 500, sportsEvents: 50, participantsPerEvent: 200 },
       },
     }
   }
@@ -7022,12 +7898,12 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       .where('createdAtIso', '>=', startIso)
       .where('createdAtIso', '<=', endIso)
       .orderBy('createdAtIso', 'desc')
-      .limit(safePageSize)
+      .limit(5000)
 
     const snap = await q.get()
     const records = snap.docs.map(d => ({ id: d.id, ...d.data() }))
 
-    const accountsSnap = await db.collection('driver_commission_accounts').get()
+    const accountsSnap = await db.collection('driver_commission_accounts').limit(5000).get()
     const accounts = accountsSnap.docs.map(d => d.data())
 
     let totalAccruedCents = 0
@@ -7055,7 +7931,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         driverCount: accounts.length,
       },
       accounts,
-      records,
+      records: records.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+      pagination: { page: safePage, pageSize: safePageSize, totalRecords: records.length, totalPages: Math.ceil(records.length / safePageSize) },
+      truncated: accountsSnap.size >= 5000 || snap.size >= 5000,
     }
   }
 
@@ -7067,17 +7945,19 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     if (branchId && branchId !== 'all') {
       q = q.where('branchId', '==', branchId)
     }
-    const snap = await q.get()
+    const snap = await q.limit(5000).get()
     const items = snap.docs.map(d => ({ id: d.id, ...d.data() }))
 
     let movQ = db.collection('consumable_movements')
       .where('timestampIso', '>=', startIso)
       .where('timestampIso', '<=', endIso)
       .orderBy('timestampIso', 'desc')
-      .limit(safePageSize)
+      .limit(5000)
 
     const movSnap = await movQ.get()
-    const movements = movSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    let movements = movSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    if (effectiveBranchId && effectiveBranchId !== 'all') movements = movements.filter(m => m.branchId === effectiveBranchId)
+    if (category && category !== 'all') movements = movements.filter(m => m.category === category || m.type === category)
 
     let totalStockCount = 0
     let totalValuationCents = 0
@@ -7102,8 +7982,10 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         movementsCount: movements.length,
       },
       items,
-      records: items,
-      movements,
+      records: items.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+      movements: movements.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+      pagination: { page: safePage, pageSize: safePageSize, totalRecords: items.length + movements.length, totalPages: Math.ceil(Math.max(items.length, movements.length) / safePageSize) },
+      truncated: snap.size >= 5000 || movSnap.size >= 5000,
     }
   }
 
@@ -7115,13 +7997,15 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       .where('createdAtIso', '>=', startIso)
       .where('createdAtIso', '<=', endIso)
       .orderBy('createdAtIso', 'desc')
-      .limit(safePageSize)
+      .limit(5000)
 
     const snap = await q.get()
     let incidents = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-    if (branchId && branchId !== 'all') {
-      incidents = incidents.filter(i => i.branchId === branchId)
+    if (effectiveBranchId && effectiveBranchId !== 'all') {
+      incidents = incidents.filter(i => i.branchId === effectiveBranchId)
     }
+    if (category && category !== 'all') incidents = incidents.filter(i => i.incidentType === category)
+    if (status && status !== 'all') incidents = incidents.filter(i => i.status === status)
 
     let openCount = 0
     let resolvedCount = 0
@@ -7151,7 +8035,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         totalCompensationBob: totalCompensationCents / 100,
         byType,
       },
-      records: incidents,
+      records: incidents.slice((safePage - 1) * safePageSize, safePage * safePageSize),
+      pagination: { page: safePage, pageSize: safePageSize, totalRecords: incidents.length, totalPages: Math.ceil(incidents.length / safePageSize) },
+      truncated: snap.size >= 5000,
     }
   }
 
@@ -7415,6 +8301,30 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
       registeredByName: callerName,
       createdAtIso: nowIso,
     }
+
+    // Mantener el egreso de comisión en el libro financiero global dentro
+    // de la misma transacción que actualiza el turno y el comprobante.
+    const financialMovementRef = db.collection('financial_movements').doc(movementId)
+    t.create(financialMovementRef, {
+      id: movementId,
+      shiftId,
+      branchId,
+      type: 'expense',
+      category: 'driver_commission',
+      amountCents,
+      amountBob: amountCents / 100,
+      paymentMethod: 'cash',
+      description: movement.description,
+      voucherNumber,
+      driverUid,
+      driverName,
+      referenceId: voucherRef.id,
+      operatorUid: callerUid,
+      operatorName: callerName,
+      timestamp: nowIso,
+      createdAt: FieldValue.serverTimestamp(),
+      createdAtIso: nowIso,
+    })
 
     const currentMovements = Array.isArray(shiftData.movements) ? shiftData.movements : []
     t.update(shiftRef, {
@@ -7803,15 +8713,6 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
         throw new HttpsError('failed-precondition', 'No se pueden registrar incidencias sobre encomiendas canceladas.')
       }
 
-      const callerAllowedBranches = Array.isArray(caller.allowedBranchIds) && caller.allowedBranchIds.length > 0
-        ? caller.allowedBranchIds
-        : [caller.primaryBranchId].filter(Boolean)
-      const shipmentBranches = [shipment.originBranchId, shipment.destinationBranchId].filter(Boolean)
-      if (caller.role !== 'directiva_admin' && !shipmentBranches.some((id) => callerAllowedBranches.includes(id))) {
-        throw new HttpsError('permission-denied', 'No puede registrar incidencias de otra sucursal.')
-      }
-      const incidentBranchId = shipment.destinationBranchId || shipment.originBranchId || caller.primaryBranchId || 'punata'
-
       // Numeración correlativa INC-YYYY-XXXXX
       const cSnap = await t.get(counterRef)
       const currentSeq = cSnap.exists ? (cSnap.data().seq || 0) + 1 : 1
@@ -7831,7 +8732,7 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
         incidentNumber,
         shipmentId,
         trackingCode: shipment.trackingCode || shipmentId,
-        branchId: incidentBranchId,
+        branchId: branchId || shipment.destinationBranchId || 'punata',
         incidentType,
         description: description.trim(),
         responsiblePerson: responsiblePerson.trim(),
@@ -8036,51 +8937,39 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
   throw new HttpsError('invalid-argument', `Acción '${action}' no reconocida en registerShipmentIncident.`)
 })
 
-// Registro informativo e inmutable de gestiones de contacto con destinatarios.
+// =========================================================================
+// FASE 7: CONFIGURACIÓN OFICIAL PERSISTENTE
+// =========================================================================
+
 export const registerShipmentContact = onCall({ cors: true }, async (request) => {
   const caller = await getAuthenticatedCallerProfile(request)
-  if (!caller || !caller.isActive) throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
+  if (!caller || caller.isActive !== true) throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
   if (!['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para registrar seguimientos.')
   }
   const { shipmentId, method, result, notes = '', idempotencyKey } = request.data || {}
-  const validMethods = ['phone', 'whatsapp', 'sms', 'other']
-  const validResults = ['answered', 'no_answer', 'wrong_number', 'pickup_commitment']
-  if (!shipmentId || typeof shipmentId !== 'string') throw new HttpsError('invalid-argument', 'El shipmentId es obligatorio.')
-  if (!validMethods.includes(method)) throw new HttpsError('invalid-argument', 'Medio de contacto inválido.')
-  if (!validResults.includes(result)) throw new HttpsError('invalid-argument', 'Resultado de contacto inválido.')
+  if (!['phone', 'whatsapp', 'sms', 'other'].includes(method)) throw new HttpsError('invalid-argument', 'Medio de contacto inválido.')
+  if (!['answered', 'no_answer', 'wrong_number', 'pickup_commitment'].includes(result)) throw new HttpsError('invalid-argument', 'Resultado de contacto inválido.')
+  if (typeof shipmentId !== 'string' || !shipmentId.trim()) throw new HttpsError('invalid-argument', 'El shipmentId es obligatorio.')
   if (typeof notes !== 'string' || notes.trim().length > 500) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 500 caracteres.')
-  if (!idempotencyKey || typeof idempotencyKey !== 'string' || idempotencyKey.length < 8 || idempotencyKey.length > 100) {
-    throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
-  }
-  const shipmentRef = db.collection('shipments').doc(shipmentId)
+  if (typeof idempotencyKey !== 'string' || idempotencyKey.length < 8 || idempotencyKey.length > 100) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
+  const shipmentRef = db.collection('shipments').doc(shipmentId.trim())
   const contactRef = db.collection('shipment_contacts').doc(`${caller.uid}_${idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, '_')}`)
   const nowIso = new Date().toISOString()
-  const callerBranches = Array.isArray(caller.allowedBranchIds) && caller.allowedBranchIds.length ? caller.allowedBranchIds : [caller.primaryBranchId].filter(Boolean)
-  const resultData = await db.runTransaction(async (t) => {
-    const [shipmentSnap, existingSnap] = await Promise.all([t.get(shipmentRef), t.get(contactRef)])
+  const allowedBranches = Array.isArray(caller.allowedBranchIds) && caller.allowedBranchIds.length ? caller.allowedBranchIds : [caller.primaryBranchId].filter(Boolean)
+  const contact = await db.runTransaction(async (transaction) => {
+    const [shipmentSnap, existingSnap] = await Promise.all([transaction.get(shipmentRef), transaction.get(contactRef)])
     if (existingSnap.exists) return existingSnap.data()
     if (!shipmentSnap.exists) throw new HttpsError('not-found', 'La encomienda no existe.')
     const shipment = shipmentSnap.data() || {}
-    const shipmentBranches = [shipment.originBranchId, shipment.destinationBranchId].filter(Boolean)
-    if (caller.role !== 'directiva_admin' && !shipmentBranches.some((branch) => callerBranches.includes(branch))) {
-      throw new HttpsError('permission-denied', 'No puede registrar seguimientos de otra sucursal.')
-    }
-    const branchId = shipment.destinationBranchId || shipment.originBranchId || caller.primaryBranchId
-    const data = {
-      id: contactRef.id, shipmentId, trackingCode: shipment.trackingCode || shipmentId,
-      contactedAtIso: nowIso, method, result, notes: notes.trim(), performedByUid: caller.uid,
-      performedByName: caller.fullName || 'Operador', branchId, createdAtIso: nowIso,
-    }
-    t.create(contactRef, data)
+    const branches = [shipment.originBranchId, shipment.destinationBranchId].filter(Boolean)
+    if (caller.role !== 'directiva_admin' && !branches.some((branch) => allowedBranches.includes(branch))) throw new HttpsError('permission-denied', 'No puede registrar seguimientos de otra sucursal.')
+    const data = { id: contactRef.id, shipmentId: shipmentRef.id, trackingCode: shipment.trackingCode || shipmentRef.id, contactedAtIso: nowIso, method, result, notes: notes.trim(), performedByUid: caller.uid, performedByName: caller.fullName || 'Operador', branchId: shipment.destinationBranchId || shipment.originBranchId || caller.primaryBranchId, createdAtIso: nowIso }
+    transaction.create(contactRef, data)
     return data
   })
-  return { success: true, contact: resultData }
+  return { success: true, contact }
 })
-
-// =========================================================================
-// FASE 7: CONFIGURACIÓN OFICIAL PERSISTENTE
-// =========================================================================
 
 export const getSystemConfig = onCall({ cors: true }, async (request) => {
   const configDoc = await db.collection('system_config').doc('expreso_punata').get()
@@ -8253,4 +9142,764 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
     config: updatedConfig,
     message: 'Configuración oficial actualizada exitosamente.',
   }
+})
+
+// =========================================================================
+// PRÉSTAMOS INTERNOS DE AFILIADOS
+// =========================================================================
+const LOAN_MANAGEMENT_ROLES = ['directiva_admin', 'tesoreria']
+const LOAN_COLLECTION_ROLES = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia']
+const LOAN_READ_ROLES = ['directiva_admin', 'tesoreria', 'encargado_agencia']
+
+function loanDateIsValid(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) &&
+    new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+}
+
+function addLoanMonth(dateString, monthOffset) {
+  const [year, month, day] = dateString.split('-').map(Number)
+  const targetMonthIndex = month - 1 + monthOffset
+  const targetYear = year + Math.floor(targetMonthIndex / 12)
+  const normalizedMonth = ((targetMonthIndex % 12) + 12) % 12
+  const lastDay = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate()
+  return `${targetYear}-${String(normalizedMonth + 1).padStart(2, '0')}-${String(Math.min(day, lastDay)).padStart(2, '0')}`
+}
+
+async function requireUnionLoanCaller(request, allowedRoles, operation) {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión para administrar préstamos.')
+  const userDoc = await db.collection('users').doc(request.auth.uid).get()
+  if (!userDoc.exists || userDoc.data()?.isActive === false) throw new HttpsError('permission-denied', 'Usuario no activo.')
+  const caller = userDoc.data()
+  if (!allowedRoles.includes(caller.role)) throw new HttpsError('permission-denied', `No tiene permisos para ${operation}.`)
+  return { uid: request.auth.uid, ...caller }
+}
+
+export const createUnionLoan = onCall({ cors: true }, async (request) => {
+  const caller = await requireUnionLoanCaller(request, LOAN_MANAGEMENT_ROLES, 'registrar préstamos internos.')
+  const { memberId, principalCents, installmentCount, firstDueDate, grantDate, notes = '' } = request.data || {}
+  if (typeof memberId !== 'string' || !memberId.trim()) throw new HttpsError('invalid-argument', 'Seleccione un afiliado.')
+  if (!Number.isSafeInteger(principalCents) || principalCents <= 0) throw new HttpsError('invalid-argument', 'El monto debe ser un entero positivo en centavos.')
+  if (!Number.isInteger(installmentCount) || installmentCount < 1 || installmentCount > 120) throw new HttpsError('invalid-argument', 'El número de cuotas debe estar entre 1 y 120.')
+  if (!loanDateIsValid(firstDueDate) || (grantDate && !loanDateIsValid(grantDate))) throw new HttpsError('invalid-argument', 'Las fechas deben tener formato AAAA-MM-DD válido.')
+  if (typeof notes !== 'string' || notes.length > 2000) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 2000 caracteres.')
+
+  const memberRef = db.collection('union_members').doc(memberId.trim())
+  const counterRef = db.collection('counters').doc(`union_loan_${new Date().getFullYear()}`)
+  const loanRef = db.collection('union_loans').doc()
+  const nowIso = new Date().toISOString()
+  const year = new Date().getFullYear()
+  return db.runTransaction(async (transaction) => {
+    const [memberDoc, counterDoc] = await Promise.all([transaction.get(memberRef), transaction.get(counterRef)])
+    if (!memberDoc.exists) throw new HttpsError('not-found', 'El afiliado seleccionado no existe.')
+    const sequence = (counterDoc.exists ? Number(counterDoc.data()?.currentSequence) || 0 : 0) + 1
+    const loanNumber = `PRE-${year}-${String(sequence).padStart(5, '0')}`
+    const baseCents = Math.floor(principalCents / installmentCount)
+    const remainderCents = principalCents % installmentCount
+    const installments = Array.from({ length: installmentCount }, (_, index) => {
+      const amountCents = baseCents + (index < remainderCents ? 1 : 0)
+      return {
+        id: String(index + 1).padStart(3, '0'), sequence: index + 1,
+        amountCents, amountBob: amountCents / 100,
+        paidAmountCents: 0, balanceCents: amountCents,
+        dueDate: addLoanMonth(firstDueDate, index), status: 'pending',
+      }
+    })
+    const member = memberDoc.data()
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
+    const loanData = {
+      id: loanRef.id, loanNumber, memberId: memberRef.id,
+      memberNumber: member.memberNumber || '', memberName: member.fullName || '',
+      grantDate: grantDate || new Date().toISOString().slice(0, 10),
+      principalCents, principalBob: principalCents / 100,
+      installmentCount, installmentAmountCents: baseCents + (remainderCents ? 1 : 0),
+      firstDueDate, notes: notes.trim(), status: firstDueDate < today ? 'overdue' : 'active',
+      paidCents: 0, balanceCents: principalCents, balanceBob: principalCents / 100,
+      createdAtIso: nowIso, createdByUid: caller.uid, createdByName: caller.fullName || 'Operador',
+      updatedAtIso: nowIso,
+    }
+    transaction.set(counterRef, { currentSequence: sequence, year, updatedAtIso: nowIso }, { merge: true })
+    transaction.create(loanRef, loanData)
+    for (const installment of installments) transaction.create(loanRef.collection('installments').doc(installment.id), { ...installment, loanId: loanRef.id })
+    transaction.set(db.collection('audit_logs').doc(), {
+      action: 'union_loan_created', targetCollection: 'union_loans', targetId: loanRef.id,
+      loanNumber, memberId: memberRef.id, principalCents,
+      performedByUid: caller.uid, performedByName: caller.fullName || 'Operador',
+      performedByRole: caller.role, timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    return { success: true, loan: loanData, installments }
+  })
+})
+
+export const collectUnionLoanPayment = onCall({ cors: true }, async (request) => {
+  const caller = await requireUnionLoanCaller(request, LOAN_COLLECTION_ROLES, 'cobrar préstamos internos.')
+  const { loanId, amountCents, paymentMethod = 'cash', shiftId, branchId, notes = '', idempotencyKey } = request.data || {}
+  if (typeof loanId !== 'string' || !loanId.trim()) throw new HttpsError('invalid-argument', 'El préstamo es obligatorio.')
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new HttpsError('invalid-argument', 'El pago debe ser un entero positivo en centavos.')
+  if (!['cash', 'qr', 'transfer'].includes(paymentMethod)) throw new HttpsError('invalid-argument', 'Método de pago no válido.')
+  if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
+  if (typeof notes !== 'string' || notes.length > 2000) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 2000 caracteres.')
+  const effectiveBranchId = branchId || caller.primaryBranchId || 'punata'
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(now)
+  const idemRef = db.collection('idempotency_keys').doc(`union_loan_${idempotencyKey.trim()}`)
+  const loanRef = db.collection('union_loans').doc(loanId.trim())
+
+  return db.runTransaction(async (transaction) => {
+    const [idemDoc, loanDoc] = await Promise.all([transaction.get(idemRef), transaction.get(loanRef)])
+    if (idemDoc.exists) {
+      const cached = idemDoc.data()
+      if (cached.callerUid === caller.uid && cached.loanId === loanId && cached.amountCents === amountCents && cached.paymentMethod === paymentMethod && (cached.shiftId || null) === (shiftId || null)) return cached.result
+      throw new HttpsError('already-exists', 'La clave de idempotencia ya fue utilizada con parámetros distintos.')
+    }
+    if (!loanDoc.exists) throw new HttpsError('not-found', 'El préstamo no existe.')
+    const loan = loanDoc.data()
+    if (loan.balanceCents <= 0 || loan.status === 'paid') throw new HttpsError('failed-precondition', 'El préstamo ya está pagado.')
+    if (amountCents > loan.balanceCents) throw new HttpsError('invalid-argument', 'El pago supera el saldo pendiente del préstamo.')
+
+    let shiftRef = null
+    let shift = null
+    if (paymentMethod === 'cash' && !shiftId) throw new HttpsError('failed-precondition', 'El cobro en efectivo requiere un turno de caja abierto.')
+    if (shiftId) {
+      shiftRef = db.collection('cash_shifts').doc(shiftId)
+      const shiftDoc = await transaction.get(shiftRef)
+      if (!shiftDoc.exists) throw new HttpsError('not-found', 'El turno de caja no existe.')
+      shift = shiftDoc.data()
+      if (shift.status !== 'open') throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
+      if (shift.branchId !== effectiveBranchId) throw new HttpsError('permission-denied', 'El turno de caja pertenece a otra sucursal.')
+      const shiftOperator = shift.cashierUid || shift.operatorUid
+      if (paymentMethod === 'cash' && shiftOperator && shiftOperator !== caller.uid && caller.role !== 'directiva_admin') throw new HttpsError('permission-denied', 'El turno de caja no pertenece al operador.')
+    } else if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+      throw new HttpsError('permission-denied', 'Solo Directiva o Tesorería pueden cobrar fuera de turno.')
+    }
+
+    const installmentQuery = loanRef.collection('installments').orderBy('sequence', 'asc')
+    const [installmentsSnapshot, receiptCounterSnapshot] = await Promise.all([
+      transaction.get(installmentQuery),
+      transaction.get(db.collection('counters').doc(`receipt_union_loan_${now.getFullYear()}`)),
+    ])
+    const installments = installmentsSnapshot.docs.map((doc) => ({ ref: doc.ref, data: doc.data() }))
+    let remainingToAllocate = amountCents
+    const allocations = []
+    for (const installment of installments) {
+      if (remainingToAllocate <= 0) break
+      const dueBalance = Math.max(0, installment.data.amountCents - (installment.data.paidAmountCents || 0))
+      if (dueBalance <= 0) continue
+      const allocated = Math.min(dueBalance, remainingToAllocate)
+      allocations.push({ ...installment, allocated, paidAmountCents: (installment.data.paidAmountCents || 0) + allocated })
+      remainingToAllocate -= allocated
+    }
+    if (remainingToAllocate !== 0) throw new HttpsError('failed-precondition', 'El cronograma no coincide con el saldo del préstamo.')
+    const sequence = (receiptCounterSnapshot.exists ? Number(receiptCounterSnapshot.data()?.currentSequence) || 0 : 0) + 1
+    const receiptNumber = `REC-PRE-${now.getFullYear()}-${String(sequence).padStart(5, '0')}`
+    const paymentRef = loanRef.collection('payments').doc()
+    const movementRef = db.collection('financial_movements').doc()
+    const updatedPaidCents = (loan.paidCents || 0) + amountCents
+    const updatedBalanceCents = loan.principalCents - updatedPaidCents
+    const overdue = allocations.some(({ data, paidAmountCents }) => data.dueDate < today && paidAmountCents < data.amountCents) ||
+      installments.some(({ data }) => data.dueDate < today && (data.paidAmountCents || 0) < data.amountCents && !allocations.some((item) => item.data.sequence === data.sequence))
+    const nextLoanStatus = updatedBalanceCents === 0 ? 'paid' : overdue ? 'overdue' : 'active'
+    const paymentData = {
+      id: paymentRef.id, loanId: loanRef.id, loanNumber: loan.loanNumber,
+      memberId: loan.memberId, memberNumber: loan.memberNumber, memberName: loan.memberName,
+      receiptNumber, amountCents, amountBob: amountCents / 100,
+      paymentMethod, shiftId: shiftId || null, branchId: effectiveBranchId,
+      allocations: allocations.map(({ data, allocated }) => ({ installmentId: data.id, sequence: data.sequence, amountCents: allocated })),
+      notes: notes.trim() || null, paidAtIso: nowIso,
+      collectedByUid: caller.uid, collectedByName: caller.fullName || 'Operador',
+    }
+    transaction.set(db.collection('counters').doc(`receipt_union_loan_${now.getFullYear()}`), { currentSequence: sequence, year: now.getFullYear(), updatedAtIso: nowIso }, { merge: true })
+    for (const allocation of allocations) {
+      const balanceCents = allocation.data.amountCents - allocation.paidAmountCents
+      transaction.update(allocation.ref, {
+        paidAmountCents: allocation.paidAmountCents, balanceCents,
+        status: balanceCents === 0 ? 'paid' : 'partial',
+        paidAtIso: balanceCents === 0 ? nowIso : null,
+        updatedAtIso: nowIso,
+      })
+    }
+    transaction.create(paymentRef, paymentData)
+    transaction.update(loanRef, {
+      paidCents: updatedPaidCents, balanceCents: updatedBalanceCents,
+      balanceBob: updatedBalanceCents / 100, status: nextLoanStatus,
+      lastPaymentAtIso: nowIso, updatedAtIso: nowIso,
+    })
+    if (shiftRef && shift) {
+      const updatedExpected = paymentMethod === 'cash' ? (shift.expectedCashCents || 0) + amountCents : (shift.expectedCashCents || 0)
+      transaction.update(shiftRef, {
+        expectedCashCents: updatedExpected, expectedCashBob: updatedExpected / 100,
+        movementsCount: (shift.movementsCount || 0) + 1,
+        'breakdown.loanRepaymentsCents': (shift.breakdown?.loanRepaymentsCents || 0) + amountCents,
+        updatedAtIso: nowIso,
+      })
+    }
+    transaction.set(movementRef, {
+      id: movementRef.id, shiftId: shiftId || null, branchId: effectiveBranchId,
+      type: 'loan_repayment', category: 'internal_loan_repayment',
+      amountCents, amountBob: amountCents / 100, paymentMethod,
+      description: `Pago de préstamo ${loan.loanNumber} - ${loan.memberNumber} ${loan.memberName} (${receiptNumber})`,
+      receiptNumber, loanId: loanRef.id, loanNumber: loan.loanNumber,
+      memberId: loan.memberId, memberNumber: loan.memberNumber, memberName: loan.memberName,
+      operatorUid: caller.uid, operatorName: caller.fullName || 'Operador',
+      timestamp: nowIso, createdAt: FieldValue.serverTimestamp(), createdAtIso: nowIso,
+    })
+    transaction.set(idemRef, {
+      callerUid: caller.uid, loanId, amountCents, paymentMethod,
+      shiftId: shiftId || null, result: { success: true, payment: paymentData, balanceCents: updatedBalanceCents, status: nextLoanStatus },
+      createdAtIso: nowIso,
+    })
+    transaction.set(db.collection('audit_logs').doc(), {
+      action: 'union_loan_payment_collected', targetCollection: 'union_loans', targetId: loanRef.id,
+      paymentId: paymentRef.id, amountCents, receiptNumber, performedByUid: caller.uid,
+      performedByName: caller.fullName || 'Operador', performedByRole: caller.role,
+      timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    return { success: true, payment: paymentData, balanceCents: updatedBalanceCents, status: nextLoanStatus }
+  })
+})
+
+export const listUnionLoans = onCall({ cors: true }, async (request) => {
+  await requireUnionLoanCaller(request, LOAN_READ_ROLES, 'consultar préstamos internos.')
+  const memberId = request.data?.memberId
+  if (memberId !== undefined && (typeof memberId !== 'string' || !memberId.trim())) throw new HttpsError('invalid-argument', 'El afiliado solicitado no es válido.')
+  let query = db.collection('union_loans').orderBy('createdAtIso', 'desc')
+  if (memberId) {
+    const memberDoc = await db.collection('union_members').doc(memberId).get()
+    if (!memberDoc.exists) throw new HttpsError('not-found', 'El afiliado no existe.')
+    query = db.collection('union_loans').where('memberId', '==', memberId)
+  }
+  const loanSnapshot = await query.get()
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
+  const loans = await Promise.all(loanSnapshot.docs.map(async (loanDoc) => {
+    const [installmentSnapshot, paymentSnapshot] = await Promise.all([
+      loanDoc.ref.collection('installments').orderBy('sequence', 'asc').get(),
+      loanDoc.ref.collection('payments').orderBy('paidAtIso', 'asc').get(),
+    ])
+    const installments = installmentSnapshot.docs.map((doc) => {
+      const item = { id: doc.id, ...doc.data() }
+      return { ...item, status: item.balanceCents > 0 && item.dueDate < today ? 'overdue' : item.status }
+    })
+    const payments = paymentSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    const data = loanDoc.data()
+    const overdue = installments.some((item) => item.dueDate < today && item.balanceCents > 0)
+    const overdueBalanceCents = installments.reduce((sum, item) => sum + (item.dueDate < today ? item.balanceCents : 0), 0)
+    return { ...data, status: data.balanceCents === 0 ? 'paid' : overdue ? 'overdue' : 'active', overdueBalanceCents, installments, payments }
+  }))
+  return { success: true, loans }
+})
+
+// Multas: alta independiente, sin crear movimientos ni afectar Caja.
+const FINE_CATEGORIES = ['transporte', 'conflictos', 'deportes', 'otros']
+export const createUnionFine = onCall({ cors: true }, async (request) => {
+  const caller = await requireUnionLoanCaller(request, LOAN_MANAGEMENT_ROLES, 'registrar multas de afiliados.')
+  const { memberId, category, reason, description = '', date, amountCents, notes = '' } = request.data || {}
+  if (typeof memberId !== 'string' || !memberId.trim()) throw new HttpsError('invalid-argument', 'Seleccione un afiliado.')
+  if (!FINE_CATEGORIES.includes(category)) throw new HttpsError('invalid-argument', 'La categoría de multa no es válida.')
+  if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 300) throw new HttpsError('invalid-argument', 'El motivo es obligatorio (máximo 300 caracteres).')
+  if (typeof description !== 'string' || description.length > 2000) throw new HttpsError('invalid-argument', 'La descripción no puede superar 2000 caracteres.')
+  if (!loanDateIsValid(date)) throw new HttpsError('invalid-argument', 'La fecha debe tener formato AAAA-MM-DD válido.')
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new HttpsError('invalid-argument', 'El importe debe ser un entero positivo en centavos.')
+  if (typeof notes !== 'string' || notes.length > 2000) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 2000 caracteres.')
+  const memberRef = db.collection('union_members').doc(memberId.trim())
+  const memberDoc = await memberRef.get()
+  if (!memberDoc.exists) throw new HttpsError('not-found', 'El afiliado seleccionado no existe.')
+  const fineRef = db.collection('union_fines').doc()
+  const nowIso = new Date().toISOString()
+  const member = memberDoc.data()
+  const fine = {
+    id: fineRef.id, fineNumber: `MUL-${fineRef.id.slice(0, 8).toUpperCase()}`,
+    memberId: memberRef.id, memberNumber: member.memberNumber || '', memberName: member.fullName || '',
+    category, reason: reason.trim(), description: description.trim(), date,
+    amountCents, amountBob: amountCents / 100, balanceCents: amountCents,
+    balanceBob: amountCents / 100, paidCents: 0, paidBob: 0,
+    status: 'pending', notes: notes.trim(),
+    createdAtIso: nowIso, createdByUid: caller.uid, createdByName: caller.fullName || 'Operador',
+  }
+  await db.runTransaction(async (transaction) => {
+    // Reconfirm existence in the transaction before persisting the record.
+    const currentMember = await transaction.get(memberRef)
+    if (!currentMember.exists) throw new HttpsError('not-found', 'El afiliado seleccionado no existe.')
+    transaction.create(fineRef, fine)
+    transaction.set(db.collection('audit_logs').doc(), {
+      action: 'union_fine_created', targetCollection: 'union_fines', targetId: fineRef.id,
+      memberId: memberRef.id, amountCents, performedByUid: caller.uid,
+      performedByName: caller.fullName || 'Operador', performedByRole: caller.role,
+      timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+  })
+  return { success: true, fine }
+})
+
+// Deportes y asistencia: usa la colección union_fines existente para cualquier sanción.
+const UNION_SPORTS_WRITE_ROLES = LOAN_MANAGEMENT_ROLES
+const UNION_SPORTS_ATTENDANCE = ['pending', 'present', 'late', 'absent', 'exempt']
+const sportsFineAmountCents = (attendance) => attendance === 'late' ? 5000 : attendance === 'absent' ? 10000 : 0
+const sportsFineReason = (event, attendance) => attendance === 'late'
+  ? `Tardanza en jornada deportiva: ${event.activityName}`
+  : `Inasistencia a jornada deportiva: ${event.activityName}`
+
+async function applyUnionSportsAttendance(transaction, { eventRef, participantRef, event, participant, attendance, reason, caller, nowIso }) {
+  const deterministicFineId = `sports_${eventRef.id}_${participant.memberId}`
+  const fineRef = db.collection('union_fines').doc(deterministicFineId)
+  const fineDoc = await transaction.get(fineRef)
+  const history = Array.isArray(participant.attendanceHistory) ? participant.attendanceHistory : []
+  const changed = participant.attendance !== attendance
+  const historyEntry = changed ? {
+    attendance, changedAtIso: nowIso, changedByUid: caller.uid,
+    changedByName: caller.fullName || 'Operador', reason: reason || null,
+  } : null
+  const shouldFine = sportsFineAmountCents(attendance) > 0
+  let financialReviewRequired = false
+  let fineId = fineDoc.exists ? fineRef.id : null
+  if (fineDoc.exists) {
+    const fine = fineDoc.data()
+    if (fine.source !== 'sports_attendance' || fine.eventId !== eventRef.id || fine.memberId !== participant.memberId) {
+      throw new HttpsError('already-exists', 'El identificador de sanción deportiva ya está asociado a otro registro.')
+    }
+    const hasPayments = (fine.paidCents || 0) > 0 || ['partial', 'paid'].includes(fine.status)
+    if (hasPayments) {
+      financialReviewRequired = Boolean(fine.financialReviewRequired) || changed
+      if (changed) transaction.update(fineRef, {
+          financialReviewRequired: true,
+          financialReviewReason: `La asistencia cambió de ${participant.attendance} a ${attendance} después de registrar pagos. Requiere decisión autorizada.`,
+          financialReviewAtIso: nowIso, financialReviewByUid: caller.uid,
+          updatedAtIso: nowIso,
+        })
+    } else if (shouldFine) {
+      const amountCents = sportsFineAmountCents(attendance)
+      transaction.update(fineRef, {
+        fineNumber: `MUL-DEP-${eventRef.id}-${participant.memberId}`,
+        memberNumber: participant.memberNumber, memberName: participant.memberName,
+        category: 'deportes', reason: sportsFineReason(event, attendance),
+        description: `${event.date} ${event.scheduledTime} · ${event.activityName}`,
+        date: event.date, attendanceStatus: attendance,
+        amountCents, amountBob: amountCents / 100, paidCents: 0, paidBob: 0,
+        balanceCents: amountCents, balanceBob: amountCents / 100,
+        status: 'pending', voidedAtIso: null, voidedByUid: null,
+        voidReason: null,
+        updatedAtIso: nowIso, updatedByUid: caller.uid,
+      })
+    } else if (fine.status !== 'voided') {
+      transaction.update(fineRef, {
+        balanceCents: 0, balanceBob: 0, status: 'voided',
+        voidedAtIso: nowIso, voidedByUid: caller.uid,
+        voidReason: `Asistencia corregida de ${participant.attendance} a ${attendance}.`,
+        updatedAtIso: nowIso, updatedByUid: caller.uid,
+      })
+    }
+  } else if (shouldFine) {
+    const amountCents = sportsFineAmountCents(attendance)
+    const fineNumber = `MUL-DEP-${eventRef.id}-${participant.memberId}`
+    transaction.create(fineRef, {
+      id: fineRef.id, fineNumber, memberId: participant.memberId,
+      memberNumber: participant.memberNumber, memberName: participant.memberName,
+      category: 'deportes', reason: sportsFineReason(event, attendance),
+      description: `${event.date} ${event.scheduledTime} · ${event.activityName}`,
+      date: event.date, attendanceStatus: attendance,
+      amountCents, amountBob: amountCents / 100, paidCents: 0, paidBob: 0,
+      balanceCents: amountCents, balanceBob: amountCents / 100,
+      status: 'pending', notes: '', source: 'sports_attendance',
+      eventId: eventRef.id, eventName: event.activityName,
+      createdAtIso: nowIso, createdByUid: caller.uid,
+      createdByName: caller.fullName || 'Operador', updatedAtIso: nowIso,
+    })
+    fineId = fineRef.id
+  }
+  transaction.update(participantRef, {
+    attendance,
+    attendanceHistory: historyEntry ? [...history, historyEntry] : history,
+    fineId: fineId || null,
+    financialReviewRequired,
+    updatedAtIso: nowIso, updatedByUid: caller.uid,
+  })
+  return { fineId, financialReviewRequired, historyEntry }
+}
+
+export const createUnionSportsEvent = onCall({ cors: true }, async (request) => {
+  const caller = await requireUnionLoanCaller(request, UNION_SPORTS_WRITE_ROLES, 'crear jornadas deportivas.')
+  const { date, scheduledTime, activityName, place = '', notes = '', memberIds, idempotencyKey } = request.data || {}
+  if (!loanDateIsValid(date)) throw new HttpsError('invalid-argument', 'La fecha debe tener formato AAAA-MM-DD válido.')
+  if (typeof scheduledTime !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(scheduledTime)) throw new HttpsError('invalid-argument', 'La hora debe tener formato HH:MM.')
+  if (typeof activityName !== 'string' || !activityName.trim() || activityName.trim().length > 200) throw new HttpsError('invalid-argument', 'El nombre de la actividad es obligatorio (máximo 200 caracteres).')
+  if (typeof place !== 'string' || place.length > 300 || typeof notes !== 'string' || notes.length > 2000) throw new HttpsError('invalid-argument', 'El lugar u observaciones superan el máximo permitido.')
+  if (!Array.isArray(memberIds) || memberIds.length < 1 || memberIds.length > 300 || memberIds.some((id) => typeof id !== 'string' || !id.trim() || id.includes('/'))) throw new HttpsError('invalid-argument', 'Seleccione entre 1 y 300 afiliados convocados.')
+  if (new Set(memberIds).size !== memberIds.length) throw new HttpsError('invalid-argument', 'No se puede convocar dos veces al mismo afiliado.')
+  if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
+  const cleanedMemberIds = memberIds.map((id) => id.trim())
+  const fingerprint = JSON.stringify({ date, scheduledTime, activityName: activityName.trim(), place: place.trim(), notes: notes.trim(), memberIds: cleanedMemberIds })
+  const eventRef = db.collection('union_sports_events').doc()
+  const idempotencyRef = db.collection('idempotency_keys').doc(`union_sports_event_${idempotencyKey.trim()}`)
+  const memberRefs = cleanedMemberIds.map((id) => db.collection('union_members').doc(id))
+  const nowIso = new Date().toISOString()
+  return db.runTransaction(async (transaction) => {
+    const [idempotencyDoc, ...memberDocs] = await Promise.all([transaction.get(idempotencyRef), ...memberRefs.map((ref) => transaction.get(ref))])
+    if (idempotencyDoc.exists) {
+      const cached = idempotencyDoc.data()
+      if (cached.callerUid === caller.uid && cached.fingerprint === fingerprint) return { success: true, eventId: cached.eventId }
+      throw new HttpsError('already-exists', 'La clave de la jornada ya fue usada con datos diferentes.')
+    }
+    const missingIndex = memberDocs.findIndex((doc) => !doc.exists)
+    if (missingIndex >= 0) throw new HttpsError('not-found', `No existe el afiliado convocado ${cleanedMemberIds[missingIndex]}.`)
+    const event = {
+      id: eventRef.id, date, scheduledTime, activityName: activityName.trim(),
+      place: place.trim(), notes: notes.trim(), status: 'scheduled',
+      participantCount: cleanedMemberIds.length, createdAtIso: nowIso,
+      createdByUid: caller.uid, createdByName: caller.fullName || 'Operador',
+      updatedAtIso: nowIso,
+    }
+    transaction.create(eventRef, event)
+    memberDocs.forEach((memberDoc, index) => {
+      const member = memberDoc.data()
+      const participantRef = eventRef.collection('participants').doc(cleanedMemberIds[index])
+      transaction.create(participantRef, {
+        id: cleanedMemberIds[index], memberId: cleanedMemberIds[index],
+        memberNumber: member.memberNumber || '', memberName: member.fullName || '',
+        attendance: 'pending', attendanceHistory: [], fineId: null,
+        financialReviewRequired: false, justifications: [],
+        invitedAtIso: nowIso, invitedByUid: caller.uid,
+      })
+    })
+    transaction.create(idempotencyRef, { callerUid: caller.uid, fingerprint, eventId: eventRef.id, createdAtIso: nowIso })
+    transaction.set(db.collection('audit_logs').doc(), {
+      action: 'union_sports_event_created', targetCollection: 'union_sports_events', targetId: eventRef.id,
+      date, activityName: event.activityName, participantCount: cleanedMemberIds.length,
+      performedByUid: caller.uid, performedByName: caller.fullName || 'Operador',
+      performedByRole: caller.role, timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    return { success: true, eventId: eventRef.id }
+  })
+})
+
+export const setUnionSportsAttendance = onCall({ cors: true }, async (request) => {
+  const caller = await requireUnionLoanCaller(request, UNION_SPORTS_WRITE_ROLES, 'registrar asistencia deportiva.')
+  const { eventId, memberId, attendance, reason = '', idempotencyKey } = request.data || {}
+  if (typeof eventId !== 'string' || !eventId.trim() || typeof memberId !== 'string' || !memberId.trim()) throw new HttpsError('invalid-argument', 'La jornada y el afiliado son obligatorios.')
+  if (!['pending', 'present', 'late', 'absent'].includes(attendance)) throw new HttpsError('invalid-argument', 'El estado debe ser pendiente, presente, tardanza o ausente. La exención requiere decisión del Directorio.')
+  if (typeof reason !== 'string' || reason.length > 1000) throw new HttpsError('invalid-argument', 'La observación no puede superar 1000 caracteres.')
+  if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
+  const eventRef = db.collection('union_sports_events').doc(eventId.trim())
+  const participantRef = eventRef.collection('participants').doc(memberId.trim())
+  const idempotencyRef = db.collection('idempotency_keys').doc(`union_sports_attendance_${idempotencyKey.trim()}`)
+  const nowIso = new Date().toISOString()
+  const fingerprint = JSON.stringify({ eventId: eventRef.id, memberId: memberId.trim(), attendance, reason: reason.trim() })
+  return db.runTransaction(async (transaction) => {
+    const [idempotencyDoc, eventDoc, participantDoc] = await Promise.all([transaction.get(idempotencyRef), transaction.get(eventRef), transaction.get(participantRef)])
+    if (idempotencyDoc.exists) {
+      const cached = idempotencyDoc.data()
+      if (cached.callerUid === caller.uid && cached.fingerprint === fingerprint) return cached.result
+      throw new HttpsError('already-exists', 'La clave de asistencia ya fue usada con datos diferentes.')
+    }
+    if (!eventDoc.exists) throw new HttpsError('not-found', 'La jornada no existe.')
+    if (!participantDoc.exists) throw new HttpsError('failed-precondition', 'El afiliado no fue convocado a esta jornada.')
+    const event = eventDoc.data()
+    const participant = participantDoc.data()
+    if (participant.attendance === 'exempt' && attendance !== 'exempt' && caller.role !== 'directiva_admin') {
+      throw new HttpsError('permission-denied', 'Solo el Directorio puede corregir una exención que ya autorizó.')
+    }
+    const transition = await applyUnionSportsAttendance(transaction, { eventRef, participantRef, event, participant, attendance, reason: reason.trim(), caller, nowIso })
+    const result = { success: true, attendance, fineId: transition.fineId, financialReviewRequired: transition.financialReviewRequired }
+    transaction.create(idempotencyRef, { callerUid: caller.uid, fingerprint, result, createdAtIso: nowIso })
+    transaction.set(db.collection('audit_logs').doc(), {
+      action: 'union_sports_attendance_changed', targetCollection: 'union_sports_events', targetId: eventRef.id,
+      memberId: participant.memberId, previousAttendance: participant.attendance, attendance,
+      fineId: transition.fineId, financialReviewRequired: transition.financialReviewRequired,
+      reason: reason.trim() || null, performedByUid: caller.uid,
+      performedByName: caller.fullName || 'Operador', performedByRole: caller.role,
+      timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    return result
+  })
+})
+
+export const requestUnionSportsJustification = onCall({ cors: true }, async (request) => {
+  const caller = await requireUnionLoanCaller(request, UNION_SPORTS_WRITE_ROLES, 'registrar justificaciones deportivas.')
+  const { eventId, memberId, reason, requestDate, idempotencyKey } = request.data || {}
+  if (typeof eventId !== 'string' || !eventId.trim() || typeof memberId !== 'string' || !memberId.trim()) throw new HttpsError('invalid-argument', 'La jornada y el afiliado son obligatorios.')
+  if (typeof reason !== 'string' || reason.trim().length < 3 || reason.trim().length > 1500) throw new HttpsError('invalid-argument', 'El motivo debe tener entre 3 y 1500 caracteres.')
+  if (!loanDateIsValid(requestDate)) throw new HttpsError('invalid-argument', 'La fecha de solicitud debe tener formato AAAA-MM-DD válido.')
+  if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
+  const eventRef = db.collection('union_sports_events').doc(eventId.trim())
+  const participantRef = eventRef.collection('participants').doc(memberId.trim())
+  const idempotencyRef = db.collection('idempotency_keys').doc(`union_sports_justification_${idempotencyKey.trim()}`)
+  const justificationRef = participantRef.collection('justifications').doc()
+  const nowIso = new Date().toISOString()
+  const fingerprint = JSON.stringify({ eventId: eventRef.id, memberId: memberId.trim(), reason: reason.trim(), requestDate })
+  return db.runTransaction(async (transaction) => {
+    const [idempotencyDoc, eventDoc, participantDoc] = await Promise.all([transaction.get(idempotencyRef), transaction.get(eventRef), transaction.get(participantRef)])
+    if (idempotencyDoc.exists) {
+      const cached = idempotencyDoc.data()
+      if (cached.callerUid === caller.uid && cached.fingerprint === fingerprint) return { success: true, justificationId: cached.justificationId }
+      throw new HttpsError('already-exists', 'La clave de justificación ya fue usada con datos diferentes.')
+    }
+    if (!eventDoc.exists) throw new HttpsError('not-found', 'La jornada no existe.')
+    if (!participantDoc.exists) throw new HttpsError('failed-precondition', 'El afiliado no fue convocado a esta jornada.')
+    const pendingRequest = (participantDoc.data().justifications || []).find((entry) => entry.status === 'pending')
+    if (pendingRequest) throw new HttpsError('failed-precondition', 'El afiliado ya tiene una justificación pendiente para esta jornada.')
+    const justification = {
+      id: justificationRef.id, eventId: eventRef.id, memberId: participantRef.id,
+      reason: reason.trim(), requestDate, requestedAtIso: nowIso,
+      requestedByUid: caller.uid, requestedByName: caller.fullName || 'Operador', status: 'pending',
+    }
+    const participant = participantDoc.data()
+    transaction.create(justificationRef, justification)
+    transaction.update(participantRef, {
+      justifications: [...(participant.justifications || []), { ...justification, requestedByUid: caller.uid }],
+      updatedAtIso: nowIso,
+    })
+    transaction.create(idempotencyRef, { callerUid: caller.uid, fingerprint, justificationId: justificationRef.id, createdAtIso: nowIso })
+    transaction.set(db.collection('audit_logs').doc(), {
+      action: 'union_sports_justification_requested', targetCollection: 'union_sports_events', targetId: eventRef.id,
+      memberId: participantRef.id, justificationId: justificationRef.id, reason: reason.trim(), requestDate,
+      performedByUid: caller.uid, performedByName: caller.fullName || 'Operador',
+      performedByRole: caller.role, timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    return { success: true, justificationId: justificationRef.id }
+  })
+})
+
+export const decideUnionSportsJustification = onCall({ cors: true }, async (request) => {
+  const caller = await requireUnionLoanCaller(request, ['directiva_admin'], 'decidir exenciones deportivas.')
+  const { eventId, memberId, justificationId, decision, decisionNotes = '', idempotencyKey } = request.data || {}
+  if (typeof eventId !== 'string' || !eventId.trim() || typeof memberId !== 'string' || !memberId.trim() || typeof justificationId !== 'string' || !justificationId.trim()) throw new HttpsError('invalid-argument', 'La jornada, afiliado y justificación son obligatorios.')
+  if (!['approved', 'rejected'].includes(decision)) throw new HttpsError('invalid-argument', 'La decisión debe ser aprobar o rechazar.')
+  if (typeof decisionNotes !== 'string' || decisionNotes.length > 1500) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 1500 caracteres.')
+  if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
+  const eventRef = db.collection('union_sports_events').doc(eventId.trim())
+  const participantRef = eventRef.collection('participants').doc(memberId.trim())
+  const justificationRef = participantRef.collection('justifications').doc(justificationId.trim())
+  const idempotencyRef = db.collection('idempotency_keys').doc(`union_sports_decision_${idempotencyKey.trim()}`)
+  const nowIso = new Date().toISOString()
+  const fingerprint = JSON.stringify({ eventId: eventRef.id, memberId: participantRef.id, justificationId: justificationRef.id, decision, decisionNotes: decisionNotes.trim() })
+  return db.runTransaction(async (transaction) => {
+    const [idempotencyDoc, eventDoc, participantDoc, justificationDoc] = await Promise.all([
+      transaction.get(idempotencyRef), transaction.get(eventRef), transaction.get(participantRef), transaction.get(justificationRef),
+    ])
+    if (idempotencyDoc.exists) {
+      const cached = idempotencyDoc.data()
+      if (cached.callerUid === caller.uid && cached.fingerprint === fingerprint) return cached.result
+      throw new HttpsError('already-exists', 'La clave de decisión ya fue usada con datos diferentes.')
+    }
+    if (!eventDoc.exists || !participantDoc.exists || !justificationDoc.exists) throw new HttpsError('not-found', 'No se encontró la solicitud de justificación asociada a la jornada.')
+    const event = eventDoc.data()
+    const participant = participantDoc.data()
+    const justification = justificationDoc.data()
+    if (justification.status !== 'pending') throw new HttpsError('failed-precondition', 'La justificación ya tiene una decisión registrada.')
+    const nextAttendance = decision === 'approved' ? 'exempt' : participant.attendance
+    const transition = await applyUnionSportsAttendance(transaction, {
+      eventRef, participantRef, event, participant, attendance: nextAttendance,
+      reason: decision === 'approved' ? 'Exención deportiva autorizada por el Directorio.' : 'Justificación rechazada; se conserva la asistencia registrada.',
+      caller, nowIso,
+    })
+    const decisionData = {
+      status: decision, decisionByUid: caller.uid, decisionByName: caller.fullName || 'Directorio',
+      decisionAtIso: nowIso, decisionNotes: decisionNotes.trim() || null,
+    }
+    const justifications = (participant.justifications || []).map((entry) => entry.id === justification.id ? { ...entry, ...decisionData } : entry)
+    transaction.update(justificationRef, decisionData)
+    transaction.update(participantRef, { justifications, updatedAtIso: nowIso })
+    const result = { success: true, attendance: nextAttendance, financialReviewRequired: transition.financialReviewRequired }
+    transaction.create(idempotencyRef, { callerUid: caller.uid, fingerprint, result, createdAtIso: nowIso })
+    transaction.set(db.collection('audit_logs').doc(), {
+      action: decision === 'approved' ? 'union_sports_exemption_approved' : 'union_sports_exemption_rejected',
+      targetCollection: 'union_sports_events', targetId: eventRef.id,
+      memberId: participantRef.id, justificationId: justification.id, decision,
+      decisionNotes: decisionNotes.trim() || null, previousAttendance: participant.attendance,
+      attendance: nextAttendance, fineId: transition.fineId,
+      financialReviewRequired: transition.financialReviewRequired,
+      performedByUid: caller.uid, performedByName: caller.fullName || 'Directorio',
+      performedByRole: caller.role, timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    return result
+  })
+})
+
+export const completeUnionSportsEvent = onCall({ cors: true }, async (request) => {
+  const caller = await requireUnionLoanCaller(request, UNION_SPORTS_WRITE_ROLES, 'cerrar jornadas deportivas.')
+  const { eventId, idempotencyKey } = request.data || {}
+  if (typeof eventId !== 'string' || !eventId.trim()) throw new HttpsError('invalid-argument', 'La jornada es obligatoria.')
+  if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
+  const eventRef = db.collection('union_sports_events').doc(eventId.trim())
+  const idempotencyRef = db.collection('idempotency_keys').doc(`union_sports_complete_${idempotencyKey.trim()}`)
+  const nowIso = new Date().toISOString()
+  const fingerprint = eventRef.id
+  return db.runTransaction(async (transaction) => {
+    const [idempotencyDoc, eventDoc, participantsSnapshot] = await Promise.all([
+      transaction.get(idempotencyRef), transaction.get(eventRef), transaction.get(eventRef.collection('participants')),
+    ])
+    if (idempotencyDoc.exists) {
+      const cached = idempotencyDoc.data()
+      if (cached.callerUid === caller.uid && cached.fingerprint === fingerprint) return { success: true }
+      throw new HttpsError('already-exists', 'La clave de cierre ya fue usada con otra jornada.')
+    }
+    if (!eventDoc.exists) throw new HttpsError('not-found', 'La jornada no existe.')
+    if (eventDoc.data().status === 'completed') return { success: true }
+    if (participantsSnapshot.docs.some((doc) => doc.data().attendance === 'pending')) throw new HttpsError('failed-precondition', 'Todavía hay afiliados convocados sin control de asistencia.')
+    transaction.update(eventRef, { status: 'completed', completedAtIso: nowIso, completedByUid: caller.uid, updatedAtIso: nowIso })
+    transaction.create(idempotencyRef, { callerUid: caller.uid, fingerprint, createdAtIso: nowIso })
+    transaction.set(db.collection('audit_logs').doc(), {
+      action: 'union_sports_event_completed', targetCollection: 'union_sports_events', targetId: eventRef.id,
+      performedByUid: caller.uid, performedByName: caller.fullName || 'Operador',
+      performedByRole: caller.role, timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    return { success: true }
+  })
+})
+
+export const listUnionSportsEvents = onCall({ cors: true }, async (request) => {
+  await requireUnionLoanCaller(request, LOAN_READ_ROLES, 'consultar jornadas deportivas.')
+  const { eventId, memberId, startDate, endDate, status } = request.data || {}
+  if (eventId !== undefined && (typeof eventId !== 'string' || !eventId.trim())) throw new HttpsError('invalid-argument', 'La jornada solicitada no es válida.')
+  if (memberId !== undefined && (typeof memberId !== 'string' || !memberId.trim())) throw new HttpsError('invalid-argument', 'El afiliado solicitado no es válido.')
+  if ((startDate && !loanDateIsValid(startDate)) || (endDate && !loanDateIsValid(endDate))) throw new HttpsError('invalid-argument', 'El filtro de fecha debe usar AAAA-MM-DD válido.')
+  if (startDate && endDate && startDate > endDate) throw new HttpsError('invalid-argument', 'El rango de fechas no es válido.')
+  if (status !== undefined && !['scheduled', 'completed'].includes(status)) throw new HttpsError('invalid-argument', 'El estado solicitado no es válido.')
+  let snapshot
+  if (eventId) {
+    const doc = await db.collection('union_sports_events').doc(eventId.trim()).get()
+    snapshot = { docs: doc.exists ? [doc] : [] }
+  } else snapshot = await db.collection('union_sports_events').orderBy('date', 'desc').get()
+  const events = await Promise.all(snapshot.docs.map(async (eventDoc) => {
+    const event = { id: eventDoc.id, ...eventDoc.data() }
+    const participantSnapshot = await eventDoc.ref.collection('participants').get()
+    const participants = await Promise.all(participantSnapshot.docs.map(async (participantDoc) => {
+      const participant = { id: participantDoc.id, ...participantDoc.data() }
+      const [fineDoc, justificationSnapshot] = await Promise.all([
+        participant.fineId ? db.collection('union_fines').doc(participant.fineId).get() : Promise.resolve(null),
+        participantDoc.ref.collection('justifications').orderBy('requestedAtIso', 'asc').get(),
+      ])
+      const justifications = justificationSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      const sportsFine = fineDoc?.exists ? {
+        id: fineDoc.id, fineNumber: fineDoc.data().fineNumber,
+        amountCents: fineDoc.data().amountCents, paidCents: fineDoc.data().paidCents || 0,
+        balanceCents: fineDoc.data().balanceCents, status: fineDoc.data().status,
+        financialReviewRequired: fineDoc.data().financialReviewRequired || false,
+      } : null
+      return { ...participant, justifications, sportsFine }
+    }))
+    return { ...event, participants }
+  }))
+  return { success: true, events: events.filter((event) =>
+    (!memberId || event.participants.some((participant) => participant.memberId === memberId)) &&
+    (!startDate || event.date >= startDate) && (!endDate || event.date <= endDate) &&
+    (!status || event.status === status)
+  ) }
+})
+
+export const listUnionFines = onCall({ cors: true }, async (request) => {
+  await requireUnionLoanCaller(request, LOAN_READ_ROLES, 'consultar multas de afiliados.')
+  const { memberId, category, status } = request.data || {}
+  if (memberId !== undefined && (typeof memberId !== 'string' || !memberId.trim())) throw new HttpsError('invalid-argument', 'El afiliado solicitado no es válido.')
+  if (category !== undefined && !FINE_CATEGORIES.includes(category)) throw new HttpsError('invalid-argument', 'La categoría de multa no es válida.')
+  if (status !== undefined && !['pending', 'partial', 'paid', 'voided'].includes(status)) throw new HttpsError('invalid-argument', 'El estado de multa no es válido.')
+  if (memberId && !(await db.collection('union_members').doc(memberId).get()).exists) throw new HttpsError('not-found', 'El afiliado no existe.')
+  let query = db.collection('union_fines').orderBy('createdAtIso', 'desc')
+  if (memberId) query = query.where('memberId', '==', memberId)
+  const snapshot = await query.get()
+  const allFines = await Promise.all(snapshot.docs.map(async (doc) => {
+    const paymentsSnapshot = await doc.ref.collection('payments').orderBy('paidAtIso', 'asc').get()
+    return { id: doc.id, ...doc.data(), payments: paymentsSnapshot.docs.map((payment) => ({ id: payment.id, ...payment.data() })) }
+  }))
+  const fines = allFines.filter((fine) => !category || fine.category === category)
+    .filter((fine) => !status || fine.status === status)
+  return { success: true, fines }
+})
+
+export const collectUnionFinePayment = onCall({ cors: true }, async (request) => {
+  const caller = await requireUnionLoanCaller(request, LOAN_COLLECTION_ROLES, 'cobrar multas de afiliados.')
+  const { fineId, amountCents, paymentMethod = 'cash', shiftId, branchId, notes = '', idempotencyKey } = request.data || {}
+  if (typeof fineId !== 'string' || !fineId.trim()) throw new HttpsError('invalid-argument', 'La multa es obligatoria.')
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new HttpsError('invalid-argument', 'El importe debe ser un entero positivo en centavos.')
+  if (!['cash', 'qr', 'transfer'].includes(paymentMethod)) throw new HttpsError('invalid-argument', 'El método de pago no es válido.')
+  if (typeof shiftId !== 'string' || !shiftId.trim()) throw new HttpsError('failed-precondition', 'El cobro requiere un turno de Caja abierto.')
+  if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
+  if (typeof notes !== 'string' || notes.length > 2000) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 2000 caracteres.')
+
+  const effectiveBranchId = branchId || caller.primaryBranchId || 'punata'
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const year = now.getFullYear()
+  const fineRef = db.collection('union_fines').doc(fineId.trim())
+  const shiftRef = db.collection('cash_shifts').doc(shiftId.trim())
+  const idemRef = db.collection('idempotency_keys').doc(`union_fine_${idempotencyKey.trim()}`)
+  const counterRef = db.collection('counters').doc(`receipt_union_fine_${year}`)
+  const paymentRef = fineRef.collection('payments').doc()
+  const movementRef = db.collection('financial_movements').doc()
+
+  return db.runTransaction(async (transaction) => {
+    const [idemDoc, fineDoc, shiftDoc, counterDoc] = await Promise.all([
+      transaction.get(idemRef), transaction.get(fineRef), transaction.get(shiftRef), transaction.get(counterRef),
+    ])
+    if (idemDoc.exists) {
+      const cached = idemDoc.data()
+      if (cached.callerUid === caller.uid && cached.fineId === fineRef.id && cached.amountCents === amountCents && cached.paymentMethod === paymentMethod && cached.shiftId === shiftRef.id && (cached.branchId || null) === (effectiveBranchId || null) && (cached.notes || null) === (notes.trim() || null)) return cached.result
+      throw new HttpsError('already-exists', 'La clave de idempotencia ya fue utilizada con parámetros distintos.')
+    }
+    if (!fineDoc.exists) throw new HttpsError('not-found', 'La multa no existe.')
+    if (!shiftDoc.exists) throw new HttpsError('not-found', 'El turno de Caja no existe.')
+    const fine = fineDoc.data()
+    const shift = shiftDoc.data()
+    if (shift.status !== 'open') throw new HttpsError('failed-precondition', 'El turno de Caja no está abierto.')
+    if (shift.branchId !== effectiveBranchId) throw new HttpsError('permission-denied', 'El turno de Caja pertenece a otra sucursal.')
+    const shiftOperator = shift.cashierUid || shift.operatorUid
+    if (shiftOperator && shiftOperator !== caller.uid && caller.role !== 'directiva_admin') throw new HttpsError('permission-denied', 'El turno de Caja no pertenece al operador.')
+    if (fine.financialReviewRequired) throw new HttpsError('failed-precondition', 'La multa requiere una decisión financiera autorizada antes de continuar el cobro.')
+    const balanceCents = Number.isSafeInteger(fine.balanceCents) ? fine.balanceCents : fine.amountCents
+    if (fine.status === 'paid' || balanceCents <= 0) throw new HttpsError('failed-precondition', 'Esta multa ya está pagada.')
+    if (amountCents > balanceCents) throw new HttpsError('invalid-argument', 'El pago supera el saldo pendiente de la multa.')
+
+    const sequence = (counterDoc.exists ? Number(counterDoc.data()?.currentSequence) || 0 : 0) + 1
+    const receiptNumber = `REC-MUL-${year}-${String(sequence).padStart(5, '0')}`
+    const newPaidCents = (fine.paidCents || 0) + amountCents
+    const newBalanceCents = balanceCents - amountCents
+    const newStatus = newBalanceCents === 0 ? 'paid' : 'partial'
+    const paymentData = {
+      id: paymentRef.id, fineId: fineRef.id, fineNumber: fine.fineNumber,
+      memberId: fine.memberId, memberNumber: fine.memberNumber, memberName: fine.memberName,
+      receiptNumber, amountCents, amountBob: amountCents / 100, paymentMethod,
+      shiftId: shiftRef.id, branchId: effectiveBranchId, paidAtIso: nowIso,
+      collectedByUid: caller.uid, collectedByName: caller.fullName || 'Operador', notes: notes.trim() || null,
+    }
+    const result = { success: true, payment: paymentData, paidCents: newPaidCents, balanceCents: newBalanceCents, status: newStatus }
+    const breakdown = shift.breakdown || {}
+    const isCash = paymentMethod === 'cash'
+    const isQr = paymentMethod === 'qr'
+    const isTransfer = paymentMethod === 'transfer'
+    transaction.set(counterRef, { currentSequence: sequence, year, updatedAtIso: nowIso }, { merge: true })
+    transaction.create(paymentRef, paymentData)
+    transaction.update(fineRef, {
+      paidCents: newPaidCents, paidBob: newPaidCents / 100,
+      balanceCents: newBalanceCents, balanceBob: newBalanceCents / 100,
+      status: newStatus, lastPaymentAtIso: nowIso, updatedAtIso: nowIso,
+    })
+    transaction.update(shiftRef, {
+      expectedCashCents: (shift.expectedCashCents || 0) + (isCash ? amountCents : 0),
+      expectedCashBob: ((shift.expectedCashCents || 0) + (isCash ? amountCents : 0)) / 100,
+      movementsCount: (shift.movementsCount || 0) + 1,
+      'breakdown.totalIncomeCents': (breakdown.totalIncomeCents || 0) + amountCents,
+      'breakdown.fineIncomeCents': (breakdown.fineIncomeCents || 0) + amountCents,
+      'breakdown.cashIncomeCents': (breakdown.cashIncomeCents || 0) + (isCash ? amountCents : 0),
+      'breakdown.qrIncomeCents': (breakdown.qrIncomeCents || 0) + (isQr ? amountCents : 0),
+      'breakdown.transferIncomeCents': (breakdown.transferIncomeCents || 0) + (isTransfer ? amountCents : 0),
+      'breakdown.netCashCents': (breakdown.netCashCents || 0) + (isCash ? amountCents : 0),
+      updatedAtIso: nowIso,
+    })
+    transaction.create(movementRef, {
+      id: movementRef.id, shiftId: shiftRef.id, branchId: effectiveBranchId,
+      type: 'fine_income', category: 'union_fine_payment', amountCents, amountBob: amountCents / 100,
+      paymentMethod, description: `Cobro de multa ${fine.fineNumber} - ${fine.memberNumber} ${fine.memberName} (${receiptNumber})`,
+      receiptNumber, fineId: fineRef.id, fineNumber: fine.fineNumber,
+      memberId: fine.memberId, memberNumber: fine.memberNumber, memberName: fine.memberName,
+      operatorUid: caller.uid, operatorName: caller.fullName || 'Operador',
+      timestamp: nowIso, createdAt: FieldValue.serverTimestamp(), createdAtIso: nowIso,
+    })
+    transaction.create(idemRef, { callerUid: caller.uid, fineId: fineRef.id, amountCents, paymentMethod, shiftId: shiftRef.id, branchId: effectiveBranchId, notes: notes.trim() || null, result, createdAtIso: nowIso })
+    transaction.set(db.collection('audit_logs').doc(), {
+      action: 'union_fine_payment_collected', targetCollection: 'union_fines', targetId: fineRef.id,
+      paymentId: paymentRef.id, receiptNumber, amountCents, balanceCents: newBalanceCents,
+      shiftId: shiftRef.id, performedByUid: caller.uid, performedByName: caller.fullName || 'Operador',
+      performedByRole: caller.role, timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    return result
+  })
 })

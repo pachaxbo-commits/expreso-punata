@@ -352,6 +352,44 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    match /shipment_notifications/{notificationId} {
+      allow read: if isActive() && (isAdmin() || isTreasury() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) &&
+          isBranchAllowed(resource.data.destinationBranchId)));
+      allow write: if false;
+    }
+
+    match /union_loans/{loanId} {
+      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)));
+      allow write: if false;
+      match /installments/{installmentId} {
+        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_loans/$(loanId)).data.branchId)));
+        allow write: if false;
+      }
+      match /payments/{paymentId} {
+        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_loans/$(loanId)).data.branchId)));
+        allow write: if false;
+      }
+    }
+
+    match /union_fines/{fineId} {
+      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)));
+      allow write: if false;
+      match /payments/{paymentId} {
+        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_fines/$(fineId)).data.branchId)));
+        allow write: if false;
+      }
+    }
+
+    match /union_sports_events/{eventId} {
+      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)));
+      allow write: if false;
+      match /participants/{participantId} {
+        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_sports_events/$(eventId)).data.branchId)));
+        allow write: if false;
+      }
+    }
+
     // COLECCIONES SINDICALES: members, dues, workers, worker_payments, expenses
     // =========================================================================
     match /union_members/{memberId} {

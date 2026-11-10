@@ -1,3 +1,4 @@
+import { isPublicDemo } from '../firebase/config'
 import React, { useState, useEffect } from 'react'
 import {
   Package,
@@ -33,6 +34,7 @@ import { WorkersAndExpensesView } from '../modules/workers/WorkersAndExpensesVie
 import { UnionMembersView } from '../modules/union/UnionMembersView.tsx'
 import { subscribeShipmentsByBranch } from '../services/shipmentService'
 import { isEmulatedEnvironment } from '../firebase/config'
+import { ShipmentCustody } from '../modules/shipments/ShipmentCustody'
 import { ShipmentsManagementView } from '../modules/shipments/ShipmentsManagementView'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
 import { ShipmentDeliveryModal } from '../modules/shipments/ShipmentDeliveryModal'
@@ -44,6 +46,7 @@ import { UserProfileModal } from '../modules/users/UserProfileModal'
 import { PrinterSettingsView } from '../modules/admin/printers/PrinterSettingsView'
 import { DriverCommissionsView } from '../modules/dispatch/DriverCommissionsView'
 import { ConsumablesManagementView } from '../modules/assets/ConsumablesManagementView'
+import { PhysicalInventoryDocumentsView } from '../modules/assets/PhysicalInventoryDocumentsView'
 import { SystemConfigView } from '../modules/admin/SystemConfigView'
 import type { Shipment } from '../types'
 
@@ -53,10 +56,13 @@ interface MainDashboardProps {
 
 export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => {
   const { signOut, currentBranchId, switchBranch, hasRole } = useAuth()
-  const [activeTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? 'manifests' : 'shipments'))
+  const simpleTransferEnabled = import.meta.env.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
+  const advancedContingency = import.meta.env.VITE_ADVANCED_DISPATCH === 'true'
+  const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && userProfile.role === 'directiva_admin')
+  const [activeTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
   const [configSubTab, setConfigSubTab] = useState<'users' | 'general' | 'tariffs' | 'printers'>('users')
   const [manifestSubTab, setManifestSubTab] = useState<'manifests' | 'commisiones'>('manifests')
-  const [assetSubTab, setAssetSubTab] = useState<'fixed' | 'consumables'>('fixed')
+  const [assetSubTab, setAssetSubTab] = useState<'fixed' | 'documents' | 'consumables'>('fixed')
   const [isWizardOpen, setIsWizardOpen] = useState(false)
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false)
   const [deliveryTargetShipment, setDeliveryTargetShipment] = useState<Shipment | null>(null)
@@ -71,7 +77,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
       uid: userProfile.uid,
       primaryBranchId: userProfile.primaryBranchId,
     },
-    onNavigateToTab: (tabId) => setActiveTab(tabId),
+    simplifiedTransfer: !advancedDispatchVisible,
+    onNavigateToTab: (tabId) => { if (tabs.some(tab => tab.id === tabId)) setActiveTab(tabId) },
     onSetSubTab: (module, subTabId) => {
       if (module === 'manifests') setManifestSubTab(subTabId as any)
       if (module === 'assets') setAssetSubTab(subTabId as any)
@@ -111,11 +118,13 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 
   // Pestañas filtradas por rol del usuario (RBAC en interfaz)
   const tabs = [
+    { id: 'shipment-custody', label: 'Encomiendas asignadas', icon: Package, visible: simpleTransferEnabled && userProfile.role === 'conductor' },
     { id: 'shipments', label: 'Encomiendas', icon: Package, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'storage', label: 'Módulos de Almacén', icon: Boxes, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
-    { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
+    { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: advancedDispatchVisible && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
+    { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
-    { id: 'dues', label: 'Socios & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
+    { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
     { id: 'reports', label: 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
@@ -294,6 +303,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         {/* PESTAÑA 1: ENCOMIENDAS (VENTANILLA DEFINITIVA REDISEÑADA) */}
         {activeTab === 'shipments' && (
           <ShipmentsManagementView
+            simpleTransferEnabled={simpleTransferEnabled}
             shipments={displayedShipments}
             currentUser={userProfile}
             currentBranch={currentBranch}
@@ -346,7 +356,14 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         )}
 
         {/* PESTAÑA 3: DESPACHOS Y RUTA */}
-        {activeTab === 'manifests' && (
+        {activeTab === 'shipment-custody' && simpleTransferEnabled && userProfile.role === 'conductor' && (
+          <ShipmentCustody uid={userProfile.uid} includeLegacy={advancedContingency} />
+        )}
+
+        {activeTab === 'commissions' && tabs.some(tab => tab.id === 'commissions') && (
+          <DriverCommissionsView currentUser={userProfile} currentBranch={currentBranch} />
+        )}
+        {activeTab === 'manifests' && advancedDispatchVisible && (
           <div className="space-y-4">
             <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-1 text-xs">
               <button
@@ -433,6 +450,14 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
               </button>
               <button
                 type="button"
+                onClick={() => setAssetSubTab('documents')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${assetSubTab === 'documents' ? 'bg-[#064e3b] text-white shadow' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Documentos físicos</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setAssetSubTab('consumables')}
                 className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition ${
                   assetSubTab === 'consumables'
@@ -450,6 +475,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
                 currentBranchId={currentBranchId}
                 userProfile={userProfile}
               />
+            ) : assetSubTab === 'documents' ? (
+              <PhysicalInventoryDocumentsView userProfile={userProfile} />
             ) : (
               <ConsumablesManagementView
                 currentUser={userProfile}
@@ -606,13 +633,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 }
 
 export const AppContent: React.FC = () => {
-  const isDemo =
-    typeof window !== 'undefined' &&
-    (window.location.pathname.startsWith('/demo') ||
-      window.location.search.includes('demo=true') ||
-      window.location.hash.startsWith('#/demo'))
-
-  if (isDemo) {
+  if (isPublicDemo) {
     return <DemoView />
   }
 

@@ -157,11 +157,20 @@ export function useDemoState() {
       paidAt: newShipment.paymentTiming === 'destination_cod' ? undefined : new Date().toISOString(),
       status: 'received',
       ...newShipment,
+      auditHistory: [{
+        reason: 'Guía registrada', changedAt: new Date().toISOString(),
+        operatorUid: demoUserProfile.uid, operatorName: demoUserProfile.fullName,
+        operatorRole: demoUserProfile.role, branchId: currentBranchId,
+        newStatus: 'received', previousValues: {}, newValues: { status: 'received' },
+      }],
     }
 
     setShipments(prev => [created, ...prev])
     return created
   }, [currentBranchId, demoUserProfile])
+
+  const updateShipment = (updated: Shipment) => setShipments(prev =>
+    prev.map(shipment => shipment.id === updated.id ? updated : shipment))
 
   // Operación simulada: Entrega con firma
   const deliverShipment = useCallback((shipmentId: string, deliveryData?: Partial<ParcelDeliveryRecord>) => {
@@ -185,13 +194,20 @@ export function useDemoState() {
         return {
           ...s,
           status: 'delivered',
+          auditHistory: [...(s.auditHistory || []), {
+            reason: 'Entrega con firma', changedAt: record.deliveredAt,
+            operatorUid: demoUserProfile.uid, operatorName: demoUserProfile.fullName,
+            operatorRole: demoUserProfile.role, branchId: currentBranchId,
+            previousStatus: s.status, newStatus: 'delivered',
+            previousValues: { status: s.status }, newValues: { status: 'delivered' },
+          }],
           deliveryRecord: record,
           paymentStatus: 'paid',
           paidAt: s.paidAt || new Date().toISOString(),
         }
       })
     )
-  }, [demoUserProfile])
+  }, [demoUserProfile, currentBranchId])
 
   // Restablecer datos iniciales
   const resetDemo = useCallback(() => {
@@ -220,6 +236,7 @@ export function useDemoState() {
     switchRole,
     switchBranch,
     addShipment,
+    updateShipment,
     deliverShipment,
     resetDemo,
   }

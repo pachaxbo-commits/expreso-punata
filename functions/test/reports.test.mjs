@@ -243,8 +243,9 @@ test('4. Reporte B2: Caja y finanzas distingue ingresos comerciales, aportes, re
   assert.equal(res.summary.contributionsIncomeCents, 5000)
   assert.equal(res.summary.driverRemittancesCents, 4000)
   assert.equal(res.summary.expensesCents, 1500)
-  // Operativo neto: (6000 + 5000 + 4000) - 1500 = 13500
-  assert.equal(res.summary.netOperatingCents, 13500)
+  // La remesa de custodia es entrada de efectivo separada, no ingreso operativo.
+  // Neto operativo: (6000 + 5000) - 1500 = 9500
+  assert.equal(res.summary.netOperatingCents, 9500)
   assert.equal(res.summary.initialCashTotalCents, 10000)
   assert.equal(res.summary.shiftsSummary.conformityCount, 1)
 })

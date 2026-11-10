@@ -17,7 +17,7 @@ before(async () => {
     firestore: {
       rules,
       host: '127.0.0.1',
-        port: Number(process.env.FIRESTORE_RULES_PORT || 8080),
+        port: Number(process.env.FIRESTORE_RULES_PORT || process.env.FIRESTORE_EMULATOR_PORT || 8080),
     },
   })
 })

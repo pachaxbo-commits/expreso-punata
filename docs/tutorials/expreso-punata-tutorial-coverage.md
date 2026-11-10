@@ -11,7 +11,7 @@ Esta matriz certifica que absolutamente todos los módulos, submódulos y pantal
 | `shipments` | `principal` | Descripción de la Carga, Bultos y Peso | 1 | `[data-tutorial-target="shipment-form-cargo"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
 | `shipments` | `principal` | Precio Sugerido vs. Precio Acordado Editable | 1 | `[data-tutorial-target="shipment-pricing-box"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
 | `shipments` | `principal` | Justificación Obligatoria de Cambio de Precio | 1 | `[data-tutorial-target="shipment-price-reason"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Condición de Pago: Origen vs. Cobro Contraentrega (COD) | 1 | `[data-tutorial-target="shipment-payment-mode"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
+| `shipments` | `principal` | Condición de pago — Pagado en origen o Por pagar | 1 | `[data-tutorial-target="shipment-payment-mode"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
 | `shipments` | `principal` | Emisión de la Guía Oficial e Impresión Térmica | 1 | `[data-tutorial-target="shipment-btn-submit"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
 | `shipments` | `principal` | Buscador Universal de Guías y Clientes | 1 | `[data-tutorial-target="shipment-search-input"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
 | `shipments` | `principal` | Ficha Detallada, Historial y Auditoría | 1 | `[data-tutorial-target="shipments-table-row"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |

@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   query,
   where,
   or,
@@ -14,6 +15,7 @@ import {
 import { httpsCallable } from 'firebase/functions'
 import { db, functions, auth } from '../firebase/config.ts'
 import type { Shipment, ParcelCustomer, ParcelItem, PaymentTiming, PaymentMethod } from '../types/index.ts'
+import { formatShipmentCreationError } from './shipmentErrors.ts'
 
 export interface CreateShipmentInput {
   originBranchId: string
@@ -24,7 +26,7 @@ export interface CreateShipmentInput {
   recipient: ParcelCustomer
   items: ParcelItem[]
   declaredValueTotal?: number
-  paymentTiming: PaymentTiming
+  paymentTiming: Exclude<PaymentTiming, 'origin_pending'>
   paymentMethod?: PaymentMethod
   discountCents?: number
   suggestedAmountCents?: number
@@ -87,6 +89,10 @@ export async function createShipmentThroughBackend(
     throw new Error('Debe iniciar sesión para registrar una encomienda.')
   }
 
+  if (input.paymentTiming !== 'origin_paid' && input.paymentTiming !== 'destination_cod') {
+    throw new Error('Selecciona Pagado en origen o Por pagar para registrar la encomienda.')
+  }
+
   // Clave de idempotencia única para prevenir doble envío por red
   const idempotencyKey =
     input.idempotencyKey ||
@@ -106,20 +112,7 @@ export async function createShipmentThroughBackend(
     return res.data
   } catch (err: unknown) {
     console.error('[shipmentService] Error al invocar createShipment:', err)
-    const errorObj = err as { code?: string; message?: string }
-    const msg = errorObj.message || 'Error al comunicarse con el servidor de encomiendas.'
-
-    if (errorObj.code === 'permission-denied' || msg.includes('permission-denied')) {
-      throw new Error(`Acceso denegado: ${msg}`)
-    }
-    if (errorObj.code === 'unauthenticated' || msg.includes('unauthenticated')) {
-      throw new Error('Sesión expirada o no autenticada. Inicie sesión nuevamente.')
-    }
-    if (errorObj.code === 'invalid-argument' || msg.includes('invalid-argument')) {
-      throw new Error(`Datos inválidos: ${msg}`)
-    }
-
-    throw new Error(msg)
+    throw new Error(formatShipmentCreationError(err))
   }
 }
 
@@ -222,6 +215,13 @@ export function subscribeShipmentsByBranch(
  * Brinda compatibilidad retroactiva completa con guías antiguas con guiones (PUN-2026-00042)
  * y el nuevo formato alfanumérico limpio sin símbolos (PUN202600042).
  */
+export async function fetchCurrentShipment(shipmentId: string): Promise<Shipment | null> {
+  const snapshot = await getDocFromServer(doc(db, 'shipments', shipmentId))
+  if (!snapshot.exists()) return null
+  const shipment = snapshot.data() as Shipment
+  return { ...shipment, id: snapshot.id, trackingCode: shipment.trackingCode || snapshot.id }
+}
+
 export async function fetchShipmentByTrackingCode(
   trackingCode: string
 ): Promise<Shipment | null> {
