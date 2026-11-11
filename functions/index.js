@@ -978,12 +978,14 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
   let targetAuthUser = null
   let safeUnionMemberId = typeof unionMemberId === 'string' && unionMemberId.trim() ? unionMemberId.trim() : null
 
-  if (role === 'afiliado' && !safeUnionMemberId && safeTargetUid) {
+  const requiresMemberLink = role === 'afiliado' || role === 'afiliado_admin'
+
+  if (requiresMemberLink && !safeUnionMemberId && safeTargetUid) {
     const existingProfile = await db.collection('users').doc(safeTargetUid).get()
     safeUnionMemberId = existingProfile.data()?.unionMemberId || null
   }
 
-  if (role === 'afiliado') {
+  if (requiresMemberLink) {
     if (!safeUnionMemberId) throw new HttpsError('invalid-argument', 'Debe vincular la cuenta con un afiliado existente.')
     const memberRef = db.collection('union_members').doc(safeUnionMemberId)
     const memberDoc = await memberRef.get()
@@ -1131,7 +1133,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
             : [primaryBranchId]),
     assignedVehiclePlate: role === 'conductor' ? (assignedVehiclePlate || '') : null,
     assignedMobileNumber: role === 'conductor' ? (assignedMobileNumber || '') : null,
-    unionMemberId: role === 'afiliado' ? safeUnionMemberId : null,
+    unionMemberId: requiresMemberLink ? safeUnionMemberId : null,
     isActive: Boolean(isActive),
     syncStatus: 'syncing',
     updatedAt: FieldValue.serverTimestamp(),

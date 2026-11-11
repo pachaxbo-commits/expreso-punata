@@ -2,6 +2,7 @@ import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
+import { getAuth } from 'firebase-admin/auth'
 import {
   manageUnionMember,
   listUnionLoans,
@@ -16,6 +17,7 @@ import {
 
 if (getApps().length === 0) initializeApp({ projectId: 'demo-affiliate-admin-security' })
 const db = getFirestore()
+const auth = getAuth()
 const runId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
 async function clear() {
@@ -33,6 +35,89 @@ async function user(uid, role, allowedBranchIds = ['punata']) {
 }
 
 beforeEach(clear)
+
+test('adminProvisionUser: vincula afiliado_admin a un afiliado activo de su sucursal y rechaza vínculos inválidos', async () => {
+  const suffix = runId()
+  const adminUid = `directiva-link-${suffix}`
+  await user(adminUid, 'directiva_admin', ['punata', 'cochabamba'])
+
+  const activeMemberId = `member-link-${suffix}`
+  await db.collection('union_members').doc(activeMemberId).set({
+    id: activeMemberId,
+    memberNumber: `LINK-${suffix}`,
+    fullName: 'Afiliado Admin de Prueba',
+    branchId: 'punata',
+    status: 'active',
+  })
+
+  const targetUid = `affiliate-admin-link-${suffix}`
+  await auth.createUser({ uid: targetUid, email: `${targetUid}@example.com` })
+  const result = await adminProvisionUser.run({
+    auth: { uid: adminUid, token: { email: `${adminUid}@example.com` } },
+    data: {
+      targetUid,
+      fullName: 'Cuenta Afiliado Admin',
+      phone: '70000001',
+      role: 'afiliado_admin',
+      primaryBranchId: 'punata',
+      allowedBranchIds: ['punata'],
+      unionMemberId: activeMemberId,
+      isActive: true,
+    },
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.profile.role, 'afiliado_admin')
+  assert.equal(result.profile.unionMemberId, activeMemberId)
+  assert.deepEqual(result.profile.allowedBranchIds, ['punata'])
+
+  const invalidCases = [
+    { id: `missing-${suffix}`, expected: 'invalid-argument', label: 'sin afiliado' },
+    { id: `inactive-${suffix}`, expected: 'failed-precondition', label: 'inactivo', member: { id: `inactive-${suffix}`, branchId: 'punata', status: 'inactive' } },
+    { id: `wrong-branch-${suffix}`, expected: 'permission-denied', label: 'otra sucursal', member: { id: `wrong-branch-${suffix}`, branchId: 'cochabamba', status: 'active' } },
+  ]
+  for (const item of invalidCases) {
+    if (item.member) await db.collection('union_members').doc(item.member.id).set(item.member)
+    const invalidUid = `invalid-link-${item.id}`
+    await auth.createUser({ uid: invalidUid, email: `${invalidUid}@example.com` })
+    await assert.rejects(
+      () => adminProvisionUser.run({
+        auth: { uid: adminUid, token: { email: `${adminUid}@example.com` } },
+        data: {
+          targetUid: invalidUid,
+          fullName: 'Cuenta inválida',
+          phone: '70000002',
+          role: 'afiliado_admin',
+          primaryBranchId: 'punata',
+          allowedBranchIds: ['punata'],
+          unionMemberId: item.member?.id,
+          isActive: true,
+        },
+      }),
+      (error) => error.code === item.expected,
+      item.label,
+    )
+  }
+
+  const duplicateUid = `duplicate-link-${suffix}`
+  await auth.createUser({ uid: duplicateUid, email: `${duplicateUid}@example.com` })
+  await assert.rejects(
+    () => adminProvisionUser.run({
+      auth: { uid: adminUid, token: { email: `${adminUid}@example.com` } },
+      data: {
+        targetUid: duplicateUid,
+        fullName: 'Cuenta duplicada',
+        phone: '70000003',
+        role: 'afiliado_admin',
+        primaryBranchId: 'punata',
+        allowedBranchIds: ['punata'],
+        unionMemberId: activeMemberId,
+        isActive: true,
+      },
+    }),
+    (error) => error.code === 'already-exists',
+  )
+  assert.equal((await db.collection('users').doc(duplicateUid).get()).exists, false)
+})
 
 test('afiliado_admin: gestiona afiliados de su sucursal y consulta información financiera', async () => {
   const suffix = runId()
