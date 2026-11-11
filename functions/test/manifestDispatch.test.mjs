@@ -471,6 +471,7 @@ test('9. GESTIÓN DE FLOTA: manageVehicle crea móvil y valida unicidad de placa
 })
 
 test('Traslado por guía: custodia, sucursal, concurrencia y discrepancias', async () => {
+  const fixtureSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
   const previous = process.env.SIMPLE_SHIPMENT_TRANSFER
   delete process.env.SIMPLE_SHIPMENT_TRANSFER
   await assert.rejects(() => confirmShipmentDeparture.run({ auth: { uid: 'sec-punata' } }), { code: 'failed-precondition' })
@@ -482,11 +483,12 @@ test('Traslado por guía: custodia, sucursal, concurrencia y discrepancias', asy
   await createTestUser('chofer-1', 'conductor', 'punata')
   await createTestVehicle('veh-01', '12', '4589-KLP', 'punata', 'active', 'chofer-1')
 
-  for (const [shipmentId, condition, receivedPackages, expectedStatus] of [
+  for (const [baseShipmentId, condition, receivedPackages, expectedStatus] of [
     ['single-ok', 'good', 1, 'received_at_dest'],
     ['single-damage', 'damaged', 1, 'incident_investigation'],
     ['single-missing', 'missing', 0, 'lost'],
   ]) {
+    const shipmentId = `${baseShipmentId}-${fixtureSuffix}`
     await createTestShipment(shipmentId, shipmentId, 'punata', 'cochabamba', 'received', 'destination_cod', 'pending')
     const auth = { uid: 'sec-punata' }
     const data = { shipmentId, originBranchId: 'punata', destinationBranchId: 'cochabamba', vehicleId: 'veh-01', driverUid: 'chofer-1' }

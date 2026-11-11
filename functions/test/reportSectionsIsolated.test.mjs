@@ -9,12 +9,27 @@ process.env.GCLOUD_PROJECT ||= 'demo-expreso-punata-report-sections-test'
 if (getApps().length === 0) initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 const db = getFirestore()
 
+async function clearIsolatedProject() {
+  const collections = await db.listCollections()
+  for (const collection of collections) {
+    const snapshot = await collection.get()
+    for (let index = 0; index < snapshot.docs.length; index += 400) {
+      const batch = db.batch()
+      snapshot.docs.slice(index, index + 400).forEach((doc) => batch.delete(doc.ref))
+      await batch.commit()
+    }
+  }
+}
+
 test('Reportes por secciones: filtros, obligaciones separadas, deportes, inventario, autorización y solo lectura', async () => {
+  await clearIsolatedProject()
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
   const now = new Date().toISOString()
   const date = now.slice(0, 10)
-  const financialRange = { startDate: '2099-01-01', endDate: '2099-01-01' }
-  const financialIso = '2099-01-01T12:00:00.000Z'
+  const financialDay = String((Number(suffix.replace(/\D/g, '').slice(-2)) % 28) + 1).padStart(2, '0')
+  const financialDate = `2099-12-${financialDay}`
+  const financialRange = { startDate: financialDate, endDate: financialDate }
+  const financialIso = `${financialDate}T12:00:00.000Z`
   const memberId = `report-member-${suffix}`
   const adminUid = `report-admin-${suffix}`
   const secretaryUid = `report-secretary-${suffix}`

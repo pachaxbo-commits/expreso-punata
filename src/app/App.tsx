@@ -16,6 +16,7 @@ import {
   BarChart3,
   BookOpen,
   UserCircle,
+  AlertTriangle,
 } from 'lucide-react'
 import {
   useTutorial,
@@ -133,6 +134,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
     { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['tesoreria', 'directiva_admin']) },
+    { id: 'sports-fines', label: 'Cobro de multas deportivas', icon: AlertTriangle, visible: hasRole(['secretaria']) },
     { id: 'my-account', label: 'Mi cuenta', icon: UserCircle, visible: hasRole(['afiliado']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
@@ -430,6 +432,14 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           <UnionMembersView
             currentUser={userProfile}
             currentBranch={currentBranch}
+          />
+        )}
+
+        {activeTab === 'sports-fines' && (
+          <UnionMembersView
+            currentUser={userProfile}
+            currentBranch={currentBranch}
+            sportsFineCollectionOnly
           />
         )}
 

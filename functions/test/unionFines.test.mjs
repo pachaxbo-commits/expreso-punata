@@ -40,12 +40,14 @@ test('Multas: ciclo Bs 200, Caja, parcialidades, historial, idempotencia, concur
   const shiftId = opened.shift.id
   const shiftRef = db.collection('cash_shifts').doc(shiftId)
   const movementsBeforeCreation = (await db.collection('financial_movements').where('shiftId', '==', shiftId).get()).size
-  const createInput = { memberId, category: 'transporte', reason: 'Incumplimiento', description: 'Prueba integral', date: new Date().toISOString().slice(0, 10), amountCents: 20000, notes: 'Observación' }
+  const createInput = { memberId, category: 'deportes', reason: 'Incumplimiento deportivo', description: 'Prueba integral', date: new Date().toISOString().slice(0, 10), amountCents: 20000, notes: 'Observación' }
   await assert.rejects(() => createUnionFine.run({ auth: { uid: managerUid }, data: { ...createInput, amountCents: 0 } }), (error) => error.code === 'invalid-argument')
   await assert.rejects(() => createUnionFine.run({ auth: { uid: deniedUid }, data: createInput }), (error) => error.code === 'permission-denied')
   const created = await createUnionFine.run({ auth: { uid: managerUid }, data: createInput })
   const fineId = created.fine.id
   const fineRef = db.collection('union_fines').doc(fineId)
+  const transportFine = await createUnionFine.run({ auth: { uid: managerUid }, data: { ...createInput, category: 'transporte', amountCents: 1000, reason: 'Prueba de categoría restringida' } })
+  await assert.rejects(() => collectUnionFinePayment.run({ auth: { uid: cashierUid }, data: { fineId: transportFine.fine.id, amountCents: 1000, shiftId, branchId: 'punata', idempotencyKey: `fine-transport-denied-${suffix}` } }), (error) => error.code === 'permission-denied')
   assert.equal((await fineRef.get()).data().balanceCents, 20000)
   assert.equal((await db.collection('financial_movements').where('shiftId', '==', shiftId).get()).size, movementsBeforeCreation, 'crear la multa no genera movimientos de Caja')
   assert.equal((await shiftRef.get()).data().expectedCashCents, 10000, 'crear la multa no cambia el turno')

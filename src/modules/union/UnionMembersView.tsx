@@ -57,12 +57,14 @@ interface UnionMembersViewProps {
   currentUser: UserProfile
   currentBranch: Branch
   activeShift?: CashShift | null
+  sportsFineCollectionOnly?: boolean
 }
 
 export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   currentUser,
   currentBranch,
   activeShift,
+  sportsFineCollectionOnly = false,
 }) => {
     const [localShift, setLocalShift] = useState<CashShift | null>(null)
   const canReadCashShift = ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'].includes(currentUser.role)
@@ -74,7 +76,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
     return () => unsubscribe()
   }, [canReadCashShift, currentUser?.uid, currentBranch?.id])
   const effectiveShift = activeShift || localShift
-  const [activeTab, setActiveTab] = useState<'members' | 'dues' | 'loans' | 'fines' | 'sports'>('members')
+  const [activeTab, setActiveTab] = useState<'members' | 'dues' | 'loans' | 'fines' | 'sports'>(sportsFineCollectionOnly ? 'fines' : 'members')
   const [members, setMembers] = useState<UnionMember[]>([])
   const [loadingMembers, setLoadingMembers] = useState(true)
 
@@ -426,7 +428,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
       </div>
 
       {/* Selector de Pestañas Principales */}
-      <div className="flex border-b border-slate-200 gap-2">
+      {!sportsFineCollectionOnly && <div className="flex border-b border-slate-200 gap-2">
         <button
           type="button"
           onClick={() => setActiveTab('members')}
@@ -467,7 +469,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
         {currentUser.role !== 'afiliado_admin' && <button type="button" onClick={() => setActiveTab('sports')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'sports' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
           <Calendar className="w-4 h-4" /><span>Deportes</span>
         </button>}
-      </div>
+      </div>}
 
       {/* PESTAÑA 1: PADRÓN DE SOCIOS */}
       {activeTab === 'members' && (

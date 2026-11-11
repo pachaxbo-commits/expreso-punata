@@ -9505,6 +9505,7 @@ export const createUnionFine = onCall({ cors: true }, async (request) => {
   const fine = {
     id: fineRef.id, fineNumber: `MUL-${fineRef.id.slice(0, 8).toUpperCase()}`,
     memberId: memberRef.id, memberNumber: member.memberNumber || '', memberName: member.fullName || '',
+    branchId: member.branchId || caller.primaryBranchId || 'punata',
     category, reason: reason.trim(), description: description.trim(), date,
     amountCents, amountBob: amountCents / 100, balanceCents: amountCents,
     balanceBob: amountCents / 100, paidCents: 0, paidBob: 0,
@@ -9535,6 +9536,7 @@ const sportsFineReason = (event, attendance) => attendance === 'late'
   : `Inasistencia a jornada deportiva: ${event.activityName}`
 
 async function applyUnionSportsAttendance(transaction, { eventRef, participantRef, event, participant, attendance, reason, caller, nowIso }) {
+  const sportsFineBranchId = event.branchId || participant.branchId || caller.primaryBranchId || null
   const deterministicFineId = `sports_${eventRef.id}_${participant.memberId}`
   const fineRef = db.collection('union_fines').doc(deterministicFineId)
   const fineDoc = await transaction.get(fineRef)
@@ -9566,6 +9568,7 @@ async function applyUnionSportsAttendance(transaction, { eventRef, participantRe
       transaction.update(fineRef, {
         fineNumber: `MUL-DEP-${eventRef.id}-${participant.memberId}`,
         memberNumber: participant.memberNumber, memberName: participant.memberName,
+        branchId: sportsFineBranchId,
         category: 'deportes', reason: sportsFineReason(event, attendance),
         description: `${event.date} ${event.scheduledTime} · ${event.activityName}`,
         date: event.date, attendanceStatus: attendance,
@@ -9589,6 +9592,7 @@ async function applyUnionSportsAttendance(transaction, { eventRef, participantRe
     transaction.create(fineRef, {
       id: fineRef.id, fineNumber, memberId: participant.memberId,
       memberNumber: participant.memberNumber, memberName: participant.memberName,
+      branchId: sportsFineBranchId,
       category: 'deportes', reason: sportsFineReason(event, attendance),
       description: `${event.date} ${event.scheduledTime} · ${event.activityName}`,
       date: event.date, attendanceStatus: attendance,
@@ -9639,6 +9643,7 @@ export const createUnionSportsEvent = onCall({ cors: true }, async (request) => 
     const event = {
       id: eventRef.id, date, scheduledTime, activityName: activityName.trim(),
       place: place.trim(), notes: notes.trim(), status: 'scheduled',
+      branchId: caller.primaryBranchId || 'punata',
       participantCount: cleanedMemberIds.length, createdAtIso: nowIso,
       createdByUid: caller.uid, createdByName: caller.fullName || 'Operador',
       updatedAtIso: nowIso,
@@ -9882,16 +9887,27 @@ export const listUnionSportsEvents = onCall({ cors: true }, async (request) => {
 })
 
 export const listUnionFines = onCall({ cors: true }, async (request) => {
-  const caller = await requireUnionLoanCaller(request, LOAN_READ_ROLES, 'consultar multas de afiliados.')
+  // Secretaría puede consultar únicamente multas deportivas filtradas por
+  // sucursal; no se agrega al conjunto general de lectura de préstamos.
+  const caller = await requireUnionLoanCaller(
+    request,
+    [...LOAN_READ_ROLES, 'secretaria'],
+    'consultar multas de afiliados.'
+  )
   const { memberId, category, status } = request.data || {}
   if (memberId !== undefined && (typeof memberId !== 'string' || !memberId.trim())) throw new HttpsError('invalid-argument', 'El afiliado solicitado no es válido.')
   if (category !== undefined && !FINE_CATEGORIES.includes(category)) throw new HttpsError('invalid-argument', 'La categoría de multa no es válida.')
   if (status !== undefined && !['pending', 'partial', 'paid', 'voided'].includes(status)) throw new HttpsError('invalid-argument', 'El estado de multa no es válido.')
+  const callerBranches = caller.allowedBranchIds || [caller.primaryBranchId]
+  const isSecretary = caller.role === 'secretaria'
+  if (isSecretary && category !== undefined && category !== 'deportes') throw new HttpsError('permission-denied', 'Secretaría solo puede consultar multas deportivas.')
   if (memberId && !(await db.collection('union_members').doc(memberId).get()).exists) throw new HttpsError('not-found', 'El afiliado no existe.')
   let query = db.collection('union_fines').orderBy('createdAtIso', 'desc')
   if (memberId) query = query.where('memberId', '==', memberId)
   const snapshot = await query.get()
-  const visibleFineDocs = caller.role === 'afiliado_admin'
+  const visibleFineDocs = isSecretary
+    ? snapshot.docs.filter((fineDoc) => fineDoc.data()?.category === 'deportes' && callerBranches.includes(fineDoc.data()?.branchId))
+    : caller.role === 'afiliado_admin'
     ? (await Promise.all(snapshot.docs.map(async (fineDoc) => {
       const memberDoc = await db.collection('union_members').doc(fineDoc.data()?.memberId).get()
       return memberDoc.exists && (caller.allowedBranchIds || [caller.primaryBranchId]).includes(memberDoc.data()?.branchId) ? fineDoc : null
@@ -9901,7 +9917,7 @@ export const listUnionFines = onCall({ cors: true }, async (request) => {
     const paymentsSnapshot = await doc.ref.collection('payments').orderBy('paidAtIso', 'asc').get()
     return { id: doc.id, ...doc.data(), payments: paymentsSnapshot.docs.map((payment) => ({ id: payment.id, ...payment.data() })) }
   }))
-  const fines = allFines.filter((fine) => !category || fine.category === category)
+  const fines = allFines.filter((fine) => (!isSecretary && !category) || fine.category === (isSecretary ? 'deportes' : category))
     .filter((fine) => !status || fine.status === status)
   return { success: true, fines }
 })
@@ -9940,6 +9956,12 @@ export const collectUnionFinePayment = onCall({ cors: true }, async (request) =>
     if (!shiftDoc.exists) throw new HttpsError('not-found', 'El turno de Caja no existe.')
     const fine = fineDoc.data()
     const shift = shiftDoc.data()
+    if (caller.role === 'secretaria') {
+      const allowedBranches = caller.allowedBranchIds || [caller.primaryBranchId]
+      if (fine.category !== 'deportes') throw new HttpsError('permission-denied', 'Secretaría solo puede cobrar multas deportivas.')
+      if (!fine.branchId || !allowedBranches.includes(fine.branchId)) throw new HttpsError('permission-denied', 'La multa no pertenece a una sucursal autorizada.')
+      if (effectiveBranchId !== fine.branchId) throw new HttpsError('permission-denied', 'La sucursal del cobro no coincide con la multa.')
+    }
     if (shift.status !== 'open') throw new HttpsError('failed-precondition', 'El turno de Caja no está abierto.')
     if (shift.branchId !== effectiveBranchId) throw new HttpsError('permission-denied', 'El turno de Caja pertenece a otra sucursal.')
     const shiftOperator = shift.cashierUid || shift.operatorUid
