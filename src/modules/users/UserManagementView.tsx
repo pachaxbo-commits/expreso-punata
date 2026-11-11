@@ -740,7 +740,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
   const [formError, setFormError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (role !== 'afiliado') {
+    if (role !== 'afiliado' && role !== 'afiliado_admin') {
       setAvailableMembers([])
       setUnionMemberId('')
       return
@@ -774,7 +774,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
       return
     }
 
-    if (role === 'afiliado' && !unionMemberId) {
+    if ((role === 'afiliado' || role === 'afiliado_admin') && !unionMemberId) {
       setFormError('Seleccione el afiliado que se vinculará a esta cuenta.')
       return
     }
@@ -797,7 +797,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
               : [primaryBranchId, ...allowedBranches],
         assignedVehiclePlate: role === 'conductor' ? vehiclePlate.trim() : undefined,
         assignedMobileNumber: role === 'conductor' ? mobileNumber.trim() : undefined,
-        unionMemberId: role === 'afiliado' ? unionMemberId : undefined,
+        unionMemberId: role === 'afiliado' || role === 'afiliado_admin' ? unionMemberId : undefined,
         isActive: true,
       }
 
@@ -941,7 +941,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
           </div>
 
           {/* Sucursales autorizadas (oculto para secretaria ya que tiene agencia fija única) */}
-          {role === 'afiliado' && (
+          {(role === 'afiliado' || role === 'afiliado_admin') && (
             <div>
               <label className="font-bold text-slate-700 block mb-1">Afiliado vinculado *</label>
               <select value={unionMemberId} onChange={(e) => setUnionMemberId(e.target.value)} className="w-full p-2.5 border border-slate-300 rounded-lg bg-white">
