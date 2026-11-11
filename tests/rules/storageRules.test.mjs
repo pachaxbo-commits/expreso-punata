@@ -11,6 +11,7 @@ const STORAGE_PORT = Number(process.env.STORAGE_RULES_STORAGE_PORT || 19199)
 
 before(async () => {
   process.env.FIREBASE_STORAGE_EMULATOR_HOST = `127.0.0.1:${STORAGE_PORT}`
+  process.env.STORAGE_EMULATOR_HOST = `http://127.0.0.1:${STORAGE_PORT}`
   testEnv = await initializeTestEnvironment({
     projectId: 'demo-storage-rules-local',
     firestore: { host: '127.0.0.1', port: FIRESTORE_PORT },
@@ -28,7 +29,17 @@ before(async () => {
     await setDoc(doc(db, 'shipments', 'ship-punata-only'), { originBranchId: 'punata', destinationBranchId: 'punata' })
   })
   await testEnv.withSecurityRulesDisabled(async context => {
-    await uploadBytes(ref(context.storage(), 'shipments/ship-punata/photo.png'), new Uint8Array([137, 80, 78, 71]), { contentType: 'image/png' })
+    // La foto existente representa evidencia histórica. Se prepara mediante la
+    // API administrativa local del Emulator, sin activar la carga comercial.
+    const response = await fetch(
+      `http://127.0.0.1:${STORAGE_PORT}/upload/storage/v1/b/demo-storage-rules-local/o?uploadType=media&name=shipments%2Fship-punata%2Fphoto.png`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/png' },
+        body: Buffer.from([137, 80, 78, 71]),
+      }
+    )
+    assert.equal(response.ok, true, `No se pudo preparar la foto histórica: ${await response.text()}`)
   })
 })
 
@@ -51,6 +62,7 @@ test('Storage Rules: autenticação, sucursal, inactividad y escritura', async (
   await assertFails(getBytes(ref(inactive, 'shipments/ship-punata/photo.png')))
   await assertFails(getBytes(ref(noRole, 'shipments/ship-punata/photo.png')))
   await assertFails(uploadBytes(ref(punata, 'shipments/ship-punata/text.txt'), new Uint8Array([1]), { contentType: 'text/plain' }))
+  await assertFails(uploadBytes(ref(punata, 'shipments/ship-punata/new-photo.png'), bytes, { contentType: 'image/png' }))
   await assertFails(uploadBytes(ref(punata, 'shipments/ship-punata/large.png'), new Uint8Array(2 * 1024 * 1024), { contentType: 'image/png' }))
   await assertFails(uploadBytes(ref(cbba, 'shipments/ship-punata-only/photo.png'), bytes, { contentType: 'image/png' }))
   await assertFails(deleteObject(ref(punata, 'shipments/ship-punata/photo.png')))
