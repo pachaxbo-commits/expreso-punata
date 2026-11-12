@@ -262,6 +262,7 @@ export function subscribeActiveCashShift(
  */
 export function subscribeShiftMovements(
   shiftId: string,
+  branchId: string,
   onUpdate: (movements: FinancialMovement[]) => void,
   onError?: (err: Error) => void
 ): () => void {
@@ -273,7 +274,7 @@ export function subscribeShiftMovements(
   const movementsRef = collection(db, 'financial_movements')
   const q = query(
     movementsRef,
-    where('shiftId', '==', shiftId),
+    where('branchId', '==', branchId),
     limit(200)
   )
 
@@ -283,6 +284,7 @@ export function subscribeShiftMovements(
       const list: FinancialMovement[] = []
       snapshot.forEach((d) => {
         const data = d.data() as FinancialMovement
+        if (data.shiftId !== shiftId && data.shiftId) return
         list.push({
           ...data,
           id: d.id,

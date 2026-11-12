@@ -466,22 +466,21 @@ test('10. collectMemberDue: Rechaza reintentos con payload fingerprint alterado 
   }, (err) => err.code === 'failed-precondition')
 })
 
-test('11. getMemberAccountStatement: Secretaria y conductor NO tienen acceso al extracto contable', async () => {
+test('11. getMemberAccountStatement: Secretaria accede a su sucursal y conductor permanece bloqueado', async () => {
   await createTestUser('sec-1', 'secretaria', 'punata')
   await createTestUser('driver-1', 'conductor', 'punata')
   await createTestUser('admin-1', 'directiva_admin', 'punata')
 
   await manageUnionMember.run({
     auth: { uid: 'admin-1' },
-    data: { id: 'm-sec-view', memberNumber: 'SOC-300', fullName: 'Socio Vista', monthlyFeeBob: 50, status: 'active' },
+    data: { id: 'm-sec-view', memberNumber: 'SOC-300', fullName: 'Socio Vista', monthlyFeeBob: 50, status: 'active', branchId: 'punata' },
   })
 
-  await assert.rejects(async () => {
-    await getMemberAccountStatement.run({
-      auth: { uid: 'sec-1' },
-      data: { memberId: 'm-sec-view' },
-    })
-  }, (err) => err.code === 'permission-denied')
+  const secretaryStatement = await getMemberAccountStatement.run({
+    auth: { uid: 'sec-1' },
+    data: { memberId: 'm-sec-view' },
+  })
+  assert.equal(secretaryStatement.member.id, 'm-sec-view')
 
   await assert.rejects(async () => {
     await getMemberAccountStatement.run({

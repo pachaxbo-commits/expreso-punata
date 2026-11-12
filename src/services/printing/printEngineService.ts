@@ -533,6 +533,34 @@ export class PrintEngineService {
     }
   }
 
+  public buildFromUnionLoanPayment(paymentResult: any, loan: any, member: any, branchId: string, operatorName: string): UnifiedDocumentPayload {
+    const branch = INITIAL_BRANCHES.find((item) => item.id === branchId) || INITIAL_BRANCHES[0]
+    const amountBob = (paymentResult.amountCents || 0) / 100
+    return {
+      documentType: 'payment_receipt', title: 'COMPROBANTE DE PAGO DE PRÉSTAMO', subtitle: loan.loanNumber,
+      branchId, branchName: branch.name, branchAddress: branch.address, branchPhone: branch.phone,
+      documentNumber: paymentResult.payment.receiptNumber, timestampIso: paymentResult.payment.paidAtIso || new Date().toISOString(), operatorName: paymentResult.payment.collectedByName || operatorName,
+      recipient: { name: `${member?.memberNumber || loan.memberNumber} - ${member?.fullName || loan.memberName || 'Afiliado'}`, phone: member?.phone },
+      items: [{ description: `Pago de cuota del préstamo ${loan.loanNumber}`, quantity: 1, totalBob: amountBob }],
+      financials: { subtotalBob: amountBob, totalBob: amountBob, amountCents: paymentResult.amountCents, paymentMethod: paymentResult.payment.paymentMethod, paymentStatus: paymentResult.balanceCents > 0 ? 'pending' : 'paid', paymentConditionLabel: paymentResult.balanceCents > 0 ? 'PAGO PARCIAL DE PRÉSTAMO' : 'PRÉSTAMO CANCELADO' },
+      footerNotes: [`Saldo restante: Bs ${(paymentResult.balanceCents / 100).toFixed(2)}`, `Responsable: ${paymentResult.payment.collectedByName || operatorName}`],
+    }
+  }
+
+  public buildFromUnionFinePayment(paymentResult: any, fine: any, branchId: string, operatorName: string): UnifiedDocumentPayload {
+    const branch = INITIAL_BRANCHES.find((item) => item.id === branchId) || INITIAL_BRANCHES[0]
+    const amountBob = (paymentResult.amountCents || 0) / 100
+    return {
+      documentType: 'payment_receipt', title: 'COMPROBANTE DE PAGO DE MULTA', subtitle: `${fine.category} · ${fine.reason}`,
+      branchId, branchName: branch.name, branchAddress: branch.address, branchPhone: branch.phone,
+      documentNumber: paymentResult.payment.receiptNumber, timestampIso: paymentResult.payment.paidAtIso || new Date().toISOString(), operatorName: paymentResult.payment.collectedByName || operatorName,
+      recipient: { name: `${fine.memberNumber} - ${fine.memberName}` },
+      items: [{ description: `${fine.category}: ${fine.reason}`, quantity: 1, totalBob: amountBob }],
+      financials: { subtotalBob: amountBob, totalBob: amountBob, amountCents: paymentResult.amountCents, paymentMethod: paymentResult.payment.paymentMethod, paymentStatus: paymentResult.balanceCents > 0 ? 'pending' : 'paid', paymentConditionLabel: paymentResult.balanceCents > 0 ? 'PAGO PARCIAL DE MULTA' : 'MULTA CANCELADA' },
+      footerNotes: [`Saldo restante: Bs ${(paymentResult.balanceCents / 100).toFixed(2)}`, `Motivo: ${fine.reason}`],
+    }
+  }
+
   /**
    * Genera e imprime un ticket de prueba y diagnóstico de estación de trabajo.
    */

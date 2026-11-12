@@ -165,6 +165,20 @@ export interface UnionLoanPayment {
   notes?: string | null
   allocations: Array<{ installmentId: string; sequence: number; amountCents: number }>
 }
+export interface UnionLoanDisbursement {
+  id: string
+  loanId: string
+  loanNumber: string
+  amountCents: number
+  paymentMethod: 'cash' | 'qr' | 'transfer'
+  branchId: string
+  shiftId?: string | null
+  receiptNumber: string
+  disbursedAtIso: string
+  disbursedByUid: string
+  disbursedByName: string
+  notes?: string | null
+}
 
 export interface UnionLoan {
   id: string
@@ -180,6 +194,9 @@ export interface UnionLoan {
   firstDueDate: string
   notes: string
   status: 'active' | 'overdue' | 'paid'
+  disbursementStatus?: 'pending' | 'disbursed' | 'legacy_unknown'
+  disbursedCents?: number
+  disbursedAtIso?: string | null
   paidCents: number
   balanceCents: number
   balanceBob: number
@@ -256,6 +273,15 @@ export interface CollectUnionLoanPaymentInput {
   idempotencyKey: string
 }
 
+export interface DisburseUnionLoanInput {
+  loanId: string
+  paymentMethod: 'cash' | 'qr' | 'transfer'
+  shiftId?: string | null
+  branchId?: string
+  notes?: string
+  idempotencyKey: string
+}
+
 export async function createUnionLoanThroughBackend(input: CreateUnionLoanInput): Promise<{ success: boolean; loan: UnionLoan; installments: UnionLoanInstallment[] }> {
   const callable = httpsCallable<CreateUnionLoanInput, { success: boolean; loan: UnionLoan; installments: UnionLoanInstallment[] }>(functions, 'createUnionLoan')
   return (await callable(input)).data
@@ -263,6 +289,11 @@ export async function createUnionLoanThroughBackend(input: CreateUnionLoanInput)
 
 export async function collectUnionLoanPaymentThroughBackend(input: CollectUnionLoanPaymentInput): Promise<{ success: boolean; payment: UnionLoanPayment; balanceCents: number; status: UnionLoan['status'] }> {
   const callable = httpsCallable<CollectUnionLoanPaymentInput, { success: boolean; payment: UnionLoanPayment; balanceCents: number; status: UnionLoan['status'] }>(functions, 'collectUnionLoanPayment')
+  return (await callable(input)).data
+}
+
+export async function disburseUnionLoanThroughBackend(input: DisburseUnionLoanInput): Promise<{ success: boolean; disbursement: UnionLoanDisbursement; receiptNumber: string }> {
+  const callable = httpsCallable<DisburseUnionLoanInput, { success: boolean; disbursement: UnionLoanDisbursement; receiptNumber: string }>(functions, 'disburseUnionLoan')
   return (await callable(input)).data
 }
 
