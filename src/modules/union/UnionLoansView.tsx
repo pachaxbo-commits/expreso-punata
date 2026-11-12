@@ -1,32 +1,27 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, CircleDollarSign, Plus, RefreshCw, Search } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CircleDollarSign, FileText, Plus, Printer, RefreshCw, Search } from 'lucide-react'
 import type { Branch, CashShift, UnionMember, UserProfile } from '../../types/index.ts'
-import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
+import { formatCurrencyBob, parseBobToCents } from '../../domain/parcelEngine.ts'
 import {
   collectUnionLoanPaymentThroughBackend,
   createUnionLoanThroughBackend,
+  disburseUnionLoanThroughBackend,
   listUnionLoansThroughBackend,
   type UnionLoan,
 } from '../../services/unionService.ts'
+import { printEngine } from '../../services/printing/printEngineService.ts'
 
 interface UnionLoansViewProps {
   members: UnionMember[]
   currentUser: UserProfile
   currentBranch: Branch
   activeShift: CashShift | null
-}
-
-function parseBobToCents(value: string): number | null {
-  const match = /^\d+(?:[.,]\d{1,2})?$/.exec(value.trim())
-  if (!match) return null
-  const [whole, decimal = ''] = value.replace(',', '.').split('.')
-  const cents = Number(whole) * 100 + Number(decimal.padEnd(2, '0'))
-  return Number.isSafeInteger(cents) && cents > 0 ? cents : null
+  onOpenStatement?: (member: UnionMember) => void
 }
 
 const statusLabels: Record<UnionLoan['status'], string> = { active: 'Vigente', overdue: 'Vencido', paid: 'Pagado' }
 
-export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, currentUser, currentBranch, activeShift }) => {
+export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, currentUser, currentBranch, activeShift, onOpenStatement }) => {
   const [loans, setLoans] = useState<UnionLoan[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -37,6 +32,9 @@ export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, current
   const [savingLoan, setSavingLoan] = useState(false)
   const [payingLoanId, setPayingLoanId] = useState<string | null>(null)
   const [savingPayment, setSavingPayment] = useState(false)
+  const [disbursingLoanId, setDisbursingLoanId] = useState<string | null>(null)
+  const [disbursementMethod, setDisbursementMethod] = useState<'cash' | 'qr' | 'transfer'>('cash')
+  const [savingDisbursement, setSavingDisbursement] = useState(false)
   const [memberId, setMemberId] = useState('')
   const [principalBob, setPrincipalBob] = useState('')
   const [installmentCount, setInstallmentCount] = useState('1')
@@ -46,9 +44,12 @@ export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, current
   const [paymentAmount, setPaymentAmount] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qr' | 'transfer'>('cash')
   const [paymentNotes, setPaymentNotes] = useState('')
+  const [completedPayment, setCompletedPayment] = useState<{ result: any; loan: UnionLoan } | null>(null)
 
   const isManagement = currentUser.role === 'directiva_admin' || currentUser.role === 'tesoreria'
+  const canCreateLoan = isManagement || currentUser.role === 'secretaria'
   const canCollect = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'].includes(currentUser.role)
+  const canDisburse = currentUser.role === 'tesoreria' || currentUser.role === 'secretaria'
 
   const loadLoans = useCallback(async () => {
     setLoading(true)
@@ -108,6 +109,7 @@ export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, current
         branchId: currentBranch.id, notes: paymentNotes,
         idempotencyKey: `loan-${crypto.randomUUID()}`,
       })
+      setCompletedPayment({ result, loan })
       setNotice(`Pago ${result.payment.receiptNumber} registrado. Saldo pendiente: ${formatCurrencyBob(result.balanceCents, true)}.`)
       setPayingLoanId(null); setPaymentAmount(''); setPaymentNotes('')
       await loadLoans()
@@ -116,12 +118,23 @@ export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, current
     } finally { setSavingPayment(false) }
   }
 
+  const handleDisbursement = async (loan: UnionLoan) => {
+    if (savingDisbursement || loan.disbursementStatus !== 'pending') return
+    if (disbursementMethod === 'cash' && !activeShift) { setError('Para desembolsar en efectivo debe abrir un turno de caja.'); return }
+    if (!window.confirm(`¿Confirmas entregar ${formatCurrencyBob(loan.principalCents, true)} del préstamo ${loan.loanNumber}?`)) return
+    setSavingDisbursement(true); setError('')
+    try {
+      const result = await disburseUnionLoanThroughBackend({ loanId: loan.id, paymentMethod: disbursementMethod, shiftId: disbursementMethod === 'cash' ? activeShift?.id : undefined, branchId: currentBranch.id, idempotencyKey: `loan-disbursement-${crypto.randomUUID()}` })
+      setNotice(`Desembolso ${result.receiptNumber} registrado correctamente.`); setDisbursingLoanId(null); await loadLoans()
+    } catch (err: any) { setError(err?.message || 'No se pudo registrar el desembolso.') } finally { setSavingDisbursement(false) }
+  }
+
   return <section className="space-y-4" aria-label="Préstamos internos">
     <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
       <div><h3 className="text-base font-extrabold text-slate-800">Préstamos internos</h3><p className="mt-1 text-xs text-slate-500">Saldos, vencimientos y cobros asociados a afiliados.</p></div>
       <div className="flex gap-2">
         <button type="button" onClick={() => void loadLoans()} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700"><RefreshCw className="h-4 w-4" />Actualizar</button>
-        {isManagement && <button type="button" onClick={() => { setError(''); setCreating((value) => !value) }} className="flex items-center gap-2 rounded-lg bg-emerald-800 px-3 py-2 text-xs font-bold text-white"><Plus className="h-4 w-4" />Registrar préstamo</button>}
+        {canCreateLoan && <button type="button" onClick={() => { setError(''); setCreating((value) => !value) }} className="flex items-center gap-2 rounded-lg bg-emerald-800 px-3 py-2 text-xs font-bold text-white"><Plus className="h-4 w-4" />Crear préstamo</button>}
       </div>
     </div>
 
@@ -129,6 +142,8 @@ export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, current
       {error ? <AlertTriangle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />}<span>{error || notice}</span>
       <button className="ml-auto" onClick={() => { setError(''); setNotice('') }} type="button" aria-label="Cerrar aviso">×</button>
     </div>}
+
+    {completedPayment && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs"><div><strong className="block text-emerald-900">Comprobante generado: {completedPayment.result.payment.receiptNumber}</strong><span>Pago: {formatCurrencyBob(completedPayment.result.amountCents, true)} · Saldo restante: {formatCurrencyBob(completedPayment.result.balanceCents, true)}</span></div><button type="button" onClick={async () => { const doc = printEngine.buildFromUnionLoanPayment(completedPayment.result, completedPayment.loan, members.find((member) => member.id === completedPayment.loan.memberId), currentBranch.id, currentUser.fullName); await printEngine.printDocument(doc) }} className="inline-flex items-center gap-2 rounded-lg bg-emerald-800 px-3 py-2 font-bold text-white"><Printer className="h-4 w-4" />Imprimir comprobante</button><button type="button" onClick={() => setCompletedPayment(null)} className="rounded-lg border border-emerald-300 px-3 py-2 font-bold text-emerald-900">Cerrar</button></div>}
 
     {creating && <form onSubmit={handleCreate} className="grid gap-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 sm:grid-cols-2 lg:grid-cols-3">
       <label className="text-xs font-bold text-slate-700">Afiliado beneficiario<select required value={memberId} onChange={(event) => setMemberId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2"><option value="">Seleccionar afiliado</option>{members.map((member) => <option key={member.id} value={member.id}>{member.memberNumber} · {member.fullName}</option>)}</select></label>
@@ -150,8 +165,11 @@ export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, current
       <div className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h4 className="font-extrabold text-slate-800">{loan.loanNumber}</h4><span className={`rounded-full px-2 py-1 text-[10px] font-extrabold ${loan.status === 'paid' ? 'bg-emerald-100 text-emerald-800' : loan.status === 'overdue' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>{statusLabels[loan.status]}</span></div><p className="mt-1 text-xs text-slate-600">{loan.memberNumber} · {loan.memberName}</p></div>
         <div className="grid grid-cols-2 gap-3 text-xs md:min-w-[440px] lg:grid-cols-4"><div><span className="text-slate-500">Original</span><strong className="block text-slate-800">{formatCurrencyBob(loan.principalCents, true)}</strong></div><div><span className="text-slate-500">Pagado</span><strong className="block text-emerald-700">{formatCurrencyBob(loan.paidCents, true)}</strong></div><div><span className="text-slate-500">Saldo</span><strong className="block text-amber-700">{formatCurrencyBob(loan.balanceCents, true)}</strong></div><div><span className="text-slate-500">Vencido</span><strong className="block text-red-700">{formatCurrencyBob(loan.overdueBalanceCents || 0, true)}</strong></div></div>
+        {canDisburse && loan.disbursementStatus === 'pending' && <button type="button" onClick={() => { setError(''); setDisbursingLoanId((id) => id === loan.id ? null : loan.id) }} className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-extrabold text-white">Desembolsar préstamo</button>}
         {canCollect && loan.balanceCents > 0 && <button type="button" onClick={() => { setError(''); setPaymentAmount(''); setPayingLoanId((id) => id === loan.id ? null : loan.id) }} className="flex items-center justify-center gap-2 rounded-lg bg-amber-400 px-3 py-2 text-xs font-extrabold text-emerald-950"><CircleDollarSign className="h-4 w-4" />Registrar pago</button>}
+        {onOpenStatement && (() => { const member = members.find((item) => item.id === loan.memberId); return member ? <button type="button" onClick={() => onOpenStatement(member)} className="flex items-center justify-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-extrabold text-emerald-800 hover:bg-emerald-50" title="Ver extracto del afiliado"><FileText className="h-4 w-4" />Ver extracto</button> : null })()}
       </div>
+      {disbursingLoanId === loan.id && <div className="border-t border-slate-100 bg-blue-50/50 p-4"><label className="text-xs font-bold">Método de desembolso<select value={disbursementMethod} onChange={(event) => setDisbursementMethod(event.target.value as typeof disbursementMethod)} className="ml-2 rounded-lg border bg-white p-2"><option value="cash">Efectivo</option><option value="qr">QR</option><option value="transfer">Transferencia</option></select></label><button type="button" disabled={savingDisbursement || (disbursementMethod === 'cash' && !activeShift)} onClick={() => void handleDisbursement(loan)} className="ml-3 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{savingDisbursement ? 'Registrando…' : 'Confirmar desembolso'}</button>{disbursementMethod === 'cash' && !activeShift && <span className="ml-2 text-[10px] text-red-700">Requiere turno abierto.</span>}</div>}
       {payingLoanId === loan.id && <form onSubmit={(event) => void handlePayment(event, loan)} className="grid gap-2 border-t border-slate-100 bg-amber-50/50 p-4 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-xs font-bold">Monto a pagar (Bs)<input required inputMode="decimal" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} className="mt-1 w-full rounded-lg border bg-white p-2" /></label>
         <label className="text-xs font-bold">Método<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)} className="mt-1 w-full rounded-lg border bg-white p-2"><option value="cash">Efectivo</option><option value="qr">QR</option><option value="transfer">Transferencia</option></select></label>

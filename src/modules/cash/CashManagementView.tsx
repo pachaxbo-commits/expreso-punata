@@ -21,7 +21,7 @@ import {
   AlertCircle
 } from 'lucide-react'
 import type { CashShift, FinancialMovement, UserProfile, Branch, PaymentMethod } from '../../types/index.ts'
-import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
+import { formatCurrencyBob, parseBobToCents } from '../../domain/parcelEngine.ts'
 import {
   openCashShiftThroughBackend,
   closeCashShiftThroughBackend,
@@ -114,6 +114,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
 
     const unsubscribe = subscribeShiftMovements(
       activeShift.id,
+      currentBranch.id,
       (movs) => {
         setMovements(movs)
       },
@@ -393,7 +394,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                     <Banknote className="w-4 h-4 text-emerald-600" />
                   </div>
                   <div className="text-xl sm:text-2xl font-black text-emerald-800 tracking-tight">
-                    {formatCurrencyBob(activeShift.expectedCashCents || 0)}
+                    {formatCurrencyBob(activeShift.expectedCashCents || 0, true)}
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1 font-medium">
                     Fondo inicial + cobros en efectivo - egresos
@@ -407,13 +408,13 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                     <DollarSign className="w-4 h-4 text-[#064e3b]" />
                   </div>
                   <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-                    {formatCurrencyBob(activeShift.breakdown?.totalIncomeCents || 0)}
+                    {formatCurrencyBob(activeShift.breakdown?.totalIncomeCents || 0, true)}
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-1">
-                    <span>Efectivo: {formatCurrencyBob(activeShift.breakdown?.cashIncomeCents || 0)}</span>
+                    <span>Efectivo: {formatCurrencyBob(activeShift.breakdown?.cashIncomeCents || 0, true)}</span>
                   </div>
-                  {(activeShift.breakdown?.loanRepaymentsCents || 0) > 0 && <p className="mt-1 text-[10px] font-semibold text-amber-700">Recaudación de préstamos (separada de ingresos): {formatCurrencyBob(activeShift.breakdown?.loanRepaymentsCents || 0)}</p>}
-                  {(activeShift.breakdown?.fineIncomeCents || 0) > 0 && <p className="mt-1 text-[10px] font-semibold text-rose-700">Cobros de multas: {formatCurrencyBob(activeShift.breakdown?.fineIncomeCents || 0)}</p>}
+                  {(activeShift.breakdown?.loanRepaymentsCents || 0) > 0 && <p className="mt-1 text-[10px] font-semibold text-amber-700">Recaudación de préstamos (separada de ingresos): {formatCurrencyBob(activeShift.breakdown?.loanRepaymentsCents || 0, true)}</p>}
+                  {(activeShift.breakdown?.fineIncomeCents || 0) > 0 && <p className="mt-1 text-[10px] font-semibold text-rose-700">Cobros de multas: {formatCurrencyBob(activeShift.breakdown?.fineIncomeCents || 0, true)}</p>}
                 </div>
 
                 {/* 3. Cobros Electrónicos (QR + Transferencia) */}
@@ -425,10 +426,10 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                   <div className="text-xl sm:text-2xl font-black text-blue-700 tracking-tight">
                     {formatCurrencyBob(
                       (activeShift.breakdown?.qrIncomeCents || 0) + (activeShift.breakdown?.transferIncomeCents || 0)
-                    )}
+                    , true)}
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    QR: {formatCurrencyBob(activeShift.breakdown?.qrIncomeCents || 0)} • Banco: {formatCurrencyBob(activeShift.breakdown?.transferIncomeCents || 0)}
+                    QR: {formatCurrencyBob(activeShift.breakdown?.qrIncomeCents || 0, true)} • Banco: {formatCurrencyBob(activeShift.breakdown?.transferIncomeCents || 0, true)}
                   </p>
                 </div>
 
@@ -439,7 +440,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                     <Wallet className="w-4 h-4 text-slate-500" />
                   </div>
                   <div className="text-xl sm:text-2xl font-black text-slate-700 tracking-tight">
-                    {formatCurrencyBob(activeShift.initialCashCents || 0)}
+                    {formatCurrencyBob(activeShift.initialCashCents || 0, true)}
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1 font-medium">
                     Sencillo base separado de las ventas
@@ -542,7 +543,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                         {filteredMovements.map((mov) => {
                           const isExpense = mov.type === 'expense' || mov.amountCents < 0
                           const isInit = mov.type === 'initial_cash'
-                          const amountFormatted = formatCurrencyBob(Math.abs(mov.amountCents))
+                          const amountFormatted = formatCurrencyBob(Math.abs(mov.amountCents), true)
 
                           return (
                             <tr key={mov.id} className="hover:bg-slate-50/80 transition-colors">
@@ -712,17 +713,17 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                           </div>
                         </td>
                         <td className="p-3 whitespace-nowrap font-medium text-slate-700">
-                          {formatCurrencyBob(sh.initialCashCents || 0)}
+                          {formatCurrencyBob(sh.initialCashCents || 0, true)}
                         </td>
                         <td className="p-3 whitespace-nowrap font-bold text-slate-900">
-                          {formatCurrencyBob(sh.breakdown?.totalIncomeCents || 0)}
+                          {formatCurrencyBob(sh.breakdown?.totalIncomeCents || 0, true)}
                         </td>
                         <td className="p-3 whitespace-nowrap text-slate-700">
-                          {formatCurrencyBob(sh.expectedCashCents || 0)}
+                          {formatCurrencyBob(sh.expectedCashCents || 0, true)}
                         </td>
                         <td className="p-3 whitespace-nowrap text-slate-800 font-bold">
                           {sh.actualCashCents !== null && sh.actualCashCents !== undefined
-                            ? formatCurrencyBob(sh.actualCashCents)
+                            ? formatCurrencyBob(sh.actualCashCents, true)
                             : '-'}
                         </td>
                         <td className="p-3 whitespace-nowrap">
@@ -737,7 +738,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                               }`}
                             >
                               <span>{diffStatus.toUpperCase()}</span>
-                              <span>({formatCurrencyBob(sh.differenceCents || 0)})</span>
+                              <span>({formatCurrencyBob(sh.differenceCents || 0, true)})</span>
                             </span>
                           ) : (
                             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
@@ -883,14 +884,12 @@ const OpenShiftModal: React.FC<OpenShiftModalProps> = ({ currentBranch, onClose,
     setIsSubmitting(true)
     setErrorMessage(null)
 
-    const cashBobNum = parseFloat(initialCashBob) || 0
-    if (cashBobNum < 0) {
+    const initialCashCents = parseBobToCents(initialCashBob)
+    if (initialCashCents === null) {
       setErrorMessage('El fondo inicial no puede ser negativo.')
       setIsSubmitting(false)
       return
     }
-
-    const initialCashCents = Math.round(cashBobNum * 100)
 
     try {
       const res = await openCashShiftThroughBackend({
@@ -1171,7 +1170,7 @@ const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ shift, onClose, onSuc
                             className="w-full text-center py-1 font-bold text-slate-900 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b]"
                           />
                           <span className="text-[10px] text-slate-500 whitespace-nowrap">
-                            = {formatCurrencyBob(Math.round(denom.value * 100) * (denominations[String(denom.value)] || 0))}
+                            = {formatCurrencyBob(Math.round(denom.value * 100) * (denominations[String(denom.value)] || 0), true)}
                           </span>
                         </div>
                       </div>
@@ -1203,11 +1202,11 @@ const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ shift, onClose, onSuc
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500 font-bold">Efectivo Físico Esperado por Sistema:</span>
-                  <span className="font-extrabold text-slate-900">{formatCurrencyBob(expectedCashCents)}</span>
+                  <span className="font-extrabold text-slate-900">{formatCurrencyBob(expectedCashCents, true)}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm font-black border-t border-slate-200 pt-2">
                   <span className="text-slate-700">Efectivo Físico Contado:</span>
-                  <span className="text-emerald-800">{formatCurrencyBob(countedCashCents)}</span>
+                  <span className="text-emerald-800">{formatCurrencyBob(countedCashCents, true)}</span>
                 </div>
 
                 <div
@@ -1228,7 +1227,7 @@ const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ shift, onClose, onSuc
                     <span>Resultado: {differenceStatus.toUpperCase()}</span>
                   </div>
                   <span className="text-sm font-black">
-                    {differenceCents === 0 ? 'Exacto (Bs 0.00)' : formatCurrencyBob(differenceCents)}
+                    {differenceCents === 0 ? 'Exacto (Bs 0.00)' : formatCurrencyBob(differenceCents, true)}
                   </span>
                 </div>
               </div>
@@ -1277,11 +1276,11 @@ const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ shift, onClose, onSuc
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>Efectivo Esperado:</span>
-                  <span className="font-bold text-slate-900">{formatCurrencyBob(expectedCashCents)}</span>
+                  <span className="font-bold text-slate-900">{formatCurrencyBob(expectedCashCents, true)}</span>
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>Efectivo Contado:</span>
-                  <span className="font-bold text-emerald-800">{formatCurrencyBob(countedCashCents)}</span>
+                  <span className="font-bold text-emerald-800">{formatCurrencyBob(countedCashCents, true)}</span>
                 </div>
                 <div className="flex justify-between font-bold pt-2 border-t border-slate-100">
                   <span>Diferencia Final:</span>
@@ -1294,7 +1293,7 @@ const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ shift, onClose, onSuc
                         : 'text-red-700'
                     }
                   >
-                    {differenceStatus.toUpperCase()} ({formatCurrencyBob(differenceCents)})
+                    {differenceStatus.toUpperCase()} ({formatCurrencyBob(differenceCents, true)})
                   </span>
                 </div>
               </div>
@@ -1384,7 +1383,8 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const num = parseFloat(amountBob) || 0
+  const parsedAmountCents = parseBobToCents(amountBob)
+  const num = parsedAmountCents === null ? 0 : parsedAmountCents / 100
   const isSecretaria = currentUserRole === 'secretaria'
   const requiresSupervisorApproval = isSecretaria && num > 150
 
@@ -1411,7 +1411,12 @@ const RegisterExpenseModal: React.FC<RegisterExpenseModalProps> = ({
       return
     }
 
-    const amountCents = Math.round(num * 100)
+    const amountCents = parsedAmountCents
+    if (amountCents === null || amountCents <= 0) {
+      setErrorMessage('El monto del egreso debe ser un importe válido mayor a cero.')
+      setIsSubmitting(false)
+      return
+    }
 
     try {
       await registerCashExpenseThroughBackend({

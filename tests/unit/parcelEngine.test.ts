@@ -5,6 +5,7 @@ import {
   canTransitionParcelStatus,
   validateParcelDelivery,
   formatCurrencyBob,
+  parseBobToCents,
   validateAgreedPrice,
   ALLOWED_STATUS_TRANSITIONS,
   type ParcelTariffConfig,
@@ -14,6 +15,14 @@ import {
   INITIAL_BRANCHES,
 } from '../../src/domain/expresoPunataConfig.ts'
 import type { Shipment } from '../../src/types/index.ts'
+
+test('Importes financieros en Bs conservan centavos y separadores locales', () => {
+  assert.equal(parseBobToCents('10'), 1000)
+  assert.equal(parseBobToCents('100'), 10000)
+  assert.equal(parseBobToCents('100,50'), 10050)
+  assert.equal(parseBobToCents('1.000'), 100000)
+  assert.equal(parseBobToCents('1.000,50'), 100050)
+})
 
 test('1. Tarifa de encomienda: cálculo exacto con centavos enteros', () => {
   // Paquete chico hasta 3kg en agencia sin descuento: 15.00 Bs (1500 centavos)

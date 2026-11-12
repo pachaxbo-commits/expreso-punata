@@ -799,9 +799,10 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
           currentUser={currentUser}
           currentBranch={currentBranch}
           activeShift={effectiveShift}
+          onOpenStatement={handleOpenStatement}
         />
       )}
-      {activeTab === 'fines' && <UnionFinesView members={members} canCreate={isManagement} canCollect={['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'].includes(currentUser.role)} activeShift={effectiveShift} branchId={currentBranch.id} />}
+      {activeTab === 'fines' && <UnionFinesView members={members} canCreate={isManagement || currentUser.role === 'secretaria'} canCollect={['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'].includes(currentUser.role)} activeShift={effectiveShift} branchId={currentBranch.id} />}
       {activeTab === 'sports' && <UnionSportsView members={members} canManage={isManagement} canDecide={currentUser.role === 'directiva_admin'} />}
 
       {/* =========================================================================

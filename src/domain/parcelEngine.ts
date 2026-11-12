@@ -140,6 +140,18 @@ export function formatCurrencyBob(centsOrBob: number, isCents = false): string {
   return `Bs. ${amount.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+/** Convierte un importe escrito en formato boliviano a centavos sin confundir miles y decimales. */
+export function parseBobToCents(value: string | number): number | null {
+  const raw = String(value ?? '').trim().replace(/\s/g, '')
+  if (!raw) return null
+  const normalized = raw.includes(',')
+    ? raw.replace(/\./g, '').replace(',', '.')
+    : /^\d{1,3}(?:\.\d{3})+$/.test(raw) ? raw.replace(/\./g, '') : raw
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return null
+  const cents = Math.round(Number(normalized) * 100)
+  return Number.isSafeInteger(cents) && cents >= 0 ? cents : null
+}
+
 
 /**
  * Valida un precio acordado en ventanilla en Bolivianos o centavos.
