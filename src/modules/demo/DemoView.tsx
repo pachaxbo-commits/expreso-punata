@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { lazy, Suspense, useState } from 'react'
 import {
   Package,
   Truck,
@@ -28,10 +28,11 @@ import { UnionMembersView } from '../union/UnionMembersView'
 import { WorkersAndExpensesView } from '../workers/WorkersAndExpensesView'
 import { FixedAssetsView } from '../assets/FixedAssetsView'
 import { ConsumablesManagementView } from '../assets/ConsumablesManagementView'
-import { ReportsManagementView } from '../reports/ReportsManagementView'
 import { SystemConfigView } from '../admin/SystemConfigView'
 import { UserManagementView } from '../users/UserManagementView'
 import { PrinterSettingsView } from '../admin/printers/PrinterSettingsView'
+
+const ReportsManagementView = lazy(() => import('../reports/ReportsManagementView.tsx').then((module) => ({ default: module.ReportsManagementView })))
 import {
   useTutorial,
   TutorialCenterModal,
@@ -526,10 +527,12 @@ export const DemoView: React.FC = () => {
         )}
 
         {activeTab === 'reports' && (
-          <ReportsManagementView
-            currentUser={demoUserProfile}
-            currentBranch={currentBranch}
-          />
+          <Suspense fallback={<div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Cargando reportes…</div>}>
+            <ReportsManagementView
+              currentUser={demoUserProfile}
+              currentBranch={currentBranch}
+            />
+          </Suspense>
         )}
 
         {activeTab === 'config' && (

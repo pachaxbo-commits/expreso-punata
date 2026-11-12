@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
 import { initializeApp, getApps } from 'firebase-admin/app'
+import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getStorage } from 'firebase-admin/storage'
 import { chromium } from 'playwright-core'
@@ -20,7 +21,9 @@ if (getApps().length === 0) {
 }
 
 const db = getFirestore()
+const authAdmin = getAuth()
 const storage = getStorage()
+const e2eTestPassword = process.env.E2E_TEST_PASSWORD || 'AuditLocal!2026'
 
 // Dynamic import of backend Cloud Functions
 const {
@@ -136,6 +139,7 @@ async function runJourney() {
   ]
   for (const u of users) {
     await db.collection('users').doc(u.uid).set(u)
+    await authAdmin.createUser({ uid: u.uid, email: u.email, password: e2eTestPassword, displayName: u.fullName })
   }
   console.log(`   ✓ ${users.length} usuarios reales aprovisionados con roles y sucursales estrictas.\n`)
 
@@ -529,7 +533,7 @@ async function runJourney() {
   // 19. Captura de evidencia fotográfica con Playwright
   console.log('19. Iniciando servidor estático e iniciando Google Chrome para evidencias fotográficas...')
   const server = await startStaticServer(4173)
-  const evidenceDir = path.resolve('C:/Users/fabri/.gemini/antigravity/brain/39f1d6ec-67a4-438d-a34a-fc87f2af0029/evidence')
+  const evidenceDir = process.env.E2E_EVIDENCE_DIR || path.resolve('tmp/e2e-evidence')
   if (!fs.existsSync(evidenceDir)) fs.mkdirSync(evidenceDir, { recursive: true })
 
   const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
@@ -548,19 +552,10 @@ async function runJourney() {
     await page.goto('http://127.0.0.1:4173', { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('text=EXPRESO PUNATA', { timeout: 10000 })
 
-    // Iniciar sesión interactiva con cuenta de Secretaria Punata
-    const secBtn = page.locator('button:has-text("Secretaria Punata")')
-    if (await secBtn.count() > 0) {
-      await secBtn.click()
-    } else {
-      await page.fill('input[type="email"]', 'secretaria.punata@expresopunata.com')
-      const testPass = process.env.E2E_TEST_PASSWORD || process.env.TEST_OPERATOR_PASSWORD
-      if (!testPass) {
-        throw new Error('Variable de entorno E2E_TEST_PASSWORD o TEST_OPERATOR_PASSWORD es obligatoria para ejecutar las pruebas E2E.')
-      }
-      await page.fill('input[type="password"]', testPass)
-      await page.click('button[type="submit"]')
-    }
+    // Autenticar con la cuenta ficticia creada en Firebase Auth Emulator.
+    await page.fill('input[type="email"]', 'secretaria.punata@expresopunata.com')
+    await page.fill('input[type="password"]', e2eTestPassword)
+    await page.click('button[type="submit"]')
 
     await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 10000 })
     console.log('   ✓ Sesión autenticada en ventanilla Punata.')
@@ -578,7 +573,7 @@ async function runJourney() {
     const firstRow = page.locator('tbody tr').first()
     if (await firstRow.count() > 0) {
       await firstRow.click()
-      await page.waitForSelector('text=Detalle de Encomienda', { timeout: 5000 })
+      await page.waitForSelector('text=Ficha Oficial de Encomienda', { timeout: 5000 })
       console.log('   ✓ Ficha de detalle y trazabilidad abierta.')
     }
 

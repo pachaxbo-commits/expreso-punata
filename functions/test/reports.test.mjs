@@ -250,6 +250,37 @@ test('4. Reporte B2: Caja y finanzas distingue ingresos comerciales, aportes, re
   assert.equal(res.summary.shiftsSummary.conformityCount, 1)
 })
 
+test('4A. Reporte B2: conserva fechas históricas mixtas, deduplica y clasifica cada movimiento', async () => {
+  await createTestUser('admin-1', 'directiva_admin')
+  const nowIso = new Date().toISOString()
+  const date = new Date(new Date(nowIso).getTime() + 60_000)
+  const movements = [
+    ['overlap', { type: 'shipment_income', amountCents: 6000, branchId: 'punata', timestamp: nowIso, createdAtIso: nowIso }],
+    ['timestamp_iso_only', { type: 'contribution_income', amountCents: 5000, branchId: 'punata', timestamp: nowIso }],
+    ['created_at_iso_only', { type: 'driver_remittance', amountCents: 4000, branchId: 'punata', createdAtIso: nowIso }],
+    ['timestamp_native_with_iso_fallback', { type: 'fine_income', amountCents: 3000, branchId: 'punata', timestamp: date, createdAtIso: nowIso }],
+    ['loan_recovery', { type: 'loan_repayment', amountCents: 2500, branchId: 'punata', createdAtIso: nowIso }],
+    ['expense', { type: 'general_expense', amountCents: 1500, branchId: 'punata', timestamp: nowIso }],
+    ['outside_period', { type: 'shipment_income', amountCents: 99000, branchId: 'punata', createdAtIso: '2020-01-01T00:00:00.000Z' }],
+  ]
+  for (const [id, data] of movements) await db.collection('financial_movements').doc(id).set(data)
+
+  const result = await getSystemReport.run({
+    auth: { uid: 'admin-1' },
+    data: { reportType: 'cash_financial', startDate: nowIso.slice(0, 10), endDate: nowIso.slice(0, 10), pageSize: 100 },
+  })
+
+  assert.equal(result.pagination.totalRecords, 6, 'el movimiento con dos fechas se cuenta una vez y el fuera de período se excluye')
+  assert.equal(result.summary.commercialIncomeCents, 6000)
+  assert.equal(result.summary.contributionsIncomeCents, 5000)
+  assert.equal(result.summary.fineIncomeCents, 3000)
+  assert.equal(result.summary.loanRepaymentsCents, 2500)
+  assert.equal(result.summary.driverRemittancesCents, 4000)
+  assert.equal(result.summary.expensesCents, 1500)
+  assert.equal(result.summary.netOperatingCents, 12500)
+  assert.equal(result.records[0].id, 'timestamp_native_with_iso_fallback', 'Timestamp nativo se ordena cronológicamente junto a ISO')
+})
+
 test('5. Reporte B3: Rendición de conductores con viajes y saldo en custodia', async () => {
   await createTestUser('admin-1', 'directiva_admin')
 

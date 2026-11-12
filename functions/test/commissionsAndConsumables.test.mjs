@@ -10,6 +10,7 @@ import {
   updateSystemConfig,
   getSystemConfig,
   openCashShift,
+  getSystemReport,
 } from '../index.js'
 
 process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
@@ -303,6 +304,37 @@ test('4. FASE 5C: registerShipmentIncident reporta novedad, actualiza encomienda
   const incDoc = await db.collection('shipment_incidents').doc(incRes.incident.id).get()
   assert.strictEqual(incDoc.data().status, 'compensated')
   assert.strictEqual(incDoc.data().financialConsequence, 'union_reserve_indemnity')
+
+  await db.collection('shipments').doc('ship-inc-delivered').set({
+    id: 'ship-inc-delivered', trackingCode: 'PUN-DELIVERED-01', status: 'delivered',
+    originBranchId: 'punata', destinationBranchId: 'cochabamba', createdAt: new Date(), createdAtIso: new Date().toISOString(),
+  })
+  const postDeliveryIncident = await registerShipmentIncident.run({
+    auth: { uid: 'cashier-1' },
+    data: { shipmentId: 'ship-inc-delivered', incidentType: 'damaged', description: 'El destinatario reporta daño menor tras recibir su envío.', branchId: 'cochabamba' },
+  })
+  const deliveredAfterIncident = await db.collection('shipments').doc('ship-inc-delivered').get()
+  assert.equal(deliveredAfterIncident.data().status, 'delivered', 'registrar una incidencia posterior no revierte el estado terminal de entrega')
+  assert.equal(deliveredAfterIncident.data().hasIncident, true, 'la incidencia posterior sí queda asociada')
+  const deliveredAudit = await deliveredAfterIncident.ref.collection('audit_logs').where('incidentNumber', '==', postDeliveryIncident.incident.incidentNumber).get()
+  assert.equal(deliveredAudit.docs[0].data().previousStatus, 'delivered')
+  assert.equal(deliveredAudit.docs[0].data().newStatus, 'delivered')
+  const repeatedPostDeliveryIncident = await registerShipmentIncident.run({
+    auth: { uid: 'cashier-1' },
+    data: { shipmentId: 'ship-inc-delivered', incidentType: 'damaged', description: 'Se registra una segunda observación separada.', branchId: 'cochabamba' },
+  })
+  assert.notEqual(repeatedPostDeliveryIncident.incident.id, postDeliveryIncident.incident.id)
+  const repeatedIncidents = await db.collection('shipment_incidents').where('shipmentId', '==', 'ship-inc-delivered').get()
+  assert.equal(repeatedIncidents.size, 2, 'cada reporte explícito conserva su registro individual')
+  const deliveredAfterRepeat = await db.collection('shipments').doc('ship-inc-delivered').get()
+  assert.equal(deliveredAfterRepeat.data().status, 'delivered')
+  assert.equal(deliveredAfterRepeat.data().incidentHistory.length, 2)
+  assert.equal((await deliveredAfterRepeat.ref.collection('audit_logs').where('action', '==', 'incident_registered').get()).size, 2)
+  assert.equal((await db.collection('financial_movements').get()).size, 0, 'registrar la incidencia no genera movimientos de Caja')
+  const shipmentReport = await getSystemReport.run({ auth: { uid: 'admin-1' }, data: { reportType: 'shipments', branchId: 'all' } })
+  assert.equal(shipmentReport.summary.totalShipments, 1)
+  assert.equal(shipmentReport.summary.byStatus.delivered, 1)
+  assert.equal(shipmentReport.summary.byStatus.damaged, 0)
 })
 
 test('5. FASE 7: updateSystemConfig y getSystemConfig gestionan configuración oficial', async () => {

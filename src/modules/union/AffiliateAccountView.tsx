@@ -3,6 +3,7 @@ import { AlertCircle, CreditCard, Loader2, UserCircle } from 'lucide-react'
 import type { UserProfile, UnionMember, UnionMonthlyDue } from '../../types/index.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import { getMyUnionAccountThroughBackend, type UnionFine, type UnionLoan } from '../../services/unionService.ts'
+import { UnionDebtAlertsView } from './UnionDebtAlertsView.tsx'
 
 interface Props { currentUser: UserProfile }
 
@@ -48,6 +49,7 @@ export const AffiliateAccountView: React.FC<Props> = ({ currentUser }) => {
       <Summary title="Saldo de préstamos" value={formatCurrencyBob(loanBalance, true)} />
       <Summary title="Saldo de multas" value={formatCurrencyBob(fineBalance, true)} />
     </section>
+    {member?.id && <UnionDebtAlertsView memberId={member.id} compact />}
     <section className="rounded-2xl bg-white p-6 shadow-sm border border-slate-200"><h3 className="mb-3 font-extrabold text-emerald-900">Cuotas y deudas</h3>{dues.length ? <div className="space-y-2">{dues.map((due) => <div className="flex justify-between border-b py-2 text-sm" key={due.id}><span>{due.period || due.dueDate || 'Período'}</span><span>{formatCurrencyBob(Number(due.balanceCents || due.amountCents || 0), true)} · {due.status}</span></div>)}</div> : <p className="text-sm text-slate-500">No hay cuotas registradas.</p>}</section>
     <section className="rounded-2xl bg-white p-6 shadow-sm border border-slate-200"><h3 className="mb-3 font-extrabold text-emerald-900">Préstamos y pagos</h3>{loans.length ? <div className="space-y-2">{loans.map((loan) => <div className="border-b py-2 text-sm" key={loan.id}><div className="flex justify-between"><span>{loan.loanNumber}</span><span>{formatCurrencyBob(loan.balanceCents, true)} pendiente</span></div><p className="text-xs text-slate-500">{loan.payments?.length || 0} pagos registrados</p></div>)}</div> : <p className="text-sm text-slate-500">No hay préstamos registrados.</p>}</section>
     <section className="rounded-2xl bg-white p-6 shadow-sm border border-slate-200"><h3 className="mb-3 font-extrabold text-emerald-900">Multas e historial de pagos</h3>{fines.length ? <div className="space-y-2">{fines.map((fine) => <div className="border-b py-2 text-sm" key={fine.id}><div className="flex justify-between"><span>{fine.category} · {fine.reason}</span><span>{formatCurrencyBob(fine.balanceCents, true)} pendiente</span></div><p className="text-xs text-slate-500">{fine.payments?.length || 0} pagos registrados</p></div>)}</div> : <p className="text-sm text-slate-500">No hay multas registradas.</p>}</section>

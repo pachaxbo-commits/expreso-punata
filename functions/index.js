@@ -5534,9 +5534,22 @@ export const getUnionMembersRoster = onCall({ cors: true }, async (request) => {
     throw new HttpsError('invalid-argument', 'La lista de afiliados solicitada no es válida.')
   }
   let memberDocs
+  let childrenByMember = null
   if (requestedIds === undefined) {
-    const snapshot = await db.collection('union_members').get()
+    const [snapshot, childrenSnapshot] = await Promise.all([
+      db.collection('union_members').get(),
+      db.collectionGroup('children').get(),
+    ])
     memberDocs = snapshot.docs.sort((a, b) => String(a.data()?.memberNumber || '').localeCompare(String(b.data()?.memberNumber || ''), 'es'))
+    const memberIds = new Set(memberDocs.map((memberDoc) => memberDoc.id))
+    childrenByMember = new Map()
+    for (const childDoc of childrenSnapshot.docs) {
+      const parentMember = childDoc.ref.parent.parent
+      if (!parentMember || parentMember.parent?.id !== 'union_members' || !memberIds.has(parentMember.id)) continue
+      const children = childrenByMember.get(parentMember.id) || []
+      children.push(childDoc)
+      childrenByMember.set(parentMember.id, children)
+    }
   } else {
     const uniqueIds = [...new Set(requestedIds.map((id) => id.trim()))]
     const snapshots = await Promise.all(uniqueIds.map((id) => db.collection('union_members').doc(id).get()))
@@ -5545,8 +5558,10 @@ export const getUnionMembersRoster = onCall({ cors: true }, async (request) => {
 
   const members = await Promise.all(memberDocs.map(async (memberDoc) => {
     const data = memberDoc.data() || {}
-    const childrenSnapshot = await memberDoc.ref.collection('children').get()
-    const children = childrenSnapshot.docs.map((childDoc) => {
+    const childDocs = childrenByMember
+      ? (childrenByMember.get(memberDoc.id) || [])
+      : (await memberDoc.ref.collection('children').get()).docs
+    const children = childDocs.map((childDoc) => {
       const child = childDoc.data() || {}
       return {
         id: childDoc.id,
@@ -6732,8 +6747,9 @@ function resolveLaPazBounds(startDateStr, endDateStr, periodStr) {
 
 async function getFinancialMovementsForRange(startIso, endIso) {
   // Los registros históricos de Caja no usan todos el mismo campo de fecha:
-  // algunos tienen `timestamp` y otros `createdAtIso`. Consultar ambos evita
-  // omitir ingresos válidos en reportes y deduplicar por ID evita contarlos dos veces.
+  // algunos tienen `timestamp` y otros `createdAtIso`. No se puede excluir de forma
+  // segura un campo ausente con una consulta Firestore. Mantener ambas ramas evita
+  // omitir documentos históricos; deduplicar por ID evita volver a contarlos.
   const collection = db.collection('financial_movements')
   const [timestampSnapshot, createdAtSnapshot] = await Promise.all([
     collection.where('timestamp', '>=', startIso).where('timestamp', '<=', endIso).limit(5000).get(),
@@ -6742,6 +6758,14 @@ async function getFinancialMovementsForRange(startIso, endIso) {
   const byId = new Map()
   for (const doc of [...timestampSnapshot.docs, ...createdAtSnapshot.docs]) byId.set(doc.id, { id: doc.id, ...doc.data() })
   return [...byId.values()]
+}
+
+function financialMovementDateKey(movement) {
+  const value = movement.timestamp ?? movement.createdAtIso ?? movement.createdAt
+  if (typeof value === 'string') return value
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value?.toDate === 'function') return value.toDate().toISOString()
+  return ''
 }
 
 export const getSystemReport = onCall({ cors: true }, async (request) => {
@@ -7246,7 +7270,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
   // =========================================================================
   if (reportType === 'cash_financial') {
     let movements = await getFinancialMovementsForRange(startIso, endIso)
-    movements.sort((a, b) => String(b.timestamp || b.createdAtIso || '').localeCompare(String(a.timestamp || a.createdAtIso || '')))
+    movements.sort((a, b) => financialMovementDateKey(b).localeCompare(financialMovementDateKey(a)))
 
     if (effectiveBranchId && effectiveBranchId !== 'all') {
       movements = movements.filter(m => m.branchId === effectiveBranchId)
@@ -8767,11 +8791,15 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
 
       // Mapear estado operativo correspondiente
       let newShipmentStatus = shipment.status
-      if (incidentType === 'uncollected') newShipmentStatus = 'uncollected'
-      else if (incidentType === 'returned') newShipmentStatus = 'returned'
-      else if (incidentType === 'lost') newShipmentStatus = 'lost'
-      else if (incidentType === 'damaged') newShipmentStatus = 'damaged'
-      else if (incidentType === 'exceptional_delivery') newShipmentStatus = 'delivered'
+      // La entrega es terminal. Una incidencia posterior se registra y audita,
+      // pero no revierte la confirmación de entrega.
+      if (shipment.status !== 'delivered') {
+        if (incidentType === 'uncollected') newShipmentStatus = 'uncollected'
+        else if (incidentType === 'returned') newShipmentStatus = 'returned'
+        else if (incidentType === 'lost') newShipmentStatus = 'lost'
+        else if (incidentType === 'damaged') newShipmentStatus = 'damaged'
+        else if (incidentType === 'exceptional_delivery') newShipmentStatus = 'delivered'
+      }
 
       const incidentData = {
         id: incidentRef.id,
@@ -9552,6 +9580,198 @@ export const listUnionLoans = onCall({ cors: true }, async (request) => {
   }))
   return { success: true, loans }
 })
+
+// Alertas de deuda derivadas de los registros vigentes. Solo lectura y acotadas
+// para evitar barridos del historial; nunca escribe en Caja ni en documentos financieros.
+export const listUnionDebtAlerts = onCall({ cors: true }, async (request) => {
+  const allowedRoles = [...LOAN_READ_ROLES, 'afiliado']
+  const caller = await requireUnionLoanCaller(request, allowedRoles, 'consultar alertas de deudas.')
+  const requestedMemberId = request.data?.memberId
+  if (requestedMemberId !== undefined && (typeof requestedMemberId !== 'string' || !requestedMemberId.trim())) {
+    throw new HttpsError('invalid-argument', 'El afiliado solicitado no es válido.')
+  }
+  const memberId = caller.role === 'afiliado'
+    ? (typeof caller.unionMemberId === 'string' ? caller.unionMemberId.trim() : '')
+    : requestedMemberId?.trim()
+  if (caller.role === 'afiliado' && (!memberId || (requestedMemberId && requestedMemberId !== memberId))) {
+    throw new HttpsError('permission-denied', 'Solo puede consultar sus propias obligaciones.')
+  }
+  const memberSnapshot = memberId
+    ? await db.collection('union_members').doc(memberId).get()
+    : null
+  if (memberSnapshot && !memberSnapshot.exists) throw new HttpsError('not-found', 'El afiliado no existe.')
+  const memberData = memberSnapshot?.data() || null
+  if (memberData && ['inactive', 'retired'].includes(memberData.status)) {
+    throw new HttpsError('permission-denied', 'El afiliado no está activo.')
+  }
+  const branches = caller.allowedBranchIds || [caller.primaryBranchId].filter(Boolean)
+  const scopedRole = ['afiliado', 'afiliado_admin', 'secretaria', 'encargado_agencia'].includes(caller.role)
+  if (memberData && scopedRole && !branches.includes(memberData.branchId)) {
+    throw new HttpsError('permission-denied', 'El afiliado no pertenece a una sucursal autorizada.')
+  }
+  const cap = 250
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
+  const boundedQuery = (collection) => {
+    let query = db.collection(collection).where('balanceCents', '>', 0).limit(cap)
+    if (memberId) query = db.collection(collection).where('memberId', '==', memberId).limit(cap)
+    return query.get()
+  }
+  const [duesSnapshot, loansSnapshot, finesSnapshot] = await Promise.all([
+    boundedQuery('union_dues'), boundedQuery('union_loans'), boundedQuery('union_fines'),
+  ])
+  const hasBalance = (doc) => (Number(doc.data()?.balanceCents) || 0) > 0
+  const duesDocs = duesSnapshot.docs.filter(hasBalance)
+  const loanDocs = loansSnapshot.docs.filter((doc) => hasBalance(doc) && doc.data()?.disbursementStatus !== 'pending')
+  const fineDocs = finesSnapshot.docs.filter((doc) => hasBalance(doc) && doc.data()?.status !== 'voided')
+  const installmentSnapshot = loanDocs.length
+    ? await db.collectionGroup('installments').where('balanceCents', '>', 0).limit(1000).get()
+    : { docs: [] }
+  const loanIds = new Set(loanDocs.map((doc) => doc.id))
+  const installmentsByLoan = new Map()
+  for (const installmentDoc of installmentSnapshot.docs) {
+    const installment = installmentDoc.data()
+    const parentLoanId = installment.loanId || installmentDoc.ref.parent.parent?.id
+    if (!loanIds.has(parentLoanId)) continue
+    const list = installmentsByLoan.get(parentLoanId) || []
+    list.push(installment)
+    installmentsByLoan.set(parentLoanId, list)
+  }
+  const allDebtDocs = [...duesDocs, ...loanDocs, ...fineDocs]
+  const memberIds = [...new Set(allDebtDocs.map((doc) => doc.data()?.memberId).filter(Boolean))]
+  const missingMembers = memberIds.filter((id) => id !== memberSnapshot?.id)
+  const memberDocs = missingMembers.length ? await db.getAll(...missingMembers.map((id) => db.collection('union_members').doc(id))) : []
+  const memberById = new Map(memberDocs.filter((doc) => doc.exists).map((doc) => [doc.id, doc.data()]))
+  if (memberSnapshot) memberById.set(memberSnapshot.id, memberData)
+  const visible = (doc) => {
+    const member = memberById.get(doc.data()?.memberId)
+    if (!member || (scopedRole && !branches.includes(member.branchId))) return false
+    return caller.role !== 'secretaria' || doc.ref.parent.id !== 'union_fines' || doc.data()?.category === 'deportes'
+  }
+  const alerts = []
+  for (const doc of duesDocs) {
+    if (!visible(doc)) continue
+    const data = doc.data(); const balance = Number(data.balanceCents) || 0
+    if (balance <= 0) continue
+    const overdue = loanDateIsValid(data.dueDate) && data.dueDate < today
+    alerts.push({ id: doc.id, memberId: data.memberId, memberName: data.memberName || memberById.get(data.memberId)?.fullName || '', memberNumber: data.memberNumber || memberById.get(data.memberId)?.memberNumber || '', type: 'due', category: 'cuota', label: `Cuota ${data.period || ''}`.trim(), amountCents: balance, status: overdue ? 'overdue' : 'pending', dueDate: loanDateIsValid(data.dueDate) ? data.dueDate : null, period: data.period || null, reviewRequired: false })
+  }
+  for (const doc of loanDocs) {
+    if (!visible(doc)) continue
+    const data = doc.data(); const balance = Number(data.balanceCents) || 0
+    if (balance <= 0 || ['legacy_unknown', undefined, null].includes(data.disbursementStatus)) continue
+    const installments = installmentsByLoan.get(doc.id) || []
+    const overdueInstallments = installments.filter((item) => Number(item.balanceCents) > 0 && loanDateIsValid(item.dueDate) && item.dueDate < today)
+    const upcoming = installments.map((item) => item.dueDate).filter((date) => loanDateIsValid(date) && date >= today).sort()[0] || null
+    alerts.push({ id: doc.id, memberId: data.memberId, memberName: data.memberName || memberById.get(data.memberId)?.fullName || '', memberNumber: data.memberNumber || memberById.get(data.memberId)?.memberNumber || '', type: 'loan', category: 'préstamo', label: `Préstamo ${data.loanNumber || ''}`.trim(), amountCents: balance, overdueAmountCents: overdueInstallments.reduce((sum, item) => sum + (Number(item.balanceCents) || 0), 0), status: overdueInstallments.length ? 'overdue' : 'pending', dueDate: overdueInstallments.map((item) => item.dueDate).sort()[0] || upcoming, period: null, reviewRequired: false })
+  }
+  for (const doc of fineDocs) {
+    if (!visible(doc)) continue
+    const data = doc.data(); const balance = Number(data.balanceCents) || 0
+    if (balance <= 0) continue
+    alerts.push({ id: doc.id, memberId: data.memberId, memberName: data.memberName || memberById.get(data.memberId)?.fullName || '', memberNumber: data.memberNumber || memberById.get(data.memberId)?.memberNumber || '', type: 'fine', category: data.category || 'otros', label: data.reason || 'Multa', amountCents: balance, status: 'pending', dueDate: null, period: null, reviewRequired: data.financialReviewRequired === true })
+  }
+  alerts.sort((a, b) => (a.dueDate || '9999-99-99').localeCompare(b.dueDate || '9999-99-99') || a.memberName.localeCompare(b.memberName))
+  return { success: true, alerts, truncated: duesSnapshot.size === cap || loansSnapshot.size === cap || finesSnapshot.size === cap, installmentScanTruncated: installmentSnapshot.docs.length === 1000, asOfDate: today }
+})
+
+// Gestión institucional anual. Las designaciones no alteran roles ni cuentas de usuario.
+async function requireAnnualBoardManager(request) {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión para consultar la directiva.')
+  const userDoc = await db.collection('users').doc(request.auth.uid).get()
+  const caller = userDoc.data()
+  if (!userDoc.exists || caller?.isActive === false || !['directiva_admin', 'tesoreria'].includes(caller?.role)) {
+    throw new HttpsError('permission-denied', 'Solo Directiva y Tesorería pueden gestionar la directiva institucional.')
+  }
+  return { uid: request.auth.uid, ...caller }
+}
+
+function annualBoardDateIsValid(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) &&
+    new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+}
+
+export const listAnnualBoards = onCall({ cors: true }, async (request) => {
+  await requireAnnualBoardManager(request)
+  const snapshot = await db.collection('union_boards').orderBy('year', 'desc').limit(100).get()
+  return { success: true, boards: snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })), truncated: snapshot.size === 100 }
+})
+
+export const saveAnnualBoard = onCall({ cors: true }, async (request) => {
+  const caller = await requireAnnualBoardManager(request)
+  const input = request.data || {}
+  const year = Number(input.year)
+  if (!Number.isInteger(year) || year < 1900 || year > 2200) throw new HttpsError('invalid-argument', 'Indique un año válido para la gestión.')
+  if (!annualBoardDateIsValid(input.startDate) || !annualBoardDateIsValid(input.endDate) || input.endDate < input.startDate) {
+    throw new HttpsError('invalid-argument', 'Las fechas de inicio y finalización deben ser válidas y estar en orden.')
+  }
+  if (!annualBoardDateIsValid(input.electedAt)) throw new HttpsError('invalid-argument', 'Indique una fecha válida de elección o designación.')
+  if (typeof input.observations !== 'string' || input.observations.length > 2000) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 2000 caracteres.')
+  if (!['planned', 'active', 'completed', 'cancelled'].includes(input.status)) throw new HttpsError('invalid-argument', 'El estado de la gestión no es válido.')
+  if (!Array.isArray(input.members) || input.members.length < 1 || input.members.length > 30) throw new HttpsError('invalid-argument', 'Agregue entre 1 y 30 integrantes.')
+  const seenMemberIds = new Set()
+  const normalizedMembers = input.members.map((entry) => {
+    const memberId = typeof entry?.memberId === 'string' ? entry.memberId.trim() : ''
+    const position = typeof entry?.position === 'string' ? entry.position.trim() : ''
+    if (!memberId || !position || position.length > 100) throw new HttpsError('invalid-argument', 'Cada integrante debe tener afiliado y cargo.')
+    if (seenMemberIds.has(memberId)) throw new HttpsError('invalid-argument', 'Un afiliado no puede repetirse en la misma directiva.')
+    seenMemberIds.add(memberId)
+    return { memberId, position }
+  })
+  if (input.id !== undefined && input.id !== String(year)) throw new HttpsError('invalid-argument', 'El período de una gestión registrada no se puede cambiar; registre el nuevo período por separado.')
+
+  const boardRef = db.collection('union_boards').doc(String(year))
+  const memberRefs = normalizedMembers.map(({ memberId }) => db.collection('union_members').doc(memberId))
+  const nowIso = new Date().toISOString()
+  return db.runTransaction(async (transaction) => {
+    const [existingDoc, allBoards, ...memberDocs] = await Promise.all([
+      transaction.get(boardRef), transaction.get(db.collection('union_boards')),
+      ...memberRefs.map((ref) => transaction.get(ref)),
+    ])
+    const isUpdate = Boolean(input.id)
+    if (isUpdate && !existingDoc.exists) throw new HttpsError('not-found', 'No se encontró la gestión que desea editar.')
+    if (!isUpdate && existingDoc.exists) throw new HttpsError('already-exists', `Ya existe una gestión registrada para ${year}.`)
+    const duplicatePeriod = allBoards.docs.find((doc) => doc.id !== boardRef.id && Number(doc.data()?.year) === year)
+    if (duplicatePeriod) throw new HttpsError('already-exists', `Ya existe otra gestión registrada para ${year}.`)
+    if (memberDocs.some((doc) => !doc.exists)) throw new HttpsError('not-found', 'Uno o más afiliados seleccionados ya no existen en el padrón.')
+
+    const startDate = input.startDate
+    const endDate = input.endDate
+    const blocksOverlap = ['planned', 'active'].includes(input.status)
+    if (blocksOverlap) {
+      const conflict = allBoards.docs.find((doc) => {
+        if (doc.id === boardRef.id || ['cancelled', 'completed'].includes(doc.data()?.status)) return false
+        return startDate <= doc.data()?.endDate && endDate >= doc.data()?.startDate
+      })
+      if (conflict) throw new HttpsError('already-exists', `Las fechas se cruzan con la gestión ${conflict.data()?.year}. Revise el período antes de guardar.`)
+    }
+
+    const members = normalizedMembers.map(({ memberId, position }, index) => {
+      const data = memberDocs[index].data() || {}
+      return { memberId, memberNumber: data.memberNumber || '', fullName: data.fullName || '', position }
+    })
+    const updated = {
+      year, startDate, endDate, electedAt: input.electedAt, members,
+      observations: input.observations.trim(), status: input.status,
+      updatedAtIso: nowIso, updatedByUid: caller.uid, updatedByName: caller.fullName || 'Operador',
+    }
+    if (isUpdate) {
+      const revisionRef = boardRef.collection('revisions').doc()
+      transaction.create(revisionRef, { ...existingDoc.data(), revisionId: revisionRef.id, archivedAtIso: nowIso, archivedByUid: caller.uid, archivedByName: caller.fullName || 'Operador' })
+      transaction.set(boardRef, updated, { merge: true })
+    } else {
+      transaction.create(boardRef, { ...updated, id: boardRef.id, createdAtIso: nowIso, createdByUid: caller.uid, createdByName: caller.fullName || 'Operador' })
+    }
+    transaction.set(db.collection('audit_logs').doc(), {
+      action: isUpdate ? 'annual_board_updated' : 'annual_board_created', targetCollection: 'union_boards', targetId: boardRef.id,
+      year, memberIds: members.map((entry) => entry.memberId), performedByUid: caller.uid,
+      performedByName: caller.fullName || 'Operador', performedByRole: caller.role,
+      timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
+    })
+    return { success: true, board: { id: boardRef.id, ...(isUpdate ? existingDoc.data() : {}), ...updated } }
+  })
+})
+
 
 // Multas: alta independiente, sin crear movimientos ni afectar Caja.
 const FINE_CATEGORIES = ['transporte', 'conflictos', 'deportes', 'otros']

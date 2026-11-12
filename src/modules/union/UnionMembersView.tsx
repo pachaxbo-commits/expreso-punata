@@ -14,6 +14,7 @@ import {
   PlusCircle,
   RefreshCw,
   Receipt,
+  ClipboardList,
 } from 'lucide-react'
 import type {
   UnionMember,
@@ -52,6 +53,8 @@ import { downloadUnionMembersRosterPdf, filterUnionRosterMembers } from '../../s
 import { UnionLoansView } from './UnionLoansView.tsx'
 import { UnionFinesView } from './UnionFinesView.tsx'
 import { UnionSportsView } from './UnionSportsView.tsx'
+import { AnnualBoardView } from './AnnualBoardView.tsx'
+import { UnionDebtAlertsView } from './UnionDebtAlertsView.tsx'
 
 interface UnionMembersViewProps {
   currentUser: UserProfile
@@ -76,7 +79,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
     return () => unsubscribe()
   }, [canReadCashShift, currentUser?.uid, currentBranch?.id])
   const effectiveShift = activeShift || localShift
-  const [activeTab, setActiveTab] = useState<'members' | 'dues' | 'loans' | 'fines' | 'sports'>(sportsFineCollectionOnly ? 'fines' : 'members')
+  const [activeTab, setActiveTab] = useState<'members' | 'dues' | 'loans' | 'fines' | 'sports' | 'debts' | 'annual-board'>(sportsFineCollectionOnly ? 'fines' : 'members')
   const [members, setMembers] = useState<UnionMember[]>([])
   const [loadingMembers, setLoadingMembers] = useState(true)
 
@@ -205,23 +208,31 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
     try {
       const res = await getMemberAccountStatementThroughBackend(member.id)
       setStatementData(res)
-      try {
-        setStatementLoans(await listUnionLoansThroughBackend(member.id))
-      } catch (loanError: any) {
+      const [loansResult, finesResult, sportsResult, driversResult] = await Promise.allSettled([
+        listUnionLoansThroughBackend(member.id),
+        listUnionFinesThroughBackend({ memberId: member.id }),
+        listUnionSportsEventsThroughBackend({ memberId: member.id }),
+        listDriversForUnionLinksThroughBackend(),
+      ])
+
+      if (loansResult.status === 'fulfilled') setStatementLoans(loansResult.value)
+      else {
         setStatementLoans([])
-        setFeedback({ type: 'error', message: loanError?.message || 'No se pudieron consultar los préstamos del afiliado.' })
+        setFeedback({ type: 'error', message: loansResult.reason?.message || 'No se pudieron consultar los préstamos del afiliado.' })
       }
-      try { setStatementFines(await listUnionFinesThroughBackend({ memberId: member.id })) }
-      catch (fineError: any) { setFeedback({ type: 'error', message: fineError?.message || 'No se pudieron consultar las multas del afiliado.' }) }
-      try { setStatementSportsEvents(await listUnionSportsEventsThroughBackend({ memberId: member.id })) }
-      catch (sportsError: any) { setStatementSportsEvents([]); setFeedback({ type: 'error', message: sportsError?.message || 'No se pudo consultar el historial deportivo del afiliado.' }) }
-      try {
-        const drivers = await listDriversForUnionLinksThroughBackend()
-        setActiveDrivers(drivers)
+      if (finesResult.status === 'fulfilled') setStatementFines(finesResult.value)
+      else setFeedback({ type: 'error', message: finesResult.reason?.message || 'No se pudieron consultar las multas del afiliado.' })
+      if (sportsResult.status === 'fulfilled') setStatementSportsEvents(sportsResult.value)
+      else {
+        setStatementSportsEvents([])
+        setFeedback({ type: 'error', message: sportsResult.reason?.message || 'No se pudo consultar el historial deportivo del afiliado.' })
+      }
+      if (driversResult.status === 'fulfilled') {
+        setActiveDrivers(driversResult.value)
         setDriverLinksError('')
-      } catch (driversError: any) {
+      } else {
         setActiveDrivers([])
-        setDriverLinksError(driversError?.message || 'No se pudo consultar el directorio de conductores.')
+        setDriverLinksError(driversResult.reason?.message || 'No se pudo consultar el directorio de conductores.')
       }
     } catch (err: any) {
       console.error('[UnionMembersView] Error extracto:', err)
@@ -469,6 +480,12 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
         {currentUser.role !== 'afiliado_admin' && <button type="button" onClick={() => setActiveTab('sports')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'sports' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
           <Calendar className="w-4 h-4" /><span>Deportes</span>
         </button>}
+        {isManagement && <button type="button" onClick={() => setActiveTab('annual-board')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'annual-board' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+          <ClipboardList className="w-4 h-4" /><span>Directiva</span>
+        </button>}
+        <button type="button" onClick={() => setActiveTab('debts')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'debts' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+          <AlertTriangle className="w-4 h-4" /><span>Deudas</span>
+        </button>
       </div>}
 
       {/* PESTAÑA 1: PADRÓN DE SOCIOS */}
@@ -804,6 +821,8 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
       )}
       {activeTab === 'fines' && <UnionFinesView members={members} canCreate={isManagement || currentUser.role === 'secretaria'} canCollect={['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'].includes(currentUser.role)} activeShift={effectiveShift} branchId={currentBranch.id} />}
       {activeTab === 'sports' && <UnionSportsView members={members} canManage={isManagement} canDecide={currentUser.role === 'directiva_admin'} />}
+      {activeTab === 'debts' && <UnionDebtAlertsView onOpenMember={(memberId) => { const member = members.find((item) => item.id === memberId); if (member) void handleOpenStatement(member) }} />}
+      {activeTab === 'annual-board' && isManagement && <AnnualBoardView members={members} />}
 
       {/* =========================================================================
           MODAL 1: ALTA / EDICIÓN DE SOCIO
@@ -1700,6 +1719,12 @@ const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
           </div>
         ) : (
           <div className="p-6 space-y-5">
+            {(() => {
+              const dueBalance = statement.dues.reduce((sum, due) => sum + (Number(due.balanceCents) || 0), 0)
+              const loanBalance = loans.filter((loan) => !['pending', 'legacy_unknown'].includes(loan.disbursementStatus || 'legacy_unknown')).reduce((sum, loan) => sum + (Number(loan.balanceCents) || 0), 0)
+              const fineBalance = fines.filter((fine) => fine.status !== 'voided').reduce((sum, fine) => sum + (Number(fine.balanceCents) || 0), 0)
+              return <section className="rounded-xl border border-amber-200 bg-amber-50 p-4"><h5 className="text-sm font-extrabold text-slate-900">Resumen de obligaciones</h5><div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4"><p>Cuotas: <strong>{formatCurrencyBob(dueBalance, true)}</strong></p><p>Préstamos: <strong>{formatCurrencyBob(loanBalance, true)}</strong></p><p>Multas: <strong>{formatCurrencyBob(fineBalance, true)}</strong></p><p>Total pendiente: <strong className="text-amber-900">{formatCurrencyBob(dueBalance + loanBalance + fineBalance, true)}</strong></p></div><p className="mt-2 text-[11px] text-slate-600">Los importes se consultan de sus registros actuales. Use las secciones inferiores para ver el detalle.</p></section>
+            })()}
             <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h5 className="text-sm font-extrabold text-emerald-950">Hijos ({statement.children.length})</h5>

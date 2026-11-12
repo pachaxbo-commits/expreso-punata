@@ -9,7 +9,7 @@ import {
   doc,
 } from 'firebase/firestore'
 import { functions, db, auth } from '../firebase/config.ts'
-import type { DriverDirectoryEntry, UnionMember, UnionMonthlyDue, UnionSportsAttendance, UnionSportsEvent } from '../types/index.ts'
+import type { AnnualBoard, DriverDirectoryEntry, UnionMember, UnionMonthlyDue, UnionSportsAttendance, UnionSportsEvent } from '../types/index.ts'
 import { listActiveDriversThroughBackend } from './dispatchService.ts'
 
 export interface ManageUnionMemberInput {
@@ -81,6 +81,23 @@ export interface UnionMemberChild {
   driverUid?: string | null
   driverName?: string | null
   driverLinkedAtIso?: string
+}
+
+export type SaveAnnualBoardInput = Pick<AnnualBoard, 'year' | 'startDate' | 'endDate' | 'electedAt' | 'observations' | 'status'> & {
+  id?: string
+  members: Array<{ memberId: string; position: string }>
+}
+
+export async function listAnnualBoardsThroughBackend(): Promise<{ boards: AnnualBoard[]; truncated: boolean }> {
+  const call = httpsCallable<void, { success: boolean; boards: AnnualBoard[]; truncated: boolean }>(functions, 'listAnnualBoards')
+  const response = await call()
+  return { boards: response.data.boards || [], truncated: response.data.truncated }
+}
+
+export async function saveAnnualBoardThroughBackend(input: SaveAnnualBoardInput): Promise<AnnualBoard> {
+  const call = httpsCallable<SaveAnnualBoardInput, { success: boolean; board: AnnualBoard }>(functions, 'saveAnnualBoard')
+  const response = await call(input)
+  return response.data.board
 }
 
 export interface UnionRosterMember extends UnionMember {
@@ -244,6 +261,29 @@ export interface UnionFinePayment {
   collectedByName: string
   notes?: string | null
 }
+
+export interface UnionDebtAlert {
+  id: string
+  memberId: string
+  memberName: string
+  memberNumber: string
+  type: 'due' | 'loan' | 'fine'
+  category: string
+  label: string
+  amountCents: number
+  overdueAmountCents?: number
+  status: 'pending' | 'overdue'
+  dueDate: string | null
+  period: string | null
+  reviewRequired: boolean
+}
+
+export interface UnionDebtAlertsResult {
+  alerts: UnionDebtAlert[]
+  truncated: boolean
+  installmentScanTruncated: boolean
+  asOfDate: string
+}
 export interface CreateUnionFineInput {
   memberId: string
   category: UnionFineCategory
@@ -323,6 +363,12 @@ export async function createUnionFineThroughBackend(input: CreateUnionFineInput)
 export async function listUnionFinesThroughBackend(filters: { memberId?: string; category?: UnionFineCategory; status?: UnionFine['status'] } = {}): Promise<UnionFine[]> {
   const callable = httpsCallable<typeof filters, { success: boolean; fines: UnionFine[] }>(functions, 'listUnionFines')
   return (await callable(filters)).data.fines || []
+}
+
+export async function listUnionDebtAlertsThroughBackend(memberId?: string): Promise<UnionDebtAlertsResult> {
+  const callable = httpsCallable<{ memberId?: string }, { success: boolean } & UnionDebtAlertsResult>(functions, 'listUnionDebtAlerts')
+  const result = await callable(memberId ? { memberId } : {})
+  return { alerts: result.data.alerts || [], truncated: result.data.truncated, installmentScanTruncated: result.data.installmentScanTruncated, asOfDate: result.data.asOfDate }
 }
 
 export interface CollectUnionFinePaymentInput {

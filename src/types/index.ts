@@ -591,6 +591,28 @@ export interface UnionMember {
   branchId?: string
 }
 
+export type AnnualBoardStatus = 'planned' | 'active' | 'completed' | 'cancelled'
+export interface AnnualBoardMember {
+  memberId: string
+  memberNumber: string
+  fullName: string
+  position: string
+}
+export interface AnnualBoard {
+  id: string
+  year: number
+  startDate: string
+  endDate: string
+  electedAt: string
+  members: AnnualBoardMember[]
+  observations: string
+  status: AnnualBoardStatus
+  createdAtIso: string
+  updatedAtIso: string
+  createdByName?: string
+  updatedByName?: string
+}
+
 export type UnionSportsAttendance = 'pending' | 'present' | 'late' | 'absent' | 'exempt'
 export type UnionSportsEventStatus = 'scheduled' | 'completed'
 export interface UnionSportsJustification {

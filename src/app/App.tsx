@@ -1,5 +1,5 @@
 import { isPublicDemo } from '../firebase/config'
-import React, { useState, useEffect } from 'react'
+import React, { lazy, Suspense, useState, useEffect } from 'react'
 import {
   Package,
   Truck,
@@ -31,7 +31,6 @@ import { LoginView } from '../modules/auth/LoginView'
 import { DemoView } from '../modules/demo/DemoView'
 import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } from '../domain/expresoPunataConfig'
 import { FixedAssetsView } from '../modules/assets/FixedAssetsView'
-import { ReportsManagementView } from '../modules/reports/ReportsManagementView.tsx'
 import { WorkersAndExpensesView } from '../modules/workers/WorkersAndExpensesView'
 import { UnionMembersView } from '../modules/union/UnionMembersView.tsx'
 import { AffiliateAccountView } from '../modules/union/AffiliateAccountView.tsx'
@@ -52,6 +51,8 @@ import { ConsumablesManagementView } from '../modules/assets/ConsumablesManageme
 import { PhysicalInventoryDocumentsView } from '../modules/assets/PhysicalInventoryDocumentsView'
 import { SystemConfigView } from '../modules/admin/SystemConfigView'
 import type { Shipment } from '../types'
+
+const ReportsManagementView = lazy(() => import('../modules/reports/ReportsManagementView.tsx').then((module) => ({ default: module.ReportsManagementView })))
 
 interface MainDashboardProps {
   userProfile: NonNullable<ReturnType<typeof useAuth>['userProfile']>
@@ -509,10 +510,12 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 
         {/* PESTAÑA: REPORTES Y ESTADÍSTICAS */}
         {activeTab === 'reports' && (
-          <ReportsManagementView
-            currentUser={userProfile}
-            currentBranch={currentBranch}
-          />
+          <Suspense fallback={<div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Cargando reportes…</div>}>
+            <ReportsManagementView
+              currentUser={userProfile}
+              currentBranch={currentBranch}
+            />
+          </Suspense>
         )}
 
         {/* PESTAÑA 7: CONFIGURACIÓN Y ADMINISTRACIÓN */}
