@@ -5400,6 +5400,32 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
       createdAtIso: nowIso,
     })
 
+    // Evento central atómico con el pago. El retorno idempotente ocurre antes
+    // de esta sección y por eso no genera auditorías repetidas.
+    const auditRef = db.collection('audit_logs').doc()
+    transaction.create(auditRef, {
+      entityType: 'union_due_payment',
+      entityId: paymentId,
+      targetCollection: 'union_dues',
+      targetId: dueId,
+      action: 'union_due_payment_collected',
+      dueId,
+      paymentId,
+      memberId: due.memberId,
+      memberNumber: due.memberNumber || null,
+      memberName: due.memberName || null,
+      amountCents: cleanAmountCents,
+      paymentMethod,
+      receiptNumber,
+      branchId: effectiveBranchId,
+      shiftId: shiftId || null,
+      performedByUid: callerUid,
+      performedByName: caller.fullName || 'Operador',
+      performedByRole: caller.role,
+      timestamp: FieldValue.serverTimestamp(),
+      timestampIso: nowIso,
+    })
+
     const result = {
       success: true,
       receiptNumber,

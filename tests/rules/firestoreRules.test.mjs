@@ -13,7 +13,7 @@ let testEnv
 before(async () => {
   const rules = readFileSync('firestore.rules', 'utf8')
   testEnv = await initializeTestEnvironment({
-      projectId: process.env.FIRESTORE_RULES_PROJECT_ID || 'demo-expreso-punata-rules-test',
+      projectId: process.env.FIRESTORE_RULES_PROJECT_ID || process.env.GCLOUD_PROJECT || 'demo-expreso-punata-101',
     firestore: {
       rules,
       host: '127.0.0.1',
@@ -57,6 +57,38 @@ test('Seguridad financiera: clientes no pueden escribir directamente cuentas ni 
   }))
   await assertFails(updateDoc(doc(clientDb, 'driver_commission_accounts', 'existing-commission-account'), { pendingCents: 0 }))
   await assertFails(deleteDoc(doc(clientDb, 'driver_commission_records', 'existing-commission-record')))
+})
+
+test('Cuotas: encargado limitado por sucursal sin reducir permisos vigentes de otros roles', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const seed = context.firestore()
+    await setDoc(doc(seed, 'users', 'dues-manager-punata'), { role: 'encargado_agencia', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+    await setDoc(doc(seed, 'users', 'dues-secretary-punata'), { role: 'secretaria', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+    await setDoc(doc(seed, 'users', 'dues-treasury'), { role: 'tesoreria', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+    await setDoc(doc(seed, 'users', 'dues-admin'), { role: 'directiva_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
+    await setDoc(doc(seed, 'users', 'dues-affiliate'), { role: 'afiliado', isActive: true, primaryBranchId: 'punata', unionMemberId: 'dues-member-punata' })
+    await setDoc(doc(seed, 'union_members', 'dues-member-punata'), { branchId: 'punata' })
+    await setDoc(doc(seed, 'union_dues', 'dues-punata'), { branchId: 'punata', memberId: 'dues-member-punata', balanceCents: 1000 })
+    await setDoc(doc(seed, 'union_dues', 'dues-cochabamba'), { branchId: 'cochabamba', memberId: 'dues-member-cbba', balanceCents: 2000 })
+    await setDoc(doc(seed, 'union_dues', 'dues-punata', 'payments', 'payment-punata'), { memberId: 'dues-member-punata' })
+    await setDoc(doc(seed, 'union_dues', 'dues-cochabamba', 'payments', 'payment-cbba'), { memberId: 'dues-member-cbba' })
+  })
+
+  const managerDb = testEnv.authenticatedContext('dues-manager-punata').firestore()
+  const secretaryDb = testEnv.authenticatedContext('dues-secretary-punata').firestore()
+  const treasuryDb = testEnv.authenticatedContext('dues-treasury').firestore()
+  const adminDb = testEnv.authenticatedContext('dues-admin').firestore()
+  const affiliateDb = testEnv.authenticatedContext('dues-affiliate').firestore()
+  await assertSucceeds(getDoc(doc(managerDb, 'union_dues', 'dues-punata')))
+  await assertFails(getDoc(doc(managerDb, 'union_dues', 'dues-cochabamba')))
+  await assertSucceeds(getDoc(doc(managerDb, 'union_dues', 'dues-punata', 'payments', 'payment-punata')))
+  await assertFails(getDoc(doc(managerDb, 'union_dues', 'dues-cochabamba', 'payments', 'payment-cbba')))
+  await assertSucceeds(getDoc(doc(secretaryDb, 'union_dues', 'dues-cochabamba')))
+  await assertSucceeds(getDoc(doc(treasuryDb, 'union_dues', 'dues-cochabamba')))
+  await assertSucceeds(getDoc(doc(adminDb, 'union_dues', 'dues-cochabamba')))
+  await assertSucceeds(getDoc(doc(affiliateDb, 'union_dues', 'dues-punata')))
+  await assertFails(getDoc(doc(affiliateDb, 'union_dues', 'dues-cochabamba')))
+  await assertFails(setDoc(doc(managerDb, 'union_dues', 'dues-new'), { branchId: 'punata' }))
 })
 
 test('20. Seguimiento de destinatarios: lectura por sucursal e historial inmutable', async () => {

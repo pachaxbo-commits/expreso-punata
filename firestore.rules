@@ -406,11 +406,23 @@ service cloud.firestore {
     }
 
     match /union_dues/{dueId} {
-      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier() || (isAffiliateAdmin() && isBranchAllowed(resource.data.branchId)) || (isAffiliate() && resource.data.memberId == getUserData().unionMemberId));
+      allow read: if isActive() && (
+        isTreasury() ||
+        (getUserRole() == 'encargado_agencia' && isBranchAllowed(resource.data.branchId)) ||
+        getUserRole() == 'secretaria' ||
+        (isAffiliateAdmin() && isBranchAllowed(resource.data.branchId)) ||
+        (isAffiliate() && resource.data.memberId == getUserData().unionMemberId)
+      );
       allow write: if false; // Exclusivo de Cloud Functions (generateMonthlyDues, collectMemberDue)
 
       match /payments/{paymentId} {
-        allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier() || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId)) || (isAffiliate() && get(/databases/$(database)/documents/union_dues/$(dueId)).data.memberId == getUserData().unionMemberId));
+        allow read: if isActive() && (
+          isTreasury() ||
+          (getUserRole() == 'encargado_agencia' && isBranchAllowed(get(/databases/$(database)/documents/union_dues/$(dueId)).data.branchId)) ||
+          getUserRole() == 'secretaria' ||
+          (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId)) ||
+          (isAffiliate() && get(/databases/$(database)/documents/union_dues/$(dueId)).data.memberId == getUserData().unionMemberId)
+        );
         allow write: if false; // Inmutable, solo Cloud Functions (collectMemberDue)
       }
     }
