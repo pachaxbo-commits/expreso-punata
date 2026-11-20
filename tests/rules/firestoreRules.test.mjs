@@ -47,6 +47,18 @@ test('19. Incidencias: lectura por sucursal y escritura directa bloqueada', asyn
   await assertFails(deleteDoc(doc(adminDb, 'shipment_incidents', 'incident-punata')))
 })
 
+test('Seguridad financiera: clientes no pueden escribir directamente cuentas ni asientos de comisión', async () => {
+  const clientDb = testEnv.authenticatedContext('commission-client').firestore()
+  await assertFails(setDoc(doc(clientDb, 'driver_commission_accounts', 'driver-commission-client'), {
+    driverUid: 'driver-commission-client', accruedCents: 250000, pendingCents: 250000,
+  }))
+  await assertFails(setDoc(doc(clientDb, 'driver_commission_records', 'commission-client-record'), {
+    driverUid: 'driver-commission-client', shipmentId: 'nonexistent-shipment', commissionAmountCents: 250000,
+  }))
+  await assertFails(updateDoc(doc(clientDb, 'driver_commission_accounts', 'existing-commission-account'), { pendingCents: 0 }))
+  await assertFails(deleteDoc(doc(clientDb, 'driver_commission_records', 'existing-commission-record')))
+})
+
 test('20. Seguimiento de destinatarios: lectura por sucursal e historial inmutable', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
     const seed = context.firestore()

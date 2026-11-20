@@ -46,13 +46,9 @@ export async function fetchDriverCommissionRecords(
 }
 
 export async function accrueDriverCommission(params: {
-  driverUid: string
   shipmentId: string
-  trackingCode: string
-  manifestId?: string
-  shippingAmountCents: number
-  ruleType?: 'percentage' | 'fixed_per_shipment'
-  ruleValue?: number
+  manifestId: string
+  driverUid?: string
 }): Promise<{ success: boolean; recordId: string; commissionAmountCents: number }> {
   const fn = httpsCallable(functions, 'accrueDriverCommission')
   const res = await fn(params)

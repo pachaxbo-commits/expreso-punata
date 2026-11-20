@@ -8135,98 +8135,108 @@ async function getAuthenticatedCallerProfile(request) {
  */
 export const accrueDriverCommission = onCall({ cors: true }, async (request) => {
   const caller = await getAuthenticatedCallerProfile(request)
-  if (!caller || !caller.isActive) {
-    throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
+  if (!caller || !caller.isActive) throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
+  if (caller.role !== 'directiva_admin') throw new HttpsError('permission-denied', 'Solo Directiva puede devengar comisiones.')
+  const payload = request.data || {}
+  if (Object.keys(payload).some((key) => !['shipmentId', 'manifestId', 'driverUid'].includes(key))) {
+    throw new HttpsError('invalid-argument', 'No se aceptan importes ni reglas de comision enviados por el cliente.')
   }
-
-  const {
-    driverUid,
-    shipmentId,
-    trackingCode,
-    manifestId,
-    shippingAmountCents,
-    ruleType = 'percentage',
-    ruleValue = 10,
-  } = request.data || {}
-
-  if (!driverUid) {
-    throw new HttpsError('invalid-argument', 'El UID del conductor es obligatorio.')
+  const { shipmentId, manifestId, driverUid: expectedDriverUid } = payload
+  if (typeof shipmentId !== 'string' || !shipmentId.trim() || typeof manifestId !== 'string' || !manifestId.trim()) {
+    throw new HttpsError('invalid-argument', 'Debe especificar una encomienda y un manifiesto validos.')
   }
-  if (!shipmentId || !trackingCode) {
-    throw new HttpsError('invalid-argument', 'Los datos de la encomienda (shipmentId, trackingCode) son obligatorios.')
-  }
-  if (!Number.isInteger(shippingAmountCents) || shippingAmountCents < 0) {
-    throw new HttpsError('invalid-argument', 'El importe base del envío debe ser un entero no negativo en centavos.')
-  }
-  if (!['percentage', 'fixed_per_shipment'].includes(ruleType)) {
-    throw new HttpsError('invalid-argument', 'Tipo de regla de comisión inválido.')
-  }
-
-  let commissionAmountCents = 0
-  if (ruleType === 'percentage') {
-    commissionAmountCents = Math.round(shippingAmountCents * (Number(ruleValue) / 100))
-  } else {
-    commissionAmountCents = Math.round(Number(ruleValue))
-  }
-  if (commissionAmountCents < 0) commissionAmountCents = 0
-
+  if (expectedDriverUid !== undefined && (typeof expectedDriverUid !== 'string' || !expectedDriverUid.trim())) throw new HttpsError('invalid-argument', 'El conductor indicado no es valido.')
+  const shipmentIdValue = shipmentId.trim()
+  const manifestIdValue = manifestId.trim()
+  const shipmentRef = db.collection('shipments').doc(shipmentIdValue)
+  const manifestRef = db.collection('manifests').doc(manifestIdValue)
+  const configRef = db.collection('system_config').doc('expreso_punata')
   const nowIso = new Date().toISOString()
+  const eventHash = crypto.createHash('sha256').update(manifestIdValue + String.fromCharCode(0) + shipmentIdValue).digest('hex')
+  const recordRef = db.collection('driver_commission_records').doc('ACR-' + eventHash)
+  const idempotencyRef = db.collection('idempotency_keys').doc('commission_accrual_' + eventHash)
+  const auditRef = db.collection('audit_logs').doc('commission_accrual_' + eventHash)
 
-  // Buscar nombre del conductor
-  let driverName = 'Conductor'
-  const driverDoc = await db.collection('users').doc(driverUid).get()
-  if (driverDoc.exists) {
-    driverName = driverDoc.data().fullName || driverName
-  }
+  return db.runTransaction(async (transaction) => {
+    const [idempotencyDoc, shipmentDoc, manifestDoc, configDoc, priorRecords] = await Promise.all([
+      transaction.get(idempotencyRef), transaction.get(shipmentRef), transaction.get(manifestRef), transaction.get(configRef),
+      transaction.get(db.collection('driver_commission_records').where('shipmentId', '==', shipmentIdValue).limit(2)),
+    ])
+    if (!shipmentDoc.exists || !manifestDoc.exists) throw new HttpsError('not-found', 'La encomienda o el manifiesto no existen.')
+    const shipment = shipmentDoc.data() || {}
+    const manifest = manifestDoc.data() || {}
+    const driverUid = manifest.driverUid
+    if (!driverUid || (expectedDriverUid !== undefined && expectedDriverUid.trim() !== driverUid)) throw new HttpsError('failed-precondition', 'El conductor indicado no coincide con el conductor del manifiesto.')
+    const driverDoc = await transaction.get(db.collection('users').doc(driverUid))
+    if (!driverDoc.exists || driverDoc.data()?.role !== 'conductor' || driverDoc.data()?.isActive !== true) throw new HttpsError('failed-precondition', 'El conductor del manifiesto no existe o no esta activo.')
+    const manifestShipmentIds = Array.isArray(manifest.shipmentIds) ? manifest.shipmentIds : []
+    if (!manifestShipmentIds.includes(shipmentIdValue) || shipment.manifestId !== manifestIdValue) throw new HttpsError('failed-precondition', 'La encomienda no pertenece al manifiesto indicado.')
+    if (manifest.originBranchId && shipment.originBranchId && manifest.originBranchId !== shipment.originBranchId) throw new HttpsError('failed-precondition', 'La sucursal de origen del manifiesto no coincide con la encomienda.')
+    const destinationReceived = manifest.status === 'received' && ['received', 'received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery', 'delivered'].includes(shipment.status)
+    const completedRouteDelivery = ['dispatched', 'in_transit'].includes(manifest.status) && shipment.status === 'delivered' &&
+      shipment.deliveryRecord?.deliveryChannel === 'route_delivery' && shipment.deliveryRecord?.deliveredByUid === driverUid
+    if (!destinationReceived && !completedRouteDelivery) {
+      throw new HttpsError('failed-precondition', 'La encomienda debe haber sido recibida en destino o entregada en ruta por el conductor asignado.')
+    }
+    if (priorRecords.size > 1) throw new HttpsError('failed-precondition', 'Existen varios devengos previos para esta encomienda; requiere revision.')
+    if (priorRecords.size === 1) {
+      const prior = priorRecords.docs[0]
+      const data = prior.data()
+      if (data.manifestId !== manifestIdValue || data.driverUid !== driverUid) throw new HttpsError('failed-precondition', 'Existe un devengo previo ambiguo; no se generara otro.')
+      if (!idempotencyDoc.exists) return { success: true, recordId: prior.id, commissionAmountCents: data.commissionAmountCents, commissionAmountBob: data.commissionAmountCents / 100 }
+    }
+    if (idempotencyDoc.exists) {
+      const saved = idempotencyDoc.data() || {}
+      if (saved.eventHash !== eventHash || !saved.response?.recordId) throw new HttpsError('failed-precondition', 'La clave de idempotencia es inconsistente.')
+      const savedRecord = await transaction.get(db.collection('driver_commission_records').doc(saved.response.recordId))
+      if (!savedRecord.exists || savedRecord.data()?.driverUid !== driverUid || savedRecord.data()?.shipmentId !== shipmentIdValue || savedRecord.data()?.manifestId !== manifestIdValue) throw new HttpsError('failed-precondition', 'El devengo previo es inconsistente.')
+      return saved.response
+    }
 
-  const recordRef = db.collection('driver_commission_records').doc()
-  const accountRef = db.collection('driver_commission_accounts').doc(driverUid)
+    const config = configDoc.exists ? configDoc.data() || {} : {}
+    const commissionConfig = config.commissions || {}
+    const ruleType = commissionConfig.defaultType
+    const ruleValue = Number(commissionConfig.defaultValue)
+    if (config.status !== 'configured' || config.isOfficial !== true || !['percentage', 'fixed_per_shipment'].includes(ruleType) ||
+        !Number.isFinite(ruleValue) || ruleValue <= 0 || (ruleType === 'percentage' && ruleValue > 100)) {
+      throw new HttpsError('failed-precondition', 'No existe una regla oficial de comision valida en system_config/expreso_punata.')
+    }
+    // shippingFeeCents is the server-calculated freight base; no unapproved branch attribution is written.
+    const baseShippingAmountCents = shipment.shippingFeeCents
+    if (!Number.isSafeInteger(baseShippingAmountCents) || baseShippingAmountCents < 0) throw new HttpsError('failed-precondition', 'El flete base de la encomienda no es valido.')
+    const commissionAmountCents = ruleType === 'percentage' ? Math.round(baseShippingAmountCents * ruleValue / 100) : Math.round(ruleValue * 100)
+    if (!Number.isSafeInteger(commissionAmountCents) || commissionAmountCents <= 0) throw new HttpsError('failed-precondition', 'La regla oficial produce una comision no valida.')
 
-  await db.runTransaction(async (t) => {
-    const accDoc = await t.get(accountRef)
-    const currentAccrued = accDoc.exists ? (accDoc.data().accruedCents || 0) : 0
-    const currentPending = accDoc.exists ? (accDoc.data().pendingCents || 0) : 0
-    const currentPaid = accDoc.exists ? (accDoc.data().paidCents || 0) : 0
-
-    t.set(accountRef, {
-      driverUid,
-      driverName,
-      accruedCents: currentAccrued + commissionAmountCents,
-      paidCents: currentPaid,
-      pendingCents: currentPending + commissionAmountCents,
-      lastAccruedAtIso: nowIso,
-      updatedAtIso: nowIso,
-    }, { merge: true })
-
-    t.set(recordRef, {
-      id: recordRef.id,
-      driverUid,
-      driverName,
-      manifestId: manifestId || null,
-      shipmentId,
-      trackingCode,
-      baseShippingAmountCents: shippingAmountCents,
-      ruleApplied: { type: ruleType, value: ruleValue },
-      commissionAmountCents,
-      commissionAmountBob: commissionAmountCents / 100,
-      status: 'accrued',
-      paidAmountCents: 0,
-      voucherIds: [],
-      createdAtIso: nowIso,
+    const accountRef = db.collection('driver_commission_accounts').doc(driverUid)
+    const accountDoc = await transaction.get(accountRef)
+    const account = accountDoc.exists ? accountDoc.data() || {} : {}
+    const accrued = account.accruedCents ?? 0
+    const pending = account.pendingCents ?? 0
+    const paid = account.paidCents ?? 0
+    if ([accrued, pending, paid].some((value) => !Number.isSafeInteger(value) || value < 0)) throw new HttpsError('failed-precondition', 'La cuenta de comisiones contiene saldos invalidos.')
+    if (!Number.isSafeInteger(accrued + commissionAmountCents) || !Number.isSafeInteger(pending + commissionAmountCents)) throw new HttpsError('failed-precondition', 'El nuevo devengo excede el rango seguro de importes.')
+    const driverName = driverDoc.data().fullName || manifest.driverName || 'Conductor'
+    const response = { success: true, recordId: recordRef.id, commissionAmountCents, commissionAmountBob: commissionAmountCents / 100 }
+    transaction.create(recordRef, {
+      id: recordRef.id, driverUid, driverName, manifestId: manifestIdValue, shipmentId: shipmentIdValue,
+      trackingCode: shipment.trackingCode || shipmentIdValue, baseShippingAmountCents,
+      ruleApplied: { type: ruleType, value: ruleValue }, commissionAmountCents, commissionAmountBob: commissionAmountCents / 100,
+      status: 'accrued', paidAmountCents: 0, voucherIds: [], createdAtIso: nowIso,
     })
+    transaction.set(accountRef, { driverUid, driverName, accruedCents: accrued + commissionAmountCents, paidCents: paid,
+      pendingCents: pending + commissionAmountCents, lastAccruedAtIso: nowIso, updatedAtIso: nowIso }, { merge: true })
+    transaction.create(idempotencyRef, { eventHash, response, performedByUid: caller.uid, performedByName: caller.fullName || 'Operador', createdAtIso: nowIso, createdAt: FieldValue.serverTimestamp() })
+    transaction.create(auditRef, {
+      entityType: 'driver_commission', entityId: recordRef.id, action: 'accrue_driver_commission',
+      performedByUid: caller.uid, performedByName: caller.fullName || 'Operador',
+      details: { driverUid, shipmentId: shipmentIdValue, manifestId: manifestIdValue, baseShippingAmountCents,
+        ruleApplied: { type: ruleType, value: ruleValue }, commissionAmountCents },
+      timestamp: FieldValue.serverTimestamp(), createdAtIso: nowIso,
+    })
+    return response
   })
-
-  return {
-    success: true,
-    recordId: recordRef.id,
-    commissionAmountCents,
-    commissionAmountBob: commissionAmountCents / 100,
-  }
 })
 
-/**
- * Liquidar y pagar comisiones a un conductor desde caja con emisión de vale
- */
 export const settleDriverCommission = onCall({ cors: true }, async (request) => {
   const caller = await getAuthenticatedCallerProfile(request)
   if (!caller || !caller.isActive) {

@@ -400,15 +400,7 @@ async function runJourney() {
   console.log('14. Devengando y liquidando comisión de conductor por flete...')
   await accrueDriverCommission.run({
     auth: { uid: 'usr-admin-e2e' },
-    data: {
-      driverUid: 'usr-chofer-01',
-      shipmentId: ship1Code,
-      trackingCode: ship1Code,
-      manifestId,
-      shippingAmountCents: 2000,
-      ruleType: 'percentage',
-      ruleValue: 10, // 10% de Bs 20 = Bs 2.00 (200 cents)
-    },
+    data: { driverUid: 'usr-chofer-01', shipmentId: ship1Code, manifestId },
   })
   const commSettle = await settleDriverCommission.run({
     auth: { uid: 'usr-sec-cbba' },
