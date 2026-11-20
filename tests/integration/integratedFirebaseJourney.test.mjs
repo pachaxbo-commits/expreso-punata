@@ -286,9 +286,9 @@ test('Simulación operativa integrada por Functions Emulator: Afiliados, Caja, p
   assert.equal(remittance.remainingDriverBalanceCents, 0)
   assert.equal((await db.collection('driver_custody_accounts').doc(driver).get()).data().pendingRemittanceCents, 0)
 
-  const commission = await call(treasurer, 'accrueDriverCommission', {
-    driverUid: driver, shipmentId: tracking[2], trackingCode: tracking[2], manifestId: routeManifest.manifestId,
-    shippingAmountCents: 1_500, ruleType: 'percentage', ruleValue: 10,
+  await call(board, 'updateSystemConfig', { commissions: { defaultType: 'percentage', defaultValue: 10 } })
+  const commission = await call(board, 'accrueDriverCommission', {
+    driverUid: driver, shipmentId: tracking[2], manifestId: routeManifest.manifestId,
   })
   assert.equal(commission.commissionAmountCents, 150)
   const commissionVoucher = await call(punataCashier, 'settleDriverCommission', {

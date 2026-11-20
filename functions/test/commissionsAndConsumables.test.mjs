@@ -74,49 +74,34 @@ beforeEach(async () => {
   await createTestUser('driver-1', 'conductor')
 })
 
-test('1. FASE 5A: accrueDriverCommission devenga comisión acumulada al conductor', async () => {
-  const req = {
-    auth: { uid: 'manager-1' },
-    data: {
-      driverUid: 'driver-1',
-      shipmentId: 'ship-101',
-      trackingCode: 'PUN202600001',
-      manifestId: 'MAN-01',
-      shippingAmountCents: 2500, // Bs 25.00
-      ruleType: 'percentage',
-      ruleValue: 10, // 10% = Bs 2.50 = 250 centavos
-    },
-  }
+async function seedCommissionEvent(shipmentId, manifestId, shippingFeeCents) {
+  await db.collection('system_config').doc('expreso_punata').set({ status: 'configured', isOfficial: true, commissions: { defaultType: 'percentage', defaultValue: 10 } })
+  await db.collection('shipments').doc(shipmentId).set({ trackingCode: shipmentId, manifestId, status: 'delivered', shippingFeeCents })
+  await db.collection('manifests').doc(manifestId).set({ driverUid: 'driver-1', shipmentIds: [shipmentId], status: 'received' })
+}
 
-  const res = await accrueDriverCommission.run(req)
-  assert.strictEqual(res.success, true)
-  assert.strictEqual(res.commissionAmountCents, 250)
-  assert.strictEqual(res.commissionAmountBob, 2.5)
-
-  // Verificar cuenta de comisión
-  const accDoc = await db.collection('driver_commission_accounts').doc('driver-1').get()
-  assert.strictEqual(accDoc.exists, true)
-  assert.strictEqual(accDoc.data().accruedCents, 250)
-  assert.strictEqual(accDoc.data().pendingCents, 250)
-  assert.strictEqual(accDoc.data().paidCents, 0)
-
-  // Devengar una segunda encomienda
-  const req2 = {
-    auth: { uid: 'manager-1' },
-    data: {
-      driverUid: 'driver-1',
-      shipmentId: 'ship-102',
-      trackingCode: 'PUN202600002',
-      shippingAmountCents: 5000,
-      ruleType: 'percentage',
-      ruleValue: 10, // Bs 5.00 = 500 centavos
-    },
-  }
-  await accrueDriverCommission.run(req2)
-
-  const accDoc2 = await db.collection('driver_commission_accounts').doc('driver-1').get()
-  assert.strictEqual(accDoc2.data().accruedCents, 750) // 250 + 500 = 750
-  assert.strictEqual(accDoc2.data().pendingCents, 750)
+test('1. accrueDriverCommission usa la regla oficial y es idempotente', async () => {
+  await seedCommissionEvent('ship-101', 'MAN-01', 2500)
+  const req = { auth: { uid: 'admin-1' }, data: { driverUid: 'driver-1', shipmentId: 'ship-101', manifestId: 'MAN-01' } }
+  const first = await accrueDriverCommission.run(req)
+  const retry = await accrueDriverCommission.run(req)
+  assert.equal(first.success, true)
+  assert.equal(first.commissionAmountCents, 250)
+  assert.equal(retry.recordId, first.recordId)
+  assert.equal(retry.commissionAmountCents, 250)
+  const acc = (await db.collection('driver_commission_accounts').doc('driver-1').get()).data()
+  assert.equal(acc.accruedCents, 250)
+  assert.equal(acc.pendingCents, 250)
+  assert.equal((await db.collection('driver_commission_records').get()).size, 1)
+  assert.equal((await db.collection('audit_logs').where('action', '==', 'accrue_driver_commission').get()).size, 1)
+  await assert.rejects(accrueDriverCommission.run({ ...req, data: { ...req.data, shippingAmountCents: 250000, ruleValue: 1000 } }), (err) => err.code === 'invalid-argument')
+  assert.equal((await db.collection('driver_commission_records').get()).size, 1)
+  assert.equal((await db.collection('driver_commission_accounts').doc('driver-1').get()).data().accruedCents, 250)
+  await seedCommissionEvent('ship-102', 'MAN-02', 5000)
+  const second = await accrueDriverCommission.run({ auth: { uid: 'admin-1' }, data: { shipmentId: 'ship-102', manifestId: 'MAN-02' } })
+  assert.equal(second.commissionAmountCents, 500)
+  assert.equal((await db.collection('driver_commission_accounts').doc('driver-1').get()).data().accruedCents, 750)
+  await assert.rejects(accrueDriverCommission.run({ auth: { uid: 'manager-1' }, data: { shipmentId: 'ship-102', manifestId: 'MAN-02' } }), (err) => err.code === 'permission-denied')
 })
 
 test('2. FASE 5A: settleDriverCommission liquida comisiones con egreso de caja y vale oficial', async () => {
@@ -127,16 +112,10 @@ test('2. FASE 5A: settleDriverCommission liquida comisiones con egreso de caja y
   })
 
   // 2. Devengar comisiones por Bs 10.00
+  await seedCommissionEvent('ship-201', 'MAN-201', 10000)
   await accrueDriverCommission.run({
-    auth: { uid: 'manager-1' },
-    data: {
-      driverUid: 'driver-1',
-      shipmentId: 'ship-201',
-      trackingCode: 'PUN202600010',
-      shippingAmountCents: 10000,
-      ruleType: 'percentage',
-      ruleValue: 10, // Bs 10.00 = 1000 centavos
-    },
+    auth: { uid: 'admin-1' },
+    data: { driverUid: 'driver-1', shipmentId: 'ship-201', manifestId: 'MAN-201' },
   })
 
   // 3. Liquidar Bs 6.00 (pago parcial)

@@ -253,6 +253,7 @@ test('4. Reporte B2: Caja y finanzas distingue ingresos comerciales, aportes, re
 test('4A. Reporte B2: conserva fechas históricas mixtas, deduplica y clasifica cada movimiento', async () => {
   await createTestUser('admin-1', 'directiva_admin')
   const nowIso = new Date().toISOString()
+  const reportDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date(nowIso))
   const date = new Date(new Date(nowIso).getTime() + 60_000)
   const movements = [
     ['overlap', { type: 'shipment_income', amountCents: 6000, branchId: 'punata', timestamp: nowIso, createdAtIso: nowIso }],
@@ -267,7 +268,7 @@ test('4A. Reporte B2: conserva fechas históricas mixtas, deduplica y clasifica 
 
   const result = await getSystemReport.run({
     auth: { uid: 'admin-1' },
-    data: { reportType: 'cash_financial', startDate: nowIso.slice(0, 10), endDate: nowIso.slice(0, 10), pageSize: 100 },
+    data: { reportType: 'cash_financial', startDate: reportDate, endDate: reportDate, pageSize: 100 },
   })
 
   assert.equal(result.pagination.totalRecords, 6, 'el movimiento con dos fechas se cuenta una vez y el fuera de período se excluye')
