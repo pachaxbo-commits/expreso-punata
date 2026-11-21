@@ -93,6 +93,7 @@ try {
     assert.deepEqual(manifest.custodyHandoff.shipmentIds, [guide])
     await originPage.getByTitle('Cerrar Ficha').click()
     if (timing === 'destination_cod') {
+      await destPage.locator('[data-tutorial-target="shipment-search-input"]').fill('')
       await destPage.getByLabel('Desde').fill('2025-06-01')
       await destPage.getByLabel('Hasta').fill('2025-06-30')
       await destPage.getByText(guide, { exact: true }).first().waitFor()

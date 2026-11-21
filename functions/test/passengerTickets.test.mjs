@@ -154,4 +154,11 @@ test('Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos,
   assert.equal(report.summary.passengerTicketPayoutCents, 2500)
   assert.equal(report.summary.commercialIncomeCents, 0, 'pasajes no son ingreso operativo de encomiendas')
   assert.equal(report.summary.expensesCents, 0, 'entrega al chofer no es gasto operativo')
+  const directoryUid = 'tickets-directory-' + suffix
+  await db.collection('driver_directory').doc(directoryUid).set({ isActive: true, fullName: 'Conductor sin cuenta' })
+  const accountless = await createPassengerTicket.run({ auth, data: {
+    ...createPayload, driverUid: directoryUid, idempotencyKey: 'ticket-directory-create-' + suffix,
+  } })
+  assert.equal(accountless.operation.driverUid, directoryUid)
+  assert.equal(accountless.operation.driverName, 'Conductor sin cuenta')
 })

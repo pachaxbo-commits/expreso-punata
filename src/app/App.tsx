@@ -71,6 +71,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const simpleTransferEnabled = import.meta.env.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
   const advancedContingency = import.meta.env.VITE_ADVANCED_DISPATCH === 'true'
   const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && userProfile.role === 'directiva_admin')
+  const [counterDispatchOpen, setCounterDispatchOpen] = useState(false)
   const [requestedTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     try { return window.localStorage.getItem('expreso-sidebar-collapsed') === 'true' } catch { return false }
@@ -393,6 +394,17 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 
         {userProfile.role === 'secretaria' && ['shipments', 'tickets'].includes(activeTab) && (
           <CounterCashShift key={userProfile.uid + ':' + currentBranch.id} currentUser={userProfile} currentBranch={currentBranch} />
+        )}
+
+        {activeTab === 'shipments' && userProfile.role === 'secretaria' && !simpleTransferEnabled && (
+          <section className="mb-4 rounded-xl border bg-white p-3">
+            <button type="button" aria-expanded={counterDispatchOpen} onClick={() => setCounterDispatchOpen(open => !open)}
+              className="rounded-lg border px-3 py-2 text-sm font-semibold text-emerald-900">
+              {counterDispatchOpen ? 'Ocultar despacho por manifiesto' : 'Despacho por manifiesto'}
+            </button>
+            {counterDispatchOpen && <DispatchManifestView
+              currentUser={userProfile} currentBranch={currentBranch} shipments={displayedShipments} />}
+          </section>
         )}
 
         {/* PESTAÑA 1: ENCOMIENDAS (VENTANILLA DEFINITIVA REDISEÑADA) */}

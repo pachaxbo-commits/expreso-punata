@@ -9,7 +9,7 @@ const db = getFirestore()
 const profile = (uid, role, extra = {}) => ({ uid, role, isActive: true, fullName: `Fixture ${role}`, primaryBranchId: 'punata', allowedBranchIds: ['punata'], ...extra })
 
 async function reset() {
-  for (const name of ['users', 'shipments', 'manifests', 'system_config', 'driver_commission_accounts', 'driver_commission_records', 'idempotency_keys', 'audit_logs']) {
+  for (const name of ['users', 'driver_directory', 'shipments', 'manifests', 'system_config', 'driver_commission_accounts', 'driver_commission_records', 'idempotency_keys', 'audit_logs']) {
     const snap = await db.collection(name).get()
     for (let i = 0; i < snap.docs.length; i += 400) {
       const batch = db.batch()
@@ -128,7 +128,9 @@ test('a prior commission for the same shipment under another manifest is blocked
 })
 
 test('fixed commission on manual freight is independent of price and idempotent under retries', async () => {
-  await seedEvent({ feeCents: null })
+  const driverUid = 'commission-directory-only'
+  await db.collection('driver_directory').doc(driverUid).set({ isActive: true, fullName: 'Conductor operativo' })
+  await seedEvent({ feeCents: null, driverUid })
   await db.collection('shipments').doc('shipment-1').update({ finalAmountCents: 0 })
   await assert.rejects(accrueDriverCommission.run(req('board')), { code: 'failed-precondition' })
   assert.deepEqual(await financeState(), { accounts: [], records: [], audits: [] })

@@ -2266,6 +2266,14 @@ export const collectShipmentPayment = onCall({ cors: true }, async (request) => 
  */
 const singleTransfer = Symbol('singleTransfer')
 
+async function getOperationalDriver(transaction, uid, allowDirectory = true) {
+  const profile = (await transaction.get(db.collection('users').doc(uid))).data()
+  if (profile?.role === 'conductor') return profile.isActive === true ? profile : null
+  if (!allowDirectory) return null
+  const directory = (await transaction.get(db.collection('driver_directory').doc(uid))).data()
+  return directory?.isActive === true ? directory : null
+}
+
 async function createDispatch(request) {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para despachar encomiendas.')
@@ -2337,9 +2345,7 @@ async function createDispatch(request) {
     const vehicleRef = db.collection('vehicles').doc(vehicleId)
     const vehicleDoc = await transaction.get(vehicleRef)
 
-    const driverRef = db.collection('users').doc(driverUid)
-    const driverDoc = await transaction.get(driverRef)
-    const directoryDriver = handoffNote ? await transaction.get(db.collection('driver_directory').doc(driverUid)) : null
+    const driverData = await getOperationalDriver(transaction, driverUid, Boolean(handoffNote))
 
     const currentYear = new Date().getFullYear()
     const counterId = `manifests_${originBranchId}_${currentYear}`
@@ -2362,21 +2368,11 @@ async function createDispatch(request) {
       throw new HttpsError('failed-precondition', `El vehículo seleccionado se encuentra ${vehicleData.status === 'in_maintenance' ? 'en mantenimiento' : 'inactivo'}.`)
     }
 
-    if (!driverDoc.exists && !directoryDriver?.exists) {
-      throw new HttpsError('not-found', 'El conductor seleccionado no existe en el sistema.')
+    if (!driverData) {
+      throw new HttpsError('failed-precondition', 'Seleccione un conductor operativo activo.')
     }
-    if (driverDoc.exists && driverDoc.data()?.role === 'conductor' && driverDoc.data()?.isActive === false) {
-      throw new HttpsError('failed-precondition', 'El conductor asignado está inactivo.')
-    }
-    const driverData = directoryDriver?.exists ? directoryDriver.data() : (driverDoc.data() || {})
-    if (request[singleTransfer] && (driverData.isActive !== true || vehicleData.status !== 'active' || vehicleData.branchId !== originBranchId)) {
-      throw new HttpsError('failed-precondition', 'Selecciona un conductor activo y un vehículo activo de la agencia de origen.')
-    }
-    if (driverData.isActive === false) {
-      throw new HttpsError('failed-precondition', 'El conductor seleccionado se encuentra inactivo.')
-    }
-    if (!directoryDriver?.exists && driverData.role !== 'conductor') {
-      throw new HttpsError('failed-precondition', `El usuario asignado tiene rol '${driverData.role}', no es un conductor.`)
+    if (request[singleTransfer] && (vehicleData.status !== 'active' || vehicleData.branchId !== originBranchId)) {
+      throw new HttpsError('failed-precondition', 'Seleccione un vehículo activo de la agencia de origen.')
     }
 
     let totalPackages = 0
@@ -3438,30 +3434,32 @@ export const listActiveDrivers = onCall({ cors: true }, async (request) => {
 
   const snapshot = await db.collection('users')
     .where('role', '==', 'conductor')
-    .where('isActive', '==', true)
     .get()
 
-  const drivers = []
+  const directory = await db.collection('driver_directory').where('isActive', '==', true).get()
+  const drivers = new Map()
+  const driverEntry = (uid, data) => ({
+    uid, fullName: data.fullName || 'Conductor', phone: data.phone || '',
+    assignedVehiclePlate: data.assignedVehiclePlate || null,
+    assignedMobileNumber: data.assignedMobileNumber || null, isActive: true,
+  })
+  for (const doc of directory.docs) drivers.set(doc.id, driverEntry(doc.id, doc.data()))
   const batch = db.batch()
 
   snapshot.forEach((doc) => {
     const data = doc.data() || {}
-    const driverEntry = {
-      uid: doc.id,
-      fullName: data.fullName || 'Conductor',
-      phone: data.phone || '',
-      assignedVehiclePlate: data.assignedVehiclePlate || null,
-      assignedMobileNumber: data.assignedMobileNumber || null,
-      isActive: true,
-      updatedAt: FieldValue.serverTimestamp(),
+    if (data.isActive !== true) {
+      drivers.delete(doc.id)
+      return
     }
-    drivers.push(driverEntry)
-    batch.set(db.collection('driver_directory').doc(doc.id), driverEntry, { merge: true })
+    const entry = driverEntry(doc.id, data)
+    drivers.set(doc.id, entry)
+    batch.set(db.collection('driver_directory').doc(doc.id), { ...entry, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
   })
 
   await batch.commit()
 
-  return { success: true, drivers }
+  return { success: true, drivers: [...drivers.values()] }
 })
 
 /**
@@ -8322,8 +8320,8 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     const manifest = manifestDoc.data() || {}
     const driverUid = manifest.driverUid
     if (!driverUid || (expectedDriverUid !== undefined && expectedDriverUid.trim() !== driverUid)) throw new HttpsError('failed-precondition', 'El conductor indicado no coincide con el conductor del manifiesto.')
-    const driverDoc = await transaction.get(db.collection('users').doc(driverUid))
-    if (!driverDoc.exists || driverDoc.data()?.role !== 'conductor' || driverDoc.data()?.isActive !== true) throw new HttpsError('failed-precondition', 'El conductor del manifiesto no existe o no esta activo.')
+    const driver = await getOperationalDriver(transaction, driverUid)
+    if (!driver) throw new HttpsError('failed-precondition', 'El conductor del manifiesto no existe o no está activo.')
     const manifestShipmentIds = Array.isArray(manifest.shipmentIds) ? manifest.shipmentIds : []
     if (!manifestShipmentIds.includes(shipmentIdValue) || shipment.manifestId !== manifestIdValue) throw new HttpsError('failed-precondition', 'La encomienda no pertenece al manifiesto indicado.')
     if (manifest.originBranchId && shipment.originBranchId && manifest.originBranchId !== shipment.originBranchId) throw new HttpsError('failed-precondition', 'La sucursal de origen del manifiesto no coincide con la encomienda.')
@@ -8372,7 +8370,7 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     const paid = account.paidCents ?? 0
     if ([accrued, pending, paid].some((value) => !Number.isSafeInteger(value) || value < 0)) throw new HttpsError('failed-precondition', 'La cuenta de comisiones contiene saldos invalidos.')
     if (!Number.isSafeInteger(accrued + commissionAmountCents) || !Number.isSafeInteger(pending + commissionAmountCents)) throw new HttpsError('failed-precondition', 'El nuevo devengo excede el rango seguro de importes.')
-    const driverName = driverDoc.data().fullName || manifest.driverName || 'Conductor'
+    const driverName = driver.fullName || manifest.driverName || 'Conductor'
     const response = { success: true, recordId: recordRef.id, commissionAmountCents, commissionAmountBob: commissionAmountCents / 100 }
     transaction.create(recordRef, {
       id: recordRef.id, driverUid, driverName, manifestId: manifestIdValue, shipmentId: shipmentIdValue,
@@ -10589,17 +10587,16 @@ export const createPassengerTicket = onCall({ cors: true }, async (request) => {
   const branchCode = payload.branchId === 'punata' ? 'PUN' : 'CBB'
   const counterRef = db.collection('passenger_ticket_counters').doc(`${branchCode}_${year}`)
   const idemRef = ticketIdempotencyRef(uid, 'create', idempotencyKey)
-  const driverRef = db.collection('users').doc(payload.driverUid)
   const vehicleRef = vehicleId ? db.collection('vehicles').doc(vehicleId) : null
   const randomCode = `PJE-${crypto.randomBytes(10).toString('hex').toUpperCase()}`
   const operationRef = db.collection('passenger_ticket_operations').doc(randomCode)
 
   return db.runTransaction(async (transaction) => {
-    const [caller, idemSnap, counterSnap, driverSnap, vehicleSnap] = await Promise.all([
+    const [caller, idemSnap, counterSnap, driver, vehicleSnap] = await Promise.all([
       getTicketCaller(transaction, uid, PASSENGER_TICKET_STAFF_ROLES),
       transaction.get(idemRef),
       transaction.get(counterRef),
-      transaction.get(driverRef),
+      getOperationalDriver(transaction, payload.driverUid),
       vehicleRef ? transaction.get(vehicleRef) : Promise.resolve(null),
     ])
     if (!ticketBranchAllowed(caller, payload.branchId)) throw new HttpsError('permission-denied', 'No puede registrar pasajes para esta sucursal.')
@@ -10610,10 +10607,9 @@ export const createPassengerTicket = onCall({ cors: true }, async (request) => {
       if (!existing.exists) throw new HttpsError('data-loss', 'La clave de operación existe, pero no se encontró su pasaje.')
       return { success: true, operation: { id: existing.id, ...existing.data() }, cached: true }
     }
-    if (!driverSnap?.exists || driverSnap.data()?.role !== 'conductor' || driverSnap.data()?.isActive !== true) {
+    if (!driver) {
       throw new HttpsError('failed-precondition', 'El chofer seleccionado no está activo en el directorio del sistema.')
     }
-    const driver = driverSnap.data() || {}
     const vehicle = vehicleSnap?.exists ? vehicleSnap.data() || {} : null
     if (vehicleId && (!vehicle || vehicle.status !== 'active' || (vehicle.assignedDriverUid && vehicle.assignedDriverUid !== payload.driverUid))) {
       throw new HttpsError('failed-precondition', 'El vehículo no está activo o está asignado a otro chofer.')
