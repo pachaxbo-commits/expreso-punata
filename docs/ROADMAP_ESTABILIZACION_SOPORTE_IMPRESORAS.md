@@ -55,6 +55,25 @@ Commit de implementación: c94d8d6. Se verificaron 27 pruebas de reglas y el rec
 5. Validar la matriz en emuladores y en un entorno de revisión. Preparar índices y esperar a que estén listos. Coordinar Functions, reglas y frontend compatibles antes de migrar UID autorizados. No publicar un cambio de rol de forma aislada.
 6. Verificar por perfil y agencia autenticación, operaciones, denegaciones por llamada directa y trazabilidad. Comparar con el inventario y el respaldo.
 7. Si falla la transición, detener la migración, revertir frontend, Functions y reglas a sus revisiones compatibles y restaurar únicamente perfiles y claims modificados desde el inventario. Revocar sesiones cuando se hayan cambiado privilegios y comprobar que sigue habiendo administración activa.
+
+## Cierre funcional · Estado de la siguiente iteración
+
+Commits funcionales: 8d994da y 7c71d79. TypeScript, build y 73 unitarias pasaron. Pasaron 27 pruebas Firestore, 6 de Functions en afiliados y pasajes y 8 pruebas dirigidas de comisiones y pasajes con conductor del directorio. La prueba de pasajes concilia dos operaciones, un cobro QR de Bs 25 y el total de caja del día. Regresión completa de Functions: 153 aprobadas y 0 fallos (evidence/phase1-functions-regression.log). Lint conserva 272 errores y 14 avisos.
+
+| Bloque | Estado | Cambio o bloqueo |
+|---|---|---|
+| 1 · Secretaría | En curso | Cuatro módulos visibles. Encomiendas y Pasajes incluyen un turno de ventanilla con los mismos formularios, arqueo y comprobante de Caja. El panel general queda fuera del menú. Si el traslado simplificado está apagado, el despacho por manifiesto queda dentro de Encomiendas. Las autorizaciones de todas las llamadas financieras heredadas todavía requieren revisión. |
+| 1 · Afiliado | En curso | Consulta operativa de encomiendas con proyección mínima en Functions, limitada a la agencia del perfil. Búsqueda por número sin rango de fecha. Los otros módulos de consulta siguen pendientes. |
+| 1 · Afiliado administrador | Pendiente | Todavía no se asignaron privilegios generales al rol existente de alcance acotado. Pendientes separar los perfiles actuales candidatos y validar los permisos del nuevo administrador en cada operación. |
+| 1 · Soporte | En curso | Se conserva la sesión técnica sin herramientas de producción. Pendiente cerrar el inventario de Functions. |
+| 2 · Custodia | En curso | El traslado simplificado admite constancia de entrega asentada por el operador de origen en la misma transacción que la salida. El manifiesto conserva quién registró el acto, quién transporta, vehículo, guías, fecha y constancia. Funciona con un conductor del directorio sin cuenta de acceso en este flujo. Chrome verificó el manifiesto y el actor del registro, con conductor sin cuenta. El devengo fijo admite el directorio. Los flujos heredados y la liquidación requieren revisión adicional. |
+| 2 · Pasajes | En curso | Secretaría de origen puede validar un pasaje pagado con su código. El historial distingue operador y conductor asignado. Se mantiene la transacción de consumo por unidad y los reintentos. Se verificó el registro de una operación con conductor del directorio sin cuenta Auth. El acceso heredado de chofer se mantiene durante la transición. |
+| 3 · Encomiendas | En curso | Rango de fechas por agencia y día boliviano. Buscar por guía ignora esas fechas para poder encontrar pendientes antiguas. |
+| 4 · Matriz definitiva | Pendiente | No se retiraron roles antiguos. Pendiente verificar acciones directas, sucursales y cuerpos manipulados en todos los módulos. |
+| 5 · Incidente y comisiones | Bloqueada en parte | La evidencia de producción para el error original de Mi cuenta y la base acordada para comisión porcentual manual siguen pendientes. La comisión fija ya verificada se conserva. |
+| 6 · Pruebas | En curso | Validación dirigida de pasajes y extensión Playwright para un conductor sin cuenta, rango de 2025, entrega y reporte diario. Chrome aprobó ambas variantes, incluida la guía de 2025 filtrada por rango, firma, historial, reimpresión PDF y recuperación tras perder la respuesta del cobro. El reporte de Cochabamba mostró dos entregas y Bs 25 de cobro en destino. Ver evidence/phase1-final-verification.log y evidence/phase1-counter-browser-final.log. |
+| 7 · Transición | En curso | Se conserva el orden de migración y reversión establecido arriba. El inventario real requiere acceso autorizado y confirmar el UID de Nelson. No se tocaron cuentas reales. |
+| 8 · Preparación | En curso | Fase 1 sigue sin aprobación para publicación. Fases 2 y 3 permanecen documentadas. |
 ## Matriz objetivo y migración
 Actualmente el sistema contiene más roles de los necesarios.
 
