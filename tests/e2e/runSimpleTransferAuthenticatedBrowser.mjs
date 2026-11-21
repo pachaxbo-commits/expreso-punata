@@ -1,5 +1,6 @@
 import { prefix, sample } from '../fixtures/affiliateOperations.mjs'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { chromium } from 'playwright-core'
 import { initializeApp } from 'firebase-admin/app'
@@ -32,17 +33,25 @@ const base = 'http://127.0.0.1:4187'
 const preview = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4187', '--strictPort'], { stdio: 'inherit' })
 const browser = await chromium.launch({ channel: 'chrome' })
 try {
-  async function login(user) {
+  async function login(user, readiness = '[data-tutorial-target="nav-tabs-bar"]', checkDemo = false) {
     const context = await browser.newContext({ serviceWorkers: 'block' })
     await context.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort())
     const page = await context.newPage()
     for (let i = 0; i < 20; i++) {
       try { await page.goto(base); break } catch (error) { if (i === 19) throw error; await new Promise(r => setTimeout(r, 250)) }
     }
+    if (checkDemo) {
+      const config = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'))
+      assert.deepEqual(config.redirects.find(rule => rule.source === '/demo'), { source: '/demo', destination: '/', permanent: false })
+      await page.goto(base + '/demo')
+      await page.getByRole('button', { name: 'Iniciar Sesión', exact: true }).waitFor()
+      assert.equal(await page.getByRole('link', { name: /demo/i }).count(), 0)
+      console.log('DEMO: contrato de redirección temporal a / y acceso directo al build exige sesión.')
+    }
     await page.locator('input[type=email]').fill(user.email)
     await page.locator('input[type=password]').fill('demo-password')
     await page.getByRole('button', { name: 'Iniciar Sesión' }).click()
-    await page.locator('[data-tutorial-target="nav-tabs-bar"]').waitFor()
+    await page.locator(readiness).waitFor()
     return page
   }
   const originPage = await login(origin)
@@ -360,6 +369,29 @@ try {
     const fine = await (await fineResponse).json()
     assert.equal(fine.result?.fine?.amountCents, 300, JSON.stringify(fine.error))
     console.log('Afiliado administrador en Chrome: registro de multa.')
+  })
+
+  await verifyScenario('Sesión técnica y retiro de DEMO', async () => {
+    const support = await createOperator('technical', 'soporte_pachax', 'punata')
+    const supportPage = await login(support, 'h1', true)
+    await supportPage.getByRole('heading', { name: 'Soporte PACHAX', exact: true }).waitFor()
+    assert.equal(await supportPage.getByRole('navigation', { name: 'Secciones del sistema' }).count(), 0)
+    assert.equal(await adminPage.getByRole('heading', { name: 'Soporte PACHAX', exact: true }).count(), 0)
+    for (const [idToken, fn, data] of [
+      [support.idToken, 'getSystemReport', { branchId: 'punata' }],
+      [support.idToken, 'getSystemConfig', {}],
+      [admin.idToken, 'adminProvisionUser', {
+        targetUid: support.uid, fullName: 'Cuenta técnica sintética', role: 'secretaria',
+      }],
+    ]) {
+      const response = await fetch('http://127.0.0.1:5001/' + project + '/us-central1/' + fn, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+        body: JSON.stringify({ data }),
+      })
+      assert.equal((await response.json()).error?.status, 'PERMISSION_DENIED', fn)
+    }
+    assert.equal((await db.collection('users').doc(support.uid).get()).get('role'), 'soporte_pachax')
+    console.log('Soporte PACHAX: sesión aislada, sin reportes ni configuración y cuenta protegida ante administración.')
   })
 
   if (failedScenarios.length) throw new AggregateError(failedScenarios, 'Fallaron uno o más escenarios de Fase 1.')

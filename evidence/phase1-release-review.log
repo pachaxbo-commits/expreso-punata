@@ -1,0 +1,78 @@
+Expreso Punata | Revisión final de Fase 1 | 2026-11-21
+Base remota: 04c5b89a41cb7f40aa5bdb26d37fa2fd34db6b09. Proyecto demo-expreso-punata-transfer.
+Escaneo por patrones en diff e historial de la fase: sin claves privadas, tokens de acceso ni códigos OOB detectados en Git.
+
+Unitarias, Node 22:
+# tests 73
+# pass 73
+# fail 0
+
+Functions completa, Node 22:
+# tests 159
+# pass 159
+# fail 0
+
+Firestore Rules, Node 22:
+# tests 28
+# pass 28
+# fail 0
+
+ESLint: 267 errores y 14 avisos heredados. 0 nuevos por ruta, regla y mensaje.
+
+TypeScript y build con Node 22.23.5: aprobado
+Playwright integrado con los cuatro roles, Node 22: aprobado
+Playwright adicional de administración en emuladores frescos, Node 22: aprobado
+npm run test:e2e de navegador: aprobado
+Recorrido Caja: aprobado
+Recorrido Logística: aprobado
+Recorrido Entrega y COD: aprobado
+Recorrido integral autenticado en emuladores, Node 22: aprobado
+
+Arqueo integrado: Bs 75, diferencia cero, segundo cierre rechazado.
+Secretaría: encomienda Bs 25 efectivo y pasaje Bs 12 QR en el mismo turno, arqueo cuadrado y segundo cierre rechazado.
+Administrador afiliado autenticado: aprovisionamiento de secretaría, configuración y reporte general.
+Administrador afiliado autenticado: cuenta, asiento y liquidación de Bs 2 para un conductor de directorio.
+Afiliado en Chrome: Encomiendas, filtro y detalle autorizados.
+Afiliado en Chrome: Pasajes, filtro y detalle autorizados.
+Afiliado en Chrome: Almacén, filtro y detalle autorizados.
+Afiliado en Chrome: Caja, filtro y detalle autorizados.
+Afiliado en Chrome: Comisiones, filtro y detalle autorizados.
+Afiliado en Chrome: Afiliados, filtro y detalle autorizados.
+Afiliado en Chrome: Aportes, filtro y detalle autorizados.
+Afiliado en Chrome: Préstamos, filtro y detalle autorizados.
+Afiliado en Chrome: Multas, filtro y detalle autorizados.
+Afiliado en Chrome: Deportes, filtro y detalle autorizados.
+Afiliado en Chrome: Inventario, filtro y detalle autorizados.
+Afiliado en Chrome: Personal, filtro y detalle autorizados.
+Afiliado en Chrome: Gastos, filtro y detalle autorizados.
+Afiliado en Chrome: Reportes, filtro y detalle autorizados.
+Afiliado en Chrome: Historial, filtro y detalle autorizados.
+Afiliado administrador en Chrome: edición de afiliación.
+Afiliado administrador en Chrome: registro y desembolso de préstamo.
+Afiliado administrador en Chrome: registro de multa.
+DEMO: contrato de redirección temporal a / y acceso directo al build exige sesión.
+Soporte PACHAX: sesión aislada, sin reportes ni configuración y cuenta protegida ante administración.
+Administración en Chrome: suspensión y reactivación en Auth
+Administración en Chrome: guardado de configuración institucional
+Administración en Chrome: registro de gasto operativo
+Administración en Chrome: registro de bien fijo
+
+Ajustes durante la revisión: Caja administrativa y rendición usan el actor institucional; se mantuvieron los importes y se añadió rechazo de rendición por Secretaría.
+En la primera ejecución agrupada hubo un fallo de navegación al abrir Configuración en el recorrido administrativo adicional. Se repitió con emuladores frescos.
+
+Historial de Fase 1 anterior al commit de revisión:
+15a9300 Restore lint configuration and browser verification
+e454e68 Stabilize commission, cash lock and public demo access
+c5b9584 Track stabilization, support and printer roadmap
+c94d8d6 Add scoped daily reports and isolate technical support access
+9993860 Record role transition and daily report verification
+8d994da Integrate counter cash, recorded custody and scoped shipment queries
+7c71d79 Support directory-only drivers in tickets and commission accrual
+790cf20 Record phase one counter workflows and remaining migration gates
+3f1d442 Scope affiliate commission administration and ticket queries
+3b1a71d Record scoped role checks and counter reconciliation
+17a776a Migrate operational administration to afiliado_admin
+6098b31 Record operational admin migration evidence
+8fbb1ff Add branch-scoped affiliate oversight and restrict administrative actions
+8b74320 Verify revised roles and recover institutional module access
+764678a Record affiliate oversight and phase one cutover evidence

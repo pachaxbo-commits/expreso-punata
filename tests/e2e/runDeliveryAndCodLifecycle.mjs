@@ -353,8 +353,20 @@ async function runDeliveryLifecycle() {
 
   // 9. RENDICIÓN DE CONDUCTOR: Don Juan rinde en caja de Cochabamba con rendición parcial y completa
   console.log('9. Don Juan Conductor realiza rendición parcial de Bs 10.00 en caja de Cochabamba...')
-  const settlRes1 = await settleDriverCash.run({
+  const adminUid = 'admin-rendicion-e2e'
+  await db.collection('users').doc(adminUid).set({
+    uid: adminUid, role: 'afiliado_admin', fullName: 'Administración de rendición',
+    primaryBranchId: 'cochabamba', allowedBranchIds: ['punata', 'cochabamba'], isActive: true,
+  })
+  await assert.rejects(settleDriverCash.run({
     auth: { uid: 'sec-cbba-deliv' },
+    data: { driverUid: 'chofer-deliv', amountCents: 1000, idempotencyKey: 'rendicion-secretaria-denegada' },
+  }), { code: 'permission-denied' })
+  const { shift: remittanceShift } = await openCashShift.run({
+    auth: { uid: adminUid }, data: { branchId: 'cochabamba', initialCashCents: 0 },
+  })
+  const settlRes1 = await settleDriverCash.run({
+    auth: { uid: adminUid },
     data: {
       driverUid: 'chofer-deliv',
       amountCents: 1000,
@@ -372,7 +384,7 @@ async function runDeliveryLifecycle() {
 
   console.log(`   Don Juan completa la rendición con los restantes Bs ${(ship3.shipment.finalAmountCents - 1000) / 100}.00...`)
   const settlRes2 = await settleDriverCash.run({
-    auth: { uid: 'sec-cbba-deliv' },
+    auth: { uid: adminUid },
     data: {
       driverUid: 'chofer-deliv',
       amountCents: ship3.shipment.finalAmountCents - 1000,
@@ -389,8 +401,11 @@ async function runDeliveryLifecycle() {
 
   const finalCbbaShift = await db.collection('cash_shifts').doc(cbbaShiftId).get()
   const expectedTotal = 5000 + ship2.shipment.finalAmountCents + ship3.shipment.finalAmountCents
-  assert.equal(finalCbbaShift.data().expectedCashCents, expectedTotal)
-  assert.equal(finalCbbaShift.data().breakdown.driverRemittanceCents, ship3.shipment.finalAmountCents)
+  const finalRemittanceShift = (await db.collection('cash_shifts').doc(remittanceShift.id).get()).data()
+  assert.equal(finalCbbaShift.data().expectedCashCents, 5000 + ship2.shipment.finalAmountCents)
+  assert.equal(finalRemittanceShift.expectedCashCents, ship3.shipment.finalAmountCents)
+  assert.equal(finalRemittanceShift.breakdown.driverRemittanceCents, ship3.shipment.finalAmountCents)
+  assert.equal(finalCbbaShift.data().expectedCashCents + finalRemittanceShift.expectedCashCents, expectedTotal)
   console.log(`   ✓ Caja Cochabamba actualizada con remesa de conductor. Total esperado: Bs ${expectedTotal / 100}.00\n`)
 
   // 10. Directorio de conductores y estantes

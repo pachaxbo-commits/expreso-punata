@@ -8,7 +8,8 @@ import { initializeApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
 
-const projectId = 'demo-expreso-punata'
+const projectId = process.env.E2E_FIREBASE_PROJECT_ID || 'demo-expreso-punata'
+if (!projectId.startsWith('demo-')) throw new Error('Use un proyecto demo en el recorrido de navegador.')
 if (process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' ||
     process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8080') {
   throw new Error('Ejecuta esta prueba con Auth y Firestore Emulator en los puertos locales del repositorio.')
@@ -22,7 +23,7 @@ async function seedOperator(role) {
   await getAuth(adminApp).createUser({ uid, email, password })
   await getFirestore(adminApp).collection('users').doc(uid).set({
     uid, email, role, fullName: 'Operador E2E', primaryBranchId: 'punata',
-    allowedBranchIds: ['punata'], isActive: true,
+    allowedBranchIds: role === 'afiliado_admin' ? ['punata', 'cochabamba'] : ['punata'], isActive: true,
   })
   return { email, password }
 }
@@ -239,7 +240,7 @@ async function runE2E() {
     await page.click('button[title="Cerrar Sesión"]')
     await page.waitForSelector('text=Iniciar Sesión', { timeout: 5000 })
 
-    await login(page, await seedOperator('directiva_admin'))
+    await login(page, await seedOperator('afiliado_admin'))
     await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 8000 })
     await page.getByRole('button', { name: 'Configuración', exact: true }).click()
     await page.waitForSelector('text=Configuración de Usuarios y Permisos', { timeout: 5000 })

@@ -2,7 +2,7 @@
 
 | Fase | Verificadas | Pendientes | Avance |
 |---|---:|---:|---:|
-| 1 | 2 | 10 | 16.7% |
+| 1 | 4 | 8 | 33.3% |
 | 2 | 0 | 4 | 0% |
 | 3 | 0 | 6 | 0% |
 
@@ -201,6 +201,106 @@ No se consultaron cuentas reales. Falta confirmar el proyecto de producción y u
 10. Ante una incidencia, pausar. Restaurar perfiles y claims del lote afectado desde el respaldo y revertir los componentes coordinados si hace falta. Volver a comprobar al administrador activo antes de continuar.
 
 Retirar la compatibilidad solo después de conciliar las cuentas reales y obtener autorización. El incidente original `internal 0` requiere evidencia de producción. La comisión porcentual con precio manual sigue pendiente de definición comercial. La redirección de la demo retirada requiere verificación después de una publicación autorizada.
+
+## Revisión final de Fase 1 y preparación de publicación
+
+### Resumen propuesto para el PR
+
+**Título** · Fase 1 de Expreso Punata: operación, fiscalización y transición de cuentas.
+
+La administración institucional usa `afiliado_admin` y conserva puertas heredadas durante la transición. Soporte PACHAX queda aislado. Afiliado puede fiscalizar 15 módulos con proyección de campos y alcance por agencia. Secretaría concilia encomiendas y pasajes en el mismo turno. Las mutaciones se autorizan en Functions y las reglas protegen los documentos originales. Se mantiene la liquidación de comisión fija y se retira la demo pública.
+
+La rama acumulada hasta `764678a` contiene 15 commits sobre `origin/main` en `04c5b89a41cb7f40aa5bdb26d37fa2fd34db6b09`, con cero commits detrás y sin conflictos en `git merge-tree --write-tree origin/main HEAD`. Antes de abrir el PR, repetir `git fetch origin --prune`, `git rev-list --left-right --count origin/main...HEAD`, `git merge-tree --write-tree origin/main HEAD` y `git diff --check origin/main...HEAD`. Si main avanzó, resolver coincidencias en una rama de integración separada y repetir regresiones. Mantener intacta la rama original. Excluir `tmp/`, capturas y logs crudos. Adjuntar evidencia sanitizada.
+
+### Inventario autorizado de solo lectura
+
+El checkout identifica `expreso-punata-dev`. No se verificó el proyecto de producción ni se encontró ADC local configurada. No se consultaron cuentas reales. El propietario debe confirmar proyecto, tenant y una identidad de solo lectura de perfiles y usuarios Auth. Para un proyecto compartido, delimitar las cuentas del cliente y el tenant antes del listado. El siguiente comando corresponde a un proyecto dedicado con tenant predeterminado. La salida debe quedar en una carpeta restringida fuera de Git.
+
+```powershell
+$env:EP_RELEASE_PROJECT = Read-Host 'ID de Firebase confirmado por el propietario'
+$epInventory = Read-Host 'Ruta absoluta de inventario en carpeta restringida'
+if (!$env:EP_RELEASE_PROJECT -or $env:EP_RELEASE_PROJECT -like 'demo-*') { throw 'Confirme el proyecto real' }
+if ($env:FIRESTORE_EMULATOR_HOST -or $env:FIREBASE_AUTH_EMULATOR_HOST) { throw 'Quite las variables del emulador' }
+firebase projects:list
+@'
+import { applicationDefault, initializeApp } from 'firebase-admin/app'
+import { getAuth } from 'firebase-admin/auth'
+import { getFirestore } from 'firebase-admin/firestore'
+const app = initializeApp({ credential: applicationDefault(), projectId: process.env.EP_RELEASE_PROJECT })
+const snapshot = await getFirestore(app).collection('users')
+  .select('fullName', 'role', 'isActive', 'primaryBranchId', 'allowedBranchIds').get()
+const profiles = new Map(snapshot.docs.map(doc => [doc.id, doc.data()]))
+const accounts = new Map()
+let page
+do {
+  const result = await getAuth(app).listUsers(1000, page)
+  for (const { uid, disabled, customClaims } of result.users) {
+    accounts.set(uid, { disabled, role: customClaims?.role ?? null })
+  }
+  page = result.pageToken
+} while (page)
+for (const uid of new Set([...profiles.keys(), ...accounts.keys()])) {
+  const p = profiles.get(uid)
+  const a = accounts.get(uid)
+  const canonical = ['secretaria', 'afiliado', 'afiliado_admin', 'soporte_pachax'].includes(p?.role)
+  console.log(JSON.stringify({
+    uid, nombre: p?.fullName ?? null, rolActual: p?.role ?? null,
+    perfilActivo: p?.isActive ?? null, authHabilitado: a ? !a.disabled : null,
+    agenciaPrincipal: p?.primaryBranchId ?? null, agenciasAutorizadas: p?.allowedBranchIds ?? [],
+    rolPropuesto: canonical ? p.role : null, personaRealConfirmada: false,
+    requiereRevision: true,
+    discrepancia: !p || !a || !canonical || p.role !== a.role || p.isActive !== !a.disabled,
+  }))
+}
+'@ | node --input-type=module | Set-Content -Encoding utf8 -LiteralPath $epInventory
+if ($LASTEXITCODE -ne 0) { throw 'No utilice un inventario incompleto' }
+Get-FileHash -Algorithm SHA256 -LiteralPath $epInventory
+```
+
+Revisar perfiles heredados o sin identidad confirmada, cuentas sin documento o sin Auth, estados o claims discordantes y agencias dudosas. Confirmar el UID de Nelson contra el registro autorizado del propietario y Auth. Mantener ese UID activo y confirmar Punata y Cochabamba antes de asignar alcance institucional. Confirmar también otra cuenta de continuidad, habilitada en Auth, activa en Firestore y probada. No realizar altas para improvisar continuidad ni asignar roles automáticamente.
+
+### Publicación y reversión
+
+Los comandos siguientes se reservan para la ventana autorizada. Definir previamente `$epVercelProject`, `$epVercelTeam`, `$epBackupUri`, `$epCandidateUrl`, `$epPreviousUrl` y `$epProductionUrl` con valores aprobados, sin copiar secretos. Confirmar el enlace Git de Vercel y evitar la promoción automática fuera de la ventana.
+
+| Componente | Archivo o panel | Acción |
+|---|---|---|
+| Índices | `firestore.indexes.json` | Publicar primero, conservando los índices vigentes. |
+| Cloud Functions | `functions/index.js`, `functions/affiliateOperations.js` y dependencias de runtime | Publicar Functions en la ventana. |
+| Reglas | `firestore.rules`, `storage.rules` | Publicar tras comprobar Functions. |
+| Frontend y redirección | `src/`, `vercel.json` | Preparar compilación sin dominio y promover tras verificar backend. |
+| Configuración y perfiles | Variables de Vercel y Functions, Firestore `users`, Firebase Auth | Comprobar banderas y proyecto. Migrar solo UID aprobados. |
+
+1. **Identidad y respaldo.** Verificar `firebase projects:list`, `firebase functions:list --project $env:EP_RELEASE_PROJECT` y `vercel project inspect $epVercelProject --scope $epVercelTeam`. Registrar SHA del código efectivamente desplegado, IDs de reglas e índices, banderas y URL anterior. Confirmar Node 22, `VITE_USE_FIREBASE_EMULATORS=false`, proyecto Firebase correcto y concordancia de `SIMPLE_SHIPMENT_TRANSFER` con `VITE_SIMPLE_SHIPMENT_TRANSFER`. Mantener `VITE_PUBLIC_DEMO` apagada. Ejecutar `gcloud firestore export $epBackupUri --database="(default)" --project=$env:EP_RELEASE_PROJECT`. Verificar operación completada, metadatos y recuperación en proyecto aislado. Guardar aparte copia restringida de campos y claims de los UID aprobados, con fecha y hash, excluyendo credenciales y hashes de contraseña.
+2. **Continuidad.** Validar al administrador institucional y al suplente antes de activar restricciones. Acordar quién atiende los desembolsos, gastos y liquidaciones durante el cambio. Preparar un checkout de reversión compatible con ambas generaciones de perfiles. `6098b31` es una referencia del puente, pendiente de verificar con el entorno real. Si la versión previa no acepta los nuevos perfiles y no hay puente comprobado ni restauración autorizada por UID, detenerse.
+3. **Índices.** Ejecutar `firebase deploy --project $env:EP_RELEASE_PROJECT --only firestore:indexes`. Detenerse si se propone eliminar un índice vigente. Confirmar los necesarios en estado listo con `gcloud firestore indexes composite list --database="(default)" --project=$env:EP_RELEASE_PROJECT` o consola.
+4. **Frontend preparado.** Probar primero en entorno de revisión. Desde el checkout vinculado al proyecto aprobado, ejecutar `vercel deploy --prod --skip-domain --scope $epVercelTeam`. Registrar URL candidata. Verificar proyecto Firebase y banderas del build antes de promover. Las comprobaciones de una URL conectada a producción requieren autorización y son de solo lectura.
+5. **Activación técnica.** Pausar operaciones de Caja y cambios de cuentas durante la ventana. Ejecutar `firebase deploy --project $env:EP_RELEASE_PROJECT --only functions` y comprobar salud de las llamadas y continuidad de perfiles existentes. Ejecutar `firebase deploy --project $env:EP_RELEASE_PROJECT --only firestore:rules,storage` y verificar lecturas y denegaciones. Promover con `vercel promote $epCandidateUrl --scope $epVercelTeam`. Verificar acceso, agencia, reportes de lectura y `curl.exe -sS -I "$epProductionUrl/demo"` para respuesta temporal y destino `/`.
+6. **Migración controlada.** Abrir Configuración → Usuarios y Permisos, verificar UID, rol, estado y agencias y guardar cada correspondencia aprobada mediante el aprovisionamiento existente. Conciliar claims y perfil, coordinar reautenticación y verificar bitácora. Probar a Nelson con el propietario y a Secretaría en su agencia. Mantener una cuenta de continuidad disponible antes y después de cada UID. Las mutaciones de prueba corresponden al entorno aislado. Retirar permisos heredados en una revisión posterior cuando el inventario confirme que ya no se usan.
+7. **Detención y reversión.** Detener ante respaldo incompleto, proyecto incorrecto, índice no listo, pérdida de un administrador, acceso excesivo o fallo de operación crítica. Congelar nuevas migraciones. Si la revisión previa acepta los perfiles actuales, ejecutar `vercel rollback $epPreviousUrl --scope $epVercelTeam` y `vercel rollback status --scope $epVercelTeam`. Desde el SHA de recuperación aprobado ejecutar `firebase deploy --project $env:EP_RELEASE_PROJECT --only functions,firestore:rules,storage`. Usar el puente si hace falta compatibilidad con perfiles nuevos. Conservar índices añadidos. Si hay que revertir un perfil, el operador autorizado restaura solo ese UID desde el respaldo de perfil y claims, con otra cuenta institucional comprobada antes y después. No importar toda la base para revertir la aplicación. Verificar continuidad en Auth y Firestore y obtener autorización para reanudar.
+
+Referencias oficiales para [Firebase CLI](https://firebase.google.com/docs/cli), [respaldo Firestore](https://docs.cloud.google.com/firestore/native/docs/manage-data/export-import), [preparación en Vercel](https://vercel.com/docs/cli/deploying-from-cli) y [reversión Vercel](https://vercel.com/docs/cli/rollback).
+
+### Estado de las tareas de Fase 1
+
+| Tarea | Implementación y pruebas locales | Dependencia de cierre |
+|---|---|---|
+| EP-01 · Auditoría | Matriz revisada y recorrido integrado de los cuatro perfiles | Pendiente de verificación en producción. |
+| EP-02 · `internal 0` | Diagnóstico del cliente conservado. Casos sintéticos de vínculo ausente, agencia ajena y formato heredado cubiertos | Pendiente de evidencia del incidente original. Obtener UID autorizado, fecha y hora local, acción, agencia, código e identificador del log. Nunca solicitar contraseñas ni datos de menores. |
+| EP-03 · Permisos | Proyecciones, permisos positivos y rechazos verificados en emuladores | Pendiente de publicación coordinada y verificación de consultas e índices en el entorno autorizado. |
+| EP-04 · Matriz | Implementación completada localmente para los cuatro perfiles y las excepciones transitorias | Pendiente de autorización para inventariar y migrar perfiles. La retirada de los roles antiguos queda después del cutover. |
+| EP-05 · Comisiones | Devengo fijo de Bs 2 y reintentos verificados. El motor rechaza porcentaje sobre una guía manual sin base autorizada con `failed-precondition` y sin crear un asiento | Bloqueada por definición comercial del importe y conceptos que forman la base del porcentaje con precio manual, incluida su vigencia. |
+| EP-06 · Encomiendas | Registro, precio manual, cobro, traslado, custodia, recepción, entrega, historial e impresión verificados en recorridos locales | Pendiente de verificación en producción tras publicar. |
+| EP-07 · Pasajes | Verificada en emuladores, incluida la conciliación de QR con Caja | Publicación coordinada pendiente. |
+| EP-08 · Otros módulos | Consultas de afiliado y operaciones administrativas prioritarias verificadas en Functions y Chrome | Pendiente de verificación tras migrar cuentas y confirmar las agencias reales. |
+| EP-09 · Demo | Configuración local `/demo` → `/` con `permanent: false`. La URL directa del build local exige sesión | Pendiente del HTTP 307 en el dominio real tras publicación autorizada. |
+| EP-10 · E2E | Registro a reportes, comisión fija, cierre e idempotencia probados en emuladores. El recorrido cubre recuperación tras una respuesta de entrega perdida | Validación posterior a la publicación se gestiona por separado. |
+| EP-11 · Aviso de Caja | Verificada la lectura del candado propio ausente y del turno autorizado | Publicación de reglas pendiente. |
+| EP-12 · Lint | 267 errores y 14 avisos heredados. Comparación por archivo, regla y mensaje sin hallazgos nuevos | Deuda heredada registrada. Evitar refactor general en esta fase. |
+
+La revisión local de `/demo` comprobó la regla y el comportamiento del build al entrar por esa ruta. El código HTTP de la capa de Vercel corresponde a la verificación posterior a la publicación. [Configuración de redirecciones de Vercel](https://vercel.com/docs/project-configuration/vercel-json).
+
+La evidencia de revisión se guarda en [el registro de regresión](../evidence/phase1-release-review.log). Para reproducir las pruebas, usar Node 22, compilar con `VITE_USE_FIREBASE_EMULATORS=true`, `VITE_FIREBASE_PROJECT_ID=demo-expreso-punata-transfer` y `VITE_SIMPLE_SHIPMENT_TRANSFER=true`, y ejecutar los recorridos de navegador en instancias frescas de emuladores. Usar `SIMPLE_SHIPMENT_TRANSFER=true` para el recorrido simplificado. Los datos de prueba permanecen en proyectos demo y las capturas se guardan en `tmp/`.
 
 ## Matriz objetivo y migración
 Actualmente el sistema contiene más roles de los necesarios.
@@ -739,14 +839,10 @@ Las pruebas automatizadas que crean registros o simulan dinero deben seguir usan
 
 ### EP-10 · COMPLETAR PRUEBAS END-TO-END
 
-- [ ] Pendiente
-- Prioridad: Alta.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- [x] Verificado localmente con los perfiles actuales.
+- Recorrido Playwright de Secretaría, Afiliado, Afiliado administrador y Soporte, incluidos los rechazos de rol y agencia.
+- Cadena de encomienda a reportes, pago en origen y contraentrega, custodia, recepción, impresión, búsqueda histórica, recuperación ante respuesta perdida y concurrencia verificadas en emuladores.
+- La verificación del despliegue real queda bajo la ventana autorizada.
 
 Recupera el trabajo anterior de Playwright.
 
@@ -780,18 +876,13 @@ Prueba las variantes que correspondan a la nueva estructura de usuarios.
 - Dependencias: publicación autorizada de reglas para que el cambio opere en Firebase real.
 ### EP-12 · ESLINT
 
-- [ ] Pendiente
-- Prioridad: Alta.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- [x] Revisado y verificado con el criterio de Fase 1.
+- ESLint conserva 267 errores y 14 avisos. Diferencia de 0 hallazgos frente a la revisión anterior por archivo, regla y mensaje.
+- Se conserva la Flat Config y la deuda heredada. No se fijó una meta de cero errores para esta entrega.
 
 Ya existe una Flat Config.
 
-Quedan aproximadamente 274 errores y 14 avisos.
+Quedan 267 errores y 14 avisos heredados.
 
 No rehagas la configuración.
 

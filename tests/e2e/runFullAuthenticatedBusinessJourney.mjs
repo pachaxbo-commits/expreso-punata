@@ -91,16 +91,16 @@ function startStaticServer(port = 4173) {
 
 async function runJourney() {
   console.log('================================================================================')
-  console.log('  RECORRIDO INTEGRAL AUTENTICADO DE PRODUCCIÓN (WEB 1.0) — EXPRESO PUNATA       ')
-  console.log('  Todas las operaciones con cuentas reales, centavos exactos y comprobación E2E ')
+  console.log('  RECORRIDO INTEGRAL AUTENTICADO EN EMULADORES (WEB 1.0) — EXPRESO PUNATA       ')
+  console.log('  Todas las operaciones con cuentas sintéticas, centavos exactos y comprobación E2E ')
   console.log('================================================================================\n')
 
-  // 1. Crear usuarios reales en Firestore
-  console.log('1. Aprovisionando usuarios reales autorizados...')
+  // 1. Crear usuarios sintéticos en Firestore
+  console.log('1. Aprovisionando perfiles sintéticos...')
   const users = [
     {
       uid: 'usr-admin-e2e',
-      role: 'directiva_admin',
+      role: 'afiliado_admin',
       fullName: 'Lic. Walter Cossío (Presidente)',
       email: 'admin.punata@expresopunata.com',
       primaryBranchId: 'punata',
@@ -190,7 +190,7 @@ async function runJourney() {
       },
     },
   })
-  const cfg = await getSystemConfig.run({})
+  const cfg = await getSystemConfig.run({ auth: { uid: 'usr-admin-e2e' } })
   assert.equal(cfg.status, 'configured')
   assert.equal(cfg.isOfficial, true)
   console.log('   ✓ Configuración oficial verificada: status = "configured", isOfficial = true\n')
@@ -403,14 +403,17 @@ async function runJourney() {
     auth: { uid: 'usr-admin-e2e' },
     data: { driverUid: 'usr-chofer-01', shipmentId: ship1Code, manifestId },
   })
+  const { shift: administrativeShift } = await openCashShift.run({
+    auth: { uid: 'usr-admin-e2e' }, data: { branchId: 'punata', initialCashCents: 1000 },
+  })
   const commSettle = await settleDriverCommission.run({
-    auth: { uid: 'usr-sec-cbba' },
+    auth: { uid: 'usr-admin-e2e' },
     data: {
       driverUid: 'usr-chofer-01',
-      branchId: 'cochabamba',
+      branchId: 'punata',
       amountCents: 200,
       paymentMethod: 'cash',
-      cashShiftId: cbbaShiftId,
+      cashShiftId: administrativeShift.id,
       notes: 'Liquidación de comisión por viaje MAN-01',
       idempotencyKey: `idemp-comm-${Date.now()}`,
     },
@@ -437,7 +440,7 @@ async function runJourney() {
   assert.equal(consRes.success, true)
   const consumableId = consRes.item.id
   await manageConsumable.run({
-    auth: { uid: 'usr-sec-punata' },
+    auth: { uid: 'usr-admin-e2e' },
     data: {
       action: 'record_consumption',
       id: consumableId,
@@ -490,14 +493,14 @@ async function runJourney() {
   const dueDoc = dueSnap.docs[0]
 
   const collRes = await collectMemberDue.run({
-    auth: { uid: 'usr-sec-cbba' },
+    auth: { uid: 'usr-admin-e2e' },
     data: {
       dueId: dueDoc.id,
       amountCents: 5000,
       paymentMethod: 'cash',
-      shiftId: cbbaShiftId,
-      cashShiftId: cbbaShiftId,
-      branchId: 'cochabamba',
+      shiftId: administrativeShift.id,
+      cashShiftId: administrativeShift.id,
+      branchId: 'punata',
       idempotencyKey: `idemp-due-${Date.now()}`,
     },
   })
@@ -586,7 +589,7 @@ async function runJourney() {
   }
 
   console.log('\n================================================================================')
-  console.log('   ¡RECORRIDO INTEGRAL DE PRODUCCIÓN COMPLETADO CON ÉXITO AL 100%!               ')
+  console.log('   ¡RECORRIDO INTEGRAL EN EMULADORES COMPLETADO CON ÉXITO AL 100%!               ')
   console.log('================================================================================')
 }
 
