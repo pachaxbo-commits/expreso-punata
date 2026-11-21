@@ -3,8 +3,38 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { chromium } from 'playwright-core'
 
+import { randomUUID } from 'node:crypto'
+import { initializeApp } from 'firebase-admin/app'
+import { getAuth } from 'firebase-admin/auth'
+import { getFirestore } from 'firebase-admin/firestore'
+
+const projectId = 'demo-expreso-punata'
+if (process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' ||
+    process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8080') {
+  throw new Error('Ejecuta esta prueba con Auth y Firestore Emulator en los puertos locales del repositorio.')
+}
+const adminApp = initializeApp({ projectId })
+
+async function seedOperator(role) {
+  const uid = randomUUID()
+  const email = `${uid}@example.test`
+  const password = randomUUID()
+  await getAuth(adminApp).createUser({ uid, email, password })
+  await getFirestore(adminApp).collection('users').doc(uid).set({
+    uid, email, role, fullName: 'Operador E2E', primaryBranchId: 'punata',
+    allowedBranchIds: ['punata'], isActive: true,
+  })
+  return { email, password }
+}
+
+async function login(page, { email, password }) {
+  await page.getByPlaceholder('operador@expresopunata.com').fill(email)
+  await page.locator('input[type="password"]').fill(password)
+  await page.getByRole('button', { name: 'Iniciar Sesión', exact: true }).click()
+}
+
 const DIST_DIR = path.resolve('dist')
-const PORT = 4173
+const PORT = Number(process.env.E2E_BROWSER_PORT || 4173)
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -46,7 +76,7 @@ function startStaticServer() {
 
 async function runE2E() {
   const server = await startStaticServer()
-  const evidenceDir = path.resolve('tests/e2e/evidence')
+  const evidenceDir = path.resolve(process.env.E2E_EVIDENCE_DIR || 'evidence/browser-verification')
   if (!fs.existsSync(evidenceDir)) {
     fs.mkdirSync(evidenceDir, { recursive: true })
   }
@@ -83,9 +113,7 @@ async function runE2E() {
     console.log('[E2E] Iniciando sesión como Secretaria Punata...')
     await page.screenshot({ path: path.join(evidenceDir, '01-login-screen.png') })
 
-    // Hacer clic en el botón de acceso rápido para secretaria Punata
-    const secButton = page.locator('button:has-text("Secretaria Punata")')
-    await secButton.click()
+    await login(page, await seedOperator('secretaria'))
 
     // Esperar que cargue el dashboard
     await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 8000 })
@@ -159,8 +187,9 @@ async function runE2E() {
     // Regresar a Paso 4
     await page.click('button:has-text("Siguiente")')
     await page.click('button:has-text("Siguiente")')
+    await page.getByLabel(/Precio del Envío/).fill('25')
     await page.click('button:has-text("Siguiente")')
-    await page.waitForSelector('text=Confirmación de Datos', { timeout: 5000 })
+    await page.getByText('Confirmación de Datos', { exact: true }).waitFor({ timeout: 5000 })
 
     await page.screenshot({ path: path.join(evidenceDir, '06-wizard-step4-desktop.png') })
 
@@ -176,15 +205,15 @@ async function runE2E() {
     // 5. Cerrar modal y probar Búsqueda por Guía
     console.log('[E2E] Cerrando modal y comprobando buscador exacto por guía...')
     await page.setViewportSize({ width: 1280, height: 800 })
-    await page.locator('button:has(svg.lucide-x)').first().click()
+    await page.getByRole('button', { name: 'Cerrar asistente de encomienda' }).click()
 
-    const searchInput = page.locator('input[placeholder*="Buscar por guía exacta"]')
+    const searchInput = page.getByPlaceholder(/^Ingrese guía/)
     await searchInput.fill('PUN-2026-00042')
     await page.screenshot({ path: path.join(evidenceDir, '09-search-exact-guide.png') })
 
     // 6. Prueba de Persistencia tras F5
     console.log('[E2E] Probando persistencia y recarga de página (F5)...')
-    await page.reload({ waitUntil: 'networkidle' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 8000 })
     await page.screenshot({ path: path.join(evidenceDir, '10-post-reload-f5.png') })
 
@@ -205,23 +234,15 @@ async function runE2E() {
     await page.click('button[title="Cerrar Sesión"]')
     await page.waitForSelector('text=Iniciar Sesión', { timeout: 5000 })
 
-    // Iniciar como Directiva / Admin
-    const adminBtn = page.locator('button:has-text("Directiva / Admin")')
-    if (await adminBtn.count() > 0) {
-      await adminBtn.click()
-      await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 8000 })
-
-      // Ir a pestaña Configuración
-      await page.click('button:has-text("Configuración")')
-      await page.waitForSelector('text=Configuración de Usuarios y Permisos', { timeout: 5000 })
-      await page.screenshot({ path: path.join(evidenceDir, '12-user-management-view.png') })
-
-      // Abrir modal de Nuevo Operador
-      await page.click('button:has-text("Registrar Nuevo Operador")')
-      await page.waitForSelector('text=Expreso Punata — Aprovisionamiento Oficial', { timeout: 5000 })
-      await page.screenshot({ path: path.join(evidenceDir, '13-new-user-modal.png') })
-      await page.click('button:has-text("Cancelar")')
-    }
+    await login(page, await seedOperator('directiva_admin'))
+    await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 8000 })
+    await page.getByRole('button', { name: 'Configuración', exact: true }).click()
+    await page.waitForSelector('text=Configuración de Usuarios y Permisos', { timeout: 5000 })
+    await page.screenshot({ path: path.join(evidenceDir, '12-user-management-view.png') })
+    await page.getByRole('button', { name: 'Registrar Nuevo Operador' }).click()
+    await page.waitForSelector('text=Expreso Punata — Aprovisionamiento Oficial', { timeout: 5000 })
+    await page.screenshot({ path: path.join(evidenceDir, '13-new-user-modal.png') })
+    await page.getByRole('button', { name: 'Cancelar', exact: true }).click()
 
     // 9. Prueba del Módulo de Caja (Entrega 1)
     console.log('[E2E] Navegando a la pestaña "Caja del Turno"...')
@@ -252,18 +273,6 @@ async function runE2E() {
     await page.setViewportSize({ width: 360, height: 800 })
     await page.screenshot({ path: path.join(evidenceDir, '17-caja-mobile-360x800.png') })
     await page.setViewportSize({ width: 1280, height: 800 })
-
-    // Copiar evidencias al directorio de artefactos de Antigravity
-    const artifactDir = 'C:\\Users\\fabri\\.gemini\\antigravity\\brain\\39f1d6ec-67a4-438d-a34a-fc87f2af0029\\evidence'
-    if (fs.existsSync(artifactDir)) {
-      const files = fs.readdirSync(evidenceDir)
-      for (const file of files) {
-        if (file.endsWith('.png')) {
-          fs.copyFileSync(path.join(evidenceDir, file), path.join(artifactDir, file))
-        }
-      }
-      console.log(`[E2E] Evidencias copiadas a ${artifactDir}`)
-    }
 
     console.log('[E2E] ¡TODAS LAS PRUEBAS DE NAVEGADOR COMPLETADAS CON ÉXITO!')
   } finally {

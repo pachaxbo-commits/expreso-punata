@@ -28,6 +28,7 @@ import type { ShipmentContact, ShipmentContactMethod, ShipmentContactResult } fr
 
 interface ShipmentDetailModalProps {
   shipment: Shipment | null
+  localTransfer?: React.ReactNode
   isOpen: boolean
   onClose: () => void
   currentUser: UserProfile
@@ -38,6 +39,7 @@ interface ShipmentDetailModalProps {
 
 export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   shipment,
+  localTransfer,
   isOpen,
   onClose,
   currentUser,
@@ -82,9 +84,9 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   const [rectificationReason, setRectificationReason] = useState('')
 
   useEffect(() => {
-    if (!shipment?.id) return
+    if (!shipment?.id || localTransfer) return
     fetchShipmentContacts(shipment.id, currentBranchId).then(setContacts).catch(() => setContacts([]))
-  }, [shipment?.id, currentBranchId])
+  }, [shipment?.id, currentBranchId, localTransfer])
 
   const handleRegisterContact = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -350,14 +352,14 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
               <FileText className="w-3.5 h-3.5" />
               <span>Detalles del Envío</span>
             </button>
-            <button
+            {!localTransfer && <button
               type="button"
               onClick={() => setActiveTab('contacts')}
               className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-1.5 ${activeTab === 'contacts' ? 'border-[#064e3b] text-[#064e3b] bg-white' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
             >
               <Phone className="w-3.5 h-3.5" />
               <span>Seguimiento del destinatario ({contacts.length})</span>
-            </button>
+            </button>}
             <button
               type="button"
               onClick={() => setActiveTab('history')}
@@ -370,7 +372,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
               <History className="w-3.5 h-3.5" />
               <span>Auditoría & Trazabilidad ({shipment.auditHistory?.length || 0})</span>
             </button>
-            <button
+            {!localTransfer && <button
               type="button"
               onClick={() => setActiveTab('incidents')}
               className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-1.5 ${
@@ -381,8 +383,8 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
             >
               <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
               <span>Incidencias & Rezagos</span>
-            </button>
-            {canEdit && (
+            </button>}
+            {!localTransfer && canEdit && (
               <button
                 type="button"
                 onClick={handleStartEdit}
@@ -406,6 +408,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
         {/* Contenido scrolleable */}
         <div className="p-5 overflow-y-auto space-y-5 text-xs flex-1">
           {/* TAB 1: DETALLES */}
+          {activeTab === 'info' && localTransfer}
           {activeTab === 'info' && (
             <div className="space-y-4">
               {/* Tarjeta de Ruta y Precio */}
@@ -1013,10 +1016,10 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {canCancel && (
+            {!localTransfer && canCancel && (
               <button type="button" onClick={() => { setCancellationError(null); setShowCancelDialog(true) }} className="px-3 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-xl font-bold text-xs">Anular encomienda</button>
             )}
-            {canDeliver && (
+            {!localTransfer && canDeliver && (
               <button
                 type="button"
                 onClick={() => {

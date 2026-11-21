@@ -29,7 +29,7 @@ interface ShipmentsManagementViewProps {
   onShipmentUpdated?: (updated: Shipment) => void
   backendConnected: boolean
   isCloudEnvironment: boolean
-  demoTransfer?: unknown
+  renderLocalTransfer?: (shipment: Shipment) => React.ReactNode
 }
 
 export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = ({
@@ -41,6 +41,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   onShipmentUpdated,
   backendConnected,
   isCloudEnvironment,
+  renderLocalTransfer,
 }) => {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -87,7 +88,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
 
   useEffect(() => {
     const term = searchTerm.trim()
-    if (term.length < 4) {
+    if (renderLocalTransfer || term.length < 4) {
       setServerResults([])
       return
     }
@@ -105,7 +106,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
     }, 350)
 
     return () => clearTimeout(timer)
-  }, [searchTerm, currentBranch.id])
+  }, [searchTerm, currentBranch.id, renderLocalTransfer])
 
   const combinedShipments = useMemo(() => {
     const map = new Map<string, Shipment>()
@@ -135,7 +136,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
 
   useEffect(() => {
     let cancelled = false
-    if (uncollectedShipments.length === 0) {
+    if (renderLocalTransfer || uncollectedShipments.length === 0) {
       setContactSummary({})
       return
     }
@@ -143,7 +144,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
       .then((entries) => { if (!cancelled) setContactSummary(Object.fromEntries(entries)) })
       .catch(() => { if (!cancelled) setContactSummary({}) })
     return () => { cancelled = true }
-  }, [uncollectedShipments, currentBranch.id])
+  }, [uncollectedShipments, currentBranch.id, renderLocalTransfer])
 
   const followUpRows = useMemo(() => uncollectedShipments.map((shipment) => {
     const contacts = contactSummary[shipment.id] || []
@@ -631,6 +632,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
       {/* Modal Ficha Completa de Encomienda */}
       <ShipmentDetailModal
         shipment={selectedShipment}
+        localTransfer={selectedShipment && renderLocalTransfer?.(selectedShipment)}
         isOpen={isDetailOpen}
         onClose={() => {
           setIsDetailOpen(false)

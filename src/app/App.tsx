@@ -743,11 +743,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   )
 }
 
-export const AppContent: React.FC = () => {
-  if (isPublicDemo) {
-    return <DemoView />
-  }
-
+const AuthenticatedAppContent: React.FC = () => {
   const { userProfile, isInitializing } = useAuth()
 
   if (isInitializing) {
@@ -774,3 +770,5 @@ export const App: React.FC = () => {
   )
 }
 export default App
+
+export const AppContent: React.FC = () => isPublicDemo ? <DemoView /> : <AuthenticatedAppContent />
