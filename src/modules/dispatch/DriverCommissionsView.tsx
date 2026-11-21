@@ -406,7 +406,7 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
                               <td className="p-2.5 text-slate-500">
                                 {r.createdAtIso ? new Date(r.createdAtIso).toLocaleDateString() : '-'}
                               </td>
-                              <td className="p-2.5 font-mono">Bs. {(r.baseShippingAmountCents / 100).toFixed(2)}</td>
+                              <td className="p-2.5 font-mono">{r.baseShippingAmountCents == null ? '—' : 'Bs. ' + (r.baseShippingAmountCents / 100).toFixed(2)}</td>
                               <td className="p-2.5 text-[11px] text-slate-600">
                                 {r.ruleApplied?.type === 'percentage'
                                   ? `${r.ruleApplied.value}%`

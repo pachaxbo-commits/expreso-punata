@@ -126,3 +126,22 @@ test('a prior commission for the same shipment under another manifest is blocked
   assert.equal((await db.collection('audit_logs').where('action', '==', 'accrue_driver_commission').get()).size, 1)
   assert.ok(first.recordId)
 })
+
+test('fixed commission on manual freight is independent of price and idempotent under retries', async () => {
+  await seedEvent({ feeCents: null })
+  await db.collection('shipments').doc('shipment-1').update({ finalAmountCents: 0 })
+  await assert.rejects(accrueDriverCommission.run(req('board')), { code: 'failed-precondition' })
+  assert.deepEqual(await financeState(), { accounts: [], records: [], audits: [] })
+
+  await db.collection('system_config').doc('expreso_punata').update({
+    commissions: { defaultType: 'fixed_per_shipment', defaultValue: 2 },
+  })
+  const results = await Promise.all([accrueDriverCommission.run(req('board')), accrueDriverCommission.run(req('board'))])
+  assert.deepEqual(results[0], results[1])
+  assert.equal(results[0].commissionAmountCents, 200)
+  const state = await financeState()
+  assert.equal(state.accounts[0][1].pendingCents, 200)
+  assert.equal(state.records.length, 1)
+  assert.equal(state.records[0][1].baseShippingAmountCents, null)
+  assert.equal(state.audits.length, 1)
+})

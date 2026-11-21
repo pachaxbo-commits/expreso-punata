@@ -291,6 +291,11 @@ service cloud.firestore {
     // COLECCIÓN: cash_shift_active_locks (Candados determinísticos de turno activo)
     // =========================================================================
     match /cash_shift_active_locks/{lockId} {
+      // The operator must be able to observe a missing lock for their branch.
+      allow get: if isActive() && isCashier() && resource == null && (
+        (isBranchAllowed('punata') && lockId == request.auth.uid + '_punata') ||
+        (isBranchAllowed('cochabamba') && lockId == request.auth.uid + '_cochabamba')
+      );
       allow read: if isActive() && (
         resource.data.operatorUid == request.auth.uid ||
         (isAgencyManager() && isBranchAllowed(resource.data.branchId)) ||
@@ -435,6 +440,17 @@ service cloud.firestore {
     match /union_worker_payments/{paymentId} {
       allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
       allow write: if false; // Inmutable, solo Cloud Functions (registerWorkerPayment)
+    }
+
+    // The commission screen queries the company-wide ledger.
+    match /driver_commission_accounts/{driverId} {
+      allow read: if isActive() && isAdmin();
+      allow write: if false;
+    }
+
+    match /driver_commission_records/{recordId} {
+      allow read: if isActive() && isAdmin();
+      allow write: if false;
     }
 
     // Operaciones de pasajes: la oficina consulta por sucursal y el chofer solo las suyas.

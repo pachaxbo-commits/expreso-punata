@@ -166,7 +166,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'shipments', label: 'Encomiendas', icon: Package, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'storage', label: 'Módulos de Almacén', icon: Boxes, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: advancedDispatchVisible && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
-    { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
+    { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['directiva_admin']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
     { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['secretaria', 'tesoreria', 'directiva_admin']) },
     { id: 'sports-fines', label: 'Multas', icon: AlertTriangle, visible: hasRole(['secretaria']) },

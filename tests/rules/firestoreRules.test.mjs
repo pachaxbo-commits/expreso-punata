@@ -855,3 +855,39 @@ test('18. FASE A: Alcance por sucursal y auditoría de encomiendas', async () =>
   await assertSucceeds(getDoc(doc(adminDb, 'shipments', 'shipment-audit-scope', 'audit_logs', 'cancel-1')))
   await assertFails(setDoc(doc(adminDb, 'shipments', 'shipment-audit-scope', 'audit_logs', 'hack'), { action: 'tampered' }))
 })
+
+test('cashier can observe a missing own shift lock only in an authorized branch', async () => {
+  const uid = 'missing-cash-lock-secretary'
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', uid), {
+      role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true,
+    })
+  })
+  const cashier = testEnv.authenticatedContext(uid).firestore()
+  const lock = id => doc(cashier, 'cash_shift_active_locks', id)
+  const own = await assertSucceeds(getDoc(lock(uid + '_punata')))
+  if (own.exists()) throw new Error('Expected the shift lock to be absent')
+  await assertFails(getDoc(lock(uid + '_cochabamba')))
+  await assertFails(getDoc(lock('other-operator_punata')))
+  await assertFails(setDoc(lock(uid + '_punata'), { operatorUid: uid, branchId: 'punata' }))
+})
+
+test('only the active company administrator can read the global commissions ledger', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    for (const [id, role, isActive] of [
+      ['ledger-admin', 'directiva_admin', true], ['ledger-inactive', 'directiva_admin', false],
+      ['ledger-secretary', 'secretaria', true], ['ledger-affiliate', 'afiliado', true],
+    ]) await setDoc(doc(seed, 'users', id), { role, isActive })
+    await setDoc(doc(seed, 'driver_commission_accounts', 'ledger-driver'), { pendingCents: 200 })
+    await setDoc(doc(seed, 'driver_commission_records', 'ledger-record'), { amountCents: 200 })
+  })
+  for (const [collectionName, id] of [
+    ['driver_commission_accounts', 'ledger-driver'], ['driver_commission_records', 'ledger-record'],
+  ]) {
+    const ref = uid => doc(testEnv.authenticatedContext(uid).firestore(), collectionName, id)
+    await assertSucceeds(getDoc(ref('ledger-admin')))
+    await assertFails(updateDoc(ref('ledger-admin'), { pendingCents: 0 }))
+    for (const uid of ['ledger-inactive', 'ledger-secretary', 'ledger-affiliate']) await assertFails(getDoc(ref(uid)))
+  }
+})

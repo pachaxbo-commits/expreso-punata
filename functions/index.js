@@ -8239,9 +8239,11 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
         !Number.isFinite(ruleValue) || ruleValue <= 0 || (ruleType === 'percentage' && ruleValue > 100)) {
       throw new HttpsError('failed-precondition', 'No existe una regla oficial de comision valida en system_config/expreso_punata.')
     }
-    // shippingFeeCents is the server-calculated freight base; no unapproved branch attribution is written.
-    const baseShippingAmountCents = shipment.shippingFeeCents
-    if (!Number.isSafeInteger(baseShippingAmountCents) || baseShippingAmountCents < 0) throw new HttpsError('failed-precondition', 'El flete base de la encomienda no es valido.')
+    const freight = shipment.shippingFeeCents
+    const baseShippingAmountCents = Number.isSafeInteger(freight) && freight >= 0 ? freight : null
+    if (ruleType === 'percentage' && baseShippingAmountCents === null) {
+      throw new HttpsError('failed-precondition', 'La comisión porcentual requiere una base de flete autorizada. El precio manual no se usa automáticamente.')
+    }
     const commissionAmountCents = ruleType === 'percentage' ? Math.round(baseShippingAmountCents * ruleValue / 100) : Math.round(ruleValue * 100)
     if (!Number.isSafeInteger(commissionAmountCents) || commissionAmountCents <= 0) throw new HttpsError('failed-precondition', 'La regla oficial produce una comision no valida.')
 

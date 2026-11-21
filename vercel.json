@@ -1,4 +1,5 @@
 {
+  "redirects": [{ "source": "/demo", "destination": "/", "permanent": false }],
   "rewrites": [
     {
       "source": "/(.*)",

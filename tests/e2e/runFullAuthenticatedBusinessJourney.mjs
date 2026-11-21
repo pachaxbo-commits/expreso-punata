@@ -3,7 +3,8 @@ process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
 process.env.FIREBASE_STORAGE_EMULATOR_HOST = '127.0.0.1:9199'
 process.env.STORAGE_EMULATOR_HOST = 'http://127.0.0.1:9199'
 
-const projectId = process.env.GCLOUD_PROJECT || 'expreso-punata-dev'
+const projectId = process.env.GCLOUD_PROJECT || 'demo-expreso-punata'
+assert.ok(projectId.startsWith('demo-'), 'El recorrido integral solo admite un proyecto demo en emuladores.')
 process.env.GCLOUD_PROJECT = projectId
 
 import assert from 'node:assert/strict'
@@ -175,8 +176,8 @@ async function runJourney() {
         homeDeliveryFeeCents: 1200,
       },
       commissions: {
-        defaultType: 'percentage',
-        defaultValue: 10,
+        defaultType: 'fixed_per_shipment',
+        defaultValue: 2,
       },
       dues: {
         monthlyDueCents: 5000,

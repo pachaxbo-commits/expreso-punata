@@ -914,7 +914,7 @@ export interface DriverCommissionRecord {
   manifestId?: string
   shipmentId: string
   trackingCode: string
-  baseShippingAmountCents: number
+  baseShippingAmountCents: number | null
   ruleApplied: DriverCommissionRule
   commissionAmountCents: number
   commissionAmountBob: number
