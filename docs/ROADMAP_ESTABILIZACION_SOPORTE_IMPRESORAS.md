@@ -20,7 +20,7 @@ Base remota verificada mediante fetch: `04c5b89`. La rama `codex/phase-1-stabili
 | Usuarios y configuración de empresa | Sin acceso | Sin acceso | Administración protegida | Permisos técnicos explícitos |
 | Centro de Soporte | Sin acceso | Sin acceso | Sin acceso automático | Acceso técnico auditado en fase 2 |
 
-Esta tabla es la matriz objetivo. El modelo actual aún contiene siete roles en `src/types/index.ts`, con autorizaciones distintas en `src/app/App.tsx`, `functions/index.js`, `firestore.rules`, `storage.rules` y tutoriales. `afiliado_admin` ya existe y tiene poderes distintos de `directiva_admin`. Promover por coincidencia de nombre daría acceso financiero a cuentas que hoy tienen un alcance limitado. Primero se necesita un inventario autorizado de UID y funciones, incluida la verificación de Nelson. La implementación local y las pruebas de los cuatro perfiles siguen pendientes. En custodia y uso de pasajes debe conservarse el conductor asignado como persona y registrarse como actor el operador autenticado que verifica el evento. No se ha migrado ninguna cuenta.
+Esta tabla es la matriz objetivo. El modelo actual reconoce el perfil técnico y conserva los siete roles operativos y heredados en `src/types/index.ts`, con autorizaciones distintas en `src/app/App.tsx`, `functions/index.js`, `firestore.rules`, `storage.rules` y tutoriales. `afiliado_admin` ya existe y tiene poderes distintos de `directiva_admin`. Promover por coincidencia de nombre daría acceso financiero a cuentas que hoy tienen un alcance limitado. Primero se necesita un inventario autorizado de UID y funciones, incluida la verificación de Nelson. La implementación local y las pruebas de los cuatro perfiles siguen pendientes. En custodia y uso de pasajes debe conservarse el conductor asignado como persona y registrarse como actor el operador autenticado que verifica el evento. No se ha migrado ninguna cuenta.
 
 | Tarea | Diagnóstico y progreso | Evidencia o dependencia |
 |---|---|---|
@@ -32,6 +32,29 @@ Esta tabla es la matriz objetivo. El modelo actual aún contiene siete roles en 
 | EP-11 | La regla leía los datos de un candado inexistente. El operador de caja activo puede consultar solo su candado ausente en Punata o Cochabamba según su perfil. | evidence/phase1-rules.log prueba ausencia normal, rechazo de otro operador o agencia y denegación de escritura. Una nueva agencia requerirá ampliar este diseño. |
 | EP-10 | El recorrido integral pasó de registro a reportes con perfiles vigentes y comisión fija sintética. | evidence/phase1-journey.log. Pendiente repetir con la nueva matriz, fallos de red y más variantes. |
 | EP-12 | Se eliminó un any en el manejo de errores de Mi cuenta. | evidence/phase1-lint.json contiene el inventario de 273 errores y 14 avisos. |
+
+## Continuación de la Fase 1 · Reporte diario, histórico y acceso técnico
+
+Commit de implementación: c94d8d6. Se verificaron 27 pruebas de reglas y el recorrido Playwright de Secretaría, Administración vigente y Soporte. El reporte se comprobó por llamada directa y desde el navegador.
+
+| Tarea | Estado | Cambios y evidencia |
+|---|---|---|
+| EP-02 · Mi cuenta | En curso | La consulta tolera una lista de agencias heredada no válida usando la agencia primaria. Se comprueban perfil vinculado, vínculo ausente y agencia incorrecta con datos sintéticos. El incidente real requiere hora, código de la llamada y UID autorizado, sin copiar credenciales ni datos personales. |
+| EP-04 · Matriz | En curso | Soporte inicia sesión en una pantalla técnica sin menús operativos. Las reglas excluyen ese perfil de datos operativos y conservan la lectura del perfil propio. El aprovisionamiento del cliente rechaza asignar el rol o modificar la cuenta técnica. Se cerraron las llamadas a catálogo de almacén y directorio de conductores para el perfil técnico. Pendiente auditar las demás Functions y completar los perfiles operativos. |
+| EP-06 · Encomiendas | En curso | La búsqueda por teléfono y guía consulta agencia de origen y destino en Firestore sin corte por fecha. La prueba de reglas verifica un documento de 2025 y rechaza la consulta sin agencia. Pendientes filtro por rango y entrega completa de una guía antigua en navegador. |
+| EP-08 · Reporte diario | En curso | Secretaría dispone de totales imprimibles y acotados al día de Bolivia. El backend rechaza reportes generales, filtra la agencia, deduplica cobros y no acepta fechas del cliente. Los pendientes mostrados corresponden a guías registradas hoy. Evidencia en evidence/roles-daily-security.log y evidence/roles-daily-browser.log. Pendiente integrar caja mínima y revisar los demás módulos de esta tarea. |
+| EP-10 · Recorridos | En curso | Se amplió la prueba Playwright con el reporte de Secretaría y la sesión de Soporte. Los demás recorridos deben repetirse tras la migración. |
+| EP-12 · Calidad | En curso | TypeScript, build y 73 unitarias pasaron. Inventario de 272 errores y 14 avisos en evidence/roles-daily-lint.json. |
+
+### Transición para futura publicación
+
+1. Inventariar perfiles por UID, estado, agencia, claims y responsabilidades operativas. Comparar Auth con Firestore. Exportar un respaldo con acceso restringido.
+2. Conservar Secretaría cuando coincidan función y agencia. Revisar manualmente a cada Afiliado administrador existente antes de otorgar administración general. Verificar UID y función de Nelson con el propietario. Evaluar individualmente Directiva, Tesorería y Encargados según su función prevista.
+3. Conservar los conductores como entidades operativas y sus identificadores históricos. Verificar los flujos de custodia, validación de pasajes, entrega y comisiones con un operador identificado y evidencia del acto. Retirar el acceso de cada cuenta de conductor solo al resolver sus dependencias.
+4. Preparar el perfil técnico con una identidad individual verificada, aprovisionamiento mediante un operador autorizado de Firebase y auditoría. Requerir autenticación reforzada antes de conceder capacidades técnicas. Los administradores del cliente no aprovisionan estas cuentas.
+5. Validar la matriz en emuladores y en un entorno de revisión. Preparar índices y esperar a que estén listos. Coordinar Functions, reglas y frontend compatibles antes de migrar UID autorizados. No publicar un cambio de rol de forma aislada.
+6. Verificar por perfil y agencia autenticación, operaciones, denegaciones por llamada directa y trazabilidad. Comparar con el inventario y el respaldo.
+7. Si falla la transición, detener la migración, revertir frontend, Functions y reglas a sus revisiones compatibles y restaurar únicamente perfiles y claims modificados desde el inventario. Revocar sesiones cuando se hayan cambiado privilegios y comprobar que sigue habiendo administración activa.
 ## Matriz objetivo y migración
 Actualmente el sistema contiene más roles de los necesarios.
 
