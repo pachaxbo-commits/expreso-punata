@@ -250,7 +250,7 @@ export const PassengerTicketsView: React.FC<Props> = ({ currentUser, currentBran
       {error && <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>{error}</div>}
       {notice && <div role="status" className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/>{notice}</div>}
 
-      {isDriver && <section data-tutorial-target="tickets-driver-validation" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      {(isDriver || canRegister) && <section data-tutorial-target="tickets-driver-validation" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-extrabold text-slate-800">Comprobar comprobante</h2>
         <p className="mt-1 text-xs text-slate-600">Escribe el código que aparece en el comprobante. La confirmación consulta el registro oficial.</p>
         <form onSubmit={handleValidateTicket} className="mt-3 flex flex-col gap-2 sm:flex-row">

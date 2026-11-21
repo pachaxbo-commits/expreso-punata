@@ -30,7 +30,7 @@ export function ShipmentTransfer({ shipment, action, onDone }: {
   const expected = shipment.packageCount || 1
   const discrepant = Number(packages) !== expected || condition !== 'good'
   const disabled = busy || (departing
-    ? !vehicleId || !driverUid
+    ? !vehicleId || !driverUid || notes.trim().length < 10
     : !packages || !Number.isInteger(Number(packages)) || Number(packages) < 0 || (discrepant && notes.trim().length < 5))
 
   async function confirm() {
@@ -44,6 +44,7 @@ export function ShipmentTransfer({ shipment, action, onDone }: {
           destinationBranchId: shipment.destinationBranchId,
           vehicleId,
           driverUid,
+          handoffNote: notes.trim(),
         })
       } else {
         if (!shipment.manifestId) throw new Error('No se encontró el registro de salida.')
@@ -76,6 +77,9 @@ export function ShipmentTransfer({ shipment, action, onDone }: {
               <option value="">Seleccionar conductor</option>
               {drivers.map(d => <option key={d.uid} value={d.uid}>{d.fullName}</option>)}
             </select>
+          </label>
+          <label className="sm:col-span-2">Constancia de entrega física al conductor
+            <textarea className="block w-full rounded border p-2" maxLength={500} value={notes} onChange={e => setNotes(e.target.value)} />
           </label>
         </div>
       ) : (

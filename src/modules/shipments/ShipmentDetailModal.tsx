@@ -29,6 +29,7 @@ import type { ShipmentContact, ShipmentContactMethod, ShipmentContactResult } fr
 interface ShipmentDetailModalProps {
   shipment: Shipment | null
   localTransfer?: React.ReactNode
+  transfer?: React.ReactNode
   isOpen: boolean
   onClose: () => void
   currentUser: UserProfile
@@ -40,6 +41,7 @@ interface ShipmentDetailModalProps {
 export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   shipment,
   localTransfer,
+  transfer,
   isOpen,
   onClose,
   currentUser,
@@ -408,7 +410,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
         {/* Contenido scrolleable */}
         <div className="p-5 overflow-y-auto space-y-5 text-xs flex-1">
           {/* TAB 1: DETALLES */}
-          {activeTab === 'info' && localTransfer}
+          {activeTab === 'info' && (localTransfer || transfer)}
           {activeTab === 'info' && (
             <div className="space-y-4">
               {/* Tarjeta de Ruta y Precio */}

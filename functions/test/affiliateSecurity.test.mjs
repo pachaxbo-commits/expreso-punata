@@ -2,7 +2,7 @@ import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getMyUnionAccount, adminProvisionUser } from '../index.js'
+import { getMyUnionAccount, adminProvisionUser, listAffiliateShipments, createShipment } from '../index.js'
 
 const db = getFirestore()
 const auth = getAuth()
@@ -81,4 +81,22 @@ test('company administrator cannot grant technical support or change a technical
   } finally {
     await auth.deleteUser(target.uid)
   }
+})
+
+test('affiliate shipment projection omits private fields and rejects foreign agencies and writes', async () => {
+  const uid = 'shipment-affiliate-' + suffix()
+  await db.collection('users').doc(uid).set({ uid, role: 'afiliado', isActive: true, primaryBranchId: 'punata' })
+  const code = 'PUN202599999'
+  await db.collection('shipments').doc(code).set({
+    trackingCode: code, originBranchId: 'punata', destinationBranchId: 'cochabamba',
+    status: 'delivered', createdAtIso: '2025-06-10T14:00:00.000Z', packageCount: 1,
+    sender: { name: 'Sintético', phone: '70000001' }, recipient: { name: 'Sintético' },
+    deliveryRecord: { receivedByDocNumber: '1234567' }, finalAmountCents: 2500,
+  })
+  const auth = { uid }
+  const result = await listAffiliateShipments.run({ auth, data: { branchId: 'punata', trackingCode: code } })
+  assert.deepEqual(result.shipments, [{ trackingCode: code, originBranchId: 'punata', destinationBranchId: 'cochabamba',
+    status: 'delivered', createdAtIso: '2025-06-10T14:00:00.000Z', packageCount: 1 }])
+  await assert.rejects(listAffiliateShipments.run({ auth, data: { branchId: 'cochabamba' } }), { code: 'permission-denied' })
+  await assert.rejects(createShipment.run({ auth, data: {} }), { code: 'permission-denied' })
 })

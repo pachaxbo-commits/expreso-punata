@@ -2287,6 +2287,7 @@ async function createDispatch(request) {
   }
 
   const payload = request.data || {}
+  const handoffNote = request[singleTransfer] ? payload.handoffNote : null
   const {
     originBranchId,
     destinationBranchId,
@@ -2338,6 +2339,7 @@ async function createDispatch(request) {
 
     const driverRef = db.collection('users').doc(driverUid)
     const driverDoc = await transaction.get(driverRef)
+    const directoryDriver = handoffNote ? await transaction.get(db.collection('driver_directory').doc(driverUid)) : null
 
     const currentYear = new Date().getFullYear()
     const counterId = `manifests_${originBranchId}_${currentYear}`
@@ -2360,17 +2362,20 @@ async function createDispatch(request) {
       throw new HttpsError('failed-precondition', `El vehículo seleccionado se encuentra ${vehicleData.status === 'in_maintenance' ? 'en mantenimiento' : 'inactivo'}.`)
     }
 
-    if (!driverDoc.exists) {
+    if (!driverDoc.exists && !directoryDriver?.exists) {
       throw new HttpsError('not-found', 'El conductor seleccionado no existe en el sistema.')
     }
-    const driverData = driverDoc.data() || {}
+    if (driverDoc.exists && driverDoc.data()?.role === 'conductor' && driverDoc.data()?.isActive === false) {
+      throw new HttpsError('failed-precondition', 'El conductor asignado está inactivo.')
+    }
+    const driverData = directoryDriver?.exists ? directoryDriver.data() : (driverDoc.data() || {})
     if (request[singleTransfer] && (driverData.isActive !== true || vehicleData.status !== 'active' || vehicleData.branchId !== originBranchId)) {
       throw new HttpsError('failed-precondition', 'Selecciona un conductor activo y un vehículo activo de la agencia de origen.')
     }
     if (driverData.isActive === false) {
       throw new HttpsError('failed-precondition', 'El conductor seleccionado se encuentra inactivo.')
     }
-    if (driverData.role !== 'conductor') {
+    if (!directoryDriver?.exists && driverData.role !== 'conductor') {
       throw new HttpsError('failed-precondition', `El usuario asignado tiene rol '${driverData.role}', no es un conductor.`)
     }
 
@@ -2472,9 +2477,13 @@ async function createDispatch(request) {
       dispatchedAtIso: nowIso,
       dispatchedByUid: callerUid,
       dispatchedByName: callerData.fullName || 'Operador',
-      driverCustodyStatus: 'pending',
-      driverCustodyAt: null,
-      driverCustodyNotes: null,
+      driverCustodyStatus: handoffNote ? 'accepted' : 'pending',
+      driverCustodyAt: handoffNote ? now : null,
+      driverCustodyNotes: handoffNote || null,
+      ...(handoffNote ? { driverCustodyAtIso: nowIso, custodyHandoff: {
+        method: 'counter_attestation', recordedByUid: callerUid, recordedByName: callerData.fullName || 'Operador',
+        recordedByRole: callerData.role, driverUid, vehicleId, shipmentIds, recordedAtIso: nowIso, note: handoffNote,
+      } } : {}),
       receivedAt: null,
       receivedAtIso: null,
       receivedByUid: null,
@@ -2493,7 +2502,7 @@ async function createDispatch(request) {
           auditHistory: FieldValue.arrayUnion(transferAudit({
             action: 'confirm_shipment_departure', previousStatus: item.doc.data().status,
             newStatus: 'in_transit', callerUid, callerData, branchId: originBranchId, nowIso,
-            reason: 'Salida confirmada en agencia.', newValues: { vehicleId, driverUid },
+            reason: handoffNote ? 'Salida y entrega física registradas en agencia. ' + handoffNote : 'Salida confirmada en agencia.', newValues: { vehicleId, driverUid },
           })),
         } : {}),
         currentLocation: 'in_transit',
@@ -2989,11 +2998,14 @@ export const confirmShipmentDeparture = onCall({ cors: true }, async (request) =
   if (process.env.SIMPLE_SHIPMENT_TRANSFER !== 'true') {
     throw new HttpsError('failed-precondition', 'El traslado simplificado está deshabilitado.')
   }
-  const { shipmentId, originBranchId, destinationBranchId, vehicleId, driverUid } = request.data || {}
+  const { shipmentId, originBranchId, destinationBranchId, vehicleId, driverUid, handoffNote } = request.data || {}
+  if (handoffNote !== undefined && (typeof handoffNote !== 'string' || handoffNote.trim().length < 10 || handoffNote.trim().length > 500)) {
+    throw new HttpsError('invalid-argument', 'Registre una constancia de entrega de entre 10 y 500 caracteres.')
+  }
   return createDispatch({
     ...request,
     [singleTransfer]: true,
-    data: { shipmentIds: [shipmentId], originBranchId, destinationBranchId, vehicleId, driverUid },
+    data: { shipmentIds: [shipmentId], originBranchId, destinationBranchId, vehicleId, driverUid, handoffNote: handoffNote?.trim() },
   })
 })
 
@@ -6811,6 +6823,39 @@ function financialMovementDateKey(movement) {
   if (typeof value?.toDate === 'function') return value.toDate().toISOString()
   return ''
 }
+
+/** Read-only operational projection. Never return sender, recipient or delivery evidence. */
+export const listAffiliateShipments = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  const { branchId, trackingCode = '' } = request.data || {}
+  const allowedBranches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : []
+  if (caller.isActive !== true || caller.role !== 'afiliado' || typeof branchId !== 'string' || !branchId ||
+      (branchId !== caller.primaryBranchId && !allowedBranches.includes(branchId))) {
+    throw new HttpsError('permission-denied', 'No tiene acceso a la consulta de encomiendas de esta agencia.')
+  }
+  if (typeof trackingCode !== 'string' || trackingCode.length > 40) {
+    throw new HttpsError('invalid-argument', 'Ingrese un número de guía válido.')
+  }
+  const code = trackingCode.trim().toUpperCase().replace(/-/g, '')
+  const shipments = db.collection('shipments')
+  const projection = ['trackingCode', 'status', 'originBranchId', 'destinationBranchId', 'createdAtIso', 'packageCount']
+  const scopes = ['originBranchId', 'destinationBranchId']
+  let docs
+  if (code) {
+    if (!/^[A-Z]{3}\d{9}$/.test(code)) return { shipments: [] }
+    const dashed = code.slice(0, 3) + '-' + code.slice(3, 7) + '-' + code.slice(7)
+    const snapshots = await Promise.all(scopes.flatMap(scope => [code, dashed].map(value =>
+      shipments.where(scope, '==', branchId).where('trackingCode', '==', value).select(...projection).limit(10).get())))
+    docs = snapshots.flatMap(snapshot => snapshot.docs)
+  } else {
+    const snapshots = await Promise.all(scopes.map(scope =>
+      shipments.where(scope, '==', branchId).orderBy('createdAtIso', 'desc').select(...projection).limit(30).get()))
+    docs = snapshots.flatMap(snapshot => snapshot.docs)
+  }
+  const rows = [...new Map(docs.map(doc => [doc.id, doc.data()])).values()]
+  rows.sort((a, b) => String(b.createdAtIso || '').localeCompare(String(a.createdAtIso || '')))
+  return { shipments: rows.slice(0, 30) }
+})
 
 /** Summary for today's operations only. The caller cannot select a date range. */
 export const getDailyOperationsReport = onCall({ cors: true }, async (request) => {
@@ -10786,13 +10831,16 @@ export const validatePassengerTicket = onCall({ cors: true }, async (request) =>
 
   return db.runTransaction(async (transaction) => {
     const [caller, operationSnap, idemSnap] = await Promise.all([
-      getTicketCaller(transaction, uid, ['conductor']),
+      getTicketCaller(transaction, uid, ['conductor', ...PASSENGER_TICKET_STAFF_ROLES]),
       transaction.get(operationRef),
       transaction.get(idemRef),
     ])
     if (!operationSnap.exists) throw new HttpsError('not-found', 'No se encontró un pasaje con ese código.')
     const operation = { id: operationSnap.id, ...(operationSnap.data() || {}) }
-    if (operation.driverUid !== uid) throw new HttpsError('permission-denied', 'Este pasaje corresponde a otro chofer.')
+    const isDriver = caller.role === 'conductor'
+    if (isDriver ? operation.driverUid !== uid : !ticketBranchAllowed(caller, operation.originBranchId)) {
+      throw new HttpsError('permission-denied', 'No tiene permiso para validar este pasaje.')
+    }
     if (idemSnap.exists) {
       const cached = idemSnap.data() || {}
       if (cached.callerUid !== uid || cached.payloadFingerprint !== fingerprint) throw new HttpsError('already-exists', 'La clave de validación ya se usó para otro pasaje.')
@@ -10822,8 +10870,8 @@ export const validatePassengerTicket = onCall({ cors: true }, async (request) =>
     }
     transaction.create(validationRef, {
       id: validationRef.id, operationId: operation.id, operationNumber: operation.operationNumber,
-      ticketCode, branchId: operation.branchId, driverUid: uid, driverName: caller.fullName || operation.driverName,
-      validationNumber: nextUsedCount, validatedByUid: uid, validatedByName: caller.fullName || 'Chofer',
+      ticketCode, branchId: operation.branchId, driverUid: operation.driverUid, driverName: operation.driverName,
+      validationNumber: nextUsedCount, validatedByUid: uid, validatedByName: caller.fullName || 'Operador', validatedByRole: caller.role,
       validatedAtIso: nowIso, createdAt: FieldValue.serverTimestamp(),
     })
     transaction.update(operationRef, {
@@ -10831,7 +10879,7 @@ export const validatePassengerTicket = onCall({ cors: true }, async (request) =>
       updatedAtIso: nowIso, updatedAt: FieldValue.serverTimestamp(),
     })
     transaction.create(idemRef, { callerUid: uid, payloadFingerprint: fingerprint, operationId: operation.id, result, createdAtIso: nowIso })
-    ticketOperationAudit(transaction, operation, 'passenger_ticket_validated_by_driver', caller, { ...result })
+    ticketOperationAudit(transaction, operation, isDriver ? 'passenger_ticket_validated_by_driver' : 'passenger_ticket_validated_at_counter', caller, { ...result })
     return { success: true, ...result }
   })
 })

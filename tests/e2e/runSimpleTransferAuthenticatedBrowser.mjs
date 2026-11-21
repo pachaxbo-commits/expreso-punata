@@ -23,18 +23,10 @@ async function createOperator(label, role, branch, branches = [branch]) {
 
 const origin = await createOperator('punata', 'secretaria', 'punata')
 const dest = await createOperator('cochabamba', 'secretaria', 'cochabamba')
-const driver = await createOperator('conductor', 'conductor', 'punata')
-const manager = await createOperator('encargado', 'encargado_agencia', 'punata')
+const driver = { uid: 'directory-only-' + nonce }
 const admin = await createOperator('admin', 'directiva_admin', 'punata', ['punata', 'cochabamba'])
 await db.collection('vehicles').doc('browser-' + nonce).set({ status: 'active', branchId: 'punata', mobileNumber: '88', plate: 'DEMO' })
 await db.collection('driver_directory').doc(driver.uid).set({ uid: driver.uid, fullName: 'conductor', isActive: true })
-for (const [user, branchId] of [[origin, 'punata'], [dest, 'cochabamba']]) {
-  const response = await fetch('http://127.0.0.1:5001/' + project + '/us-central1/openCashShift', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + user.idToken },
-    body: JSON.stringify({ data: { branchId, initialCashCents: 5000, idempotencyKey: 'browser-' + nonce + branchId } }),
-  })
-  assert((await response.json()).result?.success)
-}
 const base = 'http://127.0.0.1:4187'
 const preview = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4187', '--strictPort'], { stdio: 'inherit' })
 const browser = await chromium.launch({ channel: 'chrome' })
@@ -54,14 +46,16 @@ try {
   }
   const originPage = await login(origin)
   const destPage = await login(dest)
-  const driverPage = await login(driver)
-  const managerPage = await login(manager)
   const adminPage = await login(admin)
-  for (const page of [originPage, destPage, driverPage, managerPage, adminPage]) {
-    assert.equal(await page.getByRole('button', { name: 'Despachos y Ruta' }).count(), 0)
-    assert(await page.getByRole('button', { name: /Comisiones de conductores/i }).isVisible())
-  }
   const btn = (page, name) => page.getByRole('button', { name, exact: typeof name === 'string' })
+  assert.equal(await btn(originPage, 'Caja del Turno').count(), 0)
+  await btn(adminPage, 'Caja del Turno').waitFor()
+  for (const page of [originPage, destPage]) {
+    await btn(page, 'Abrir turno de ventanilla').click()
+    await page.locator('input[type=number]').fill('50')
+    await btn(page, 'Confirmar y Abrir Turno').click()
+    await btn(page, 'Cerrar turno de ventanilla').waitFor()
+  }
   async function openGuide(page, guide) {
     await page.locator('[data-tutorial-target="shipment-search-input"]').fill(guide)
     await page.getByText(guide, { exact: true }).last().click()
@@ -74,6 +68,7 @@ try {
     }
     await btn(originPage, 'Siguiente').click()
     await originPage.getByPlaceholder(/Ropa, repuestos/).first().fill('Paquete de prueba')
+    await originPage.getByLabel(/Precio del Envío/).fill('25')
     await btn(originPage, 'Siguiente').click()
     await btn(originPage, mode).click()
     const response = originPage.waitForResponse(r => r.url().endsWith('/createShipment') && r.request().method() === 'POST')
@@ -81,14 +76,27 @@ try {
     const payload = await (await response).json()
     assert(payload.result?.trackingCode, JSON.stringify(payload.error))
     const guide = payload.result.trackingCode
+    if (timing === 'destination_cod') await db.collection('shipments').doc(guide).update({ createdAtIso: '2025-06-10T14:00:00.000Z' })
     await originPage.reload()
     await openGuide(originPage, guide)
     await originPage.getByLabel('Vehículo').selectOption('browser-' + nonce)
-    await originPage.getByLabel('Conductor').selectOption(driver.uid)
+    await originPage.getByRole('combobox', { name: /Conductor/i }).selectOption(driver.uid)
+    await originPage.getByLabel('Constancia de entrega física al conductor').fill('Constancia sintética: carga recibida en el móvil.')
+    const departure = originPage.waitForResponse(r => r.url().endsWith('/confirmShipmentDeparture') && r.request().method() === 'POST')
     await btn(originPage, 'Confirmar salida').click()
-    await driverPage.getByText(new RegExp(guide)).waitFor()
-    await btn(driverPage, 'Confirmar custodia').click()
-    await btn(driverPage, 'Confirmar custodia').waitFor({ state: 'hidden' })
+    const dispatch = (await (await departure).json()).result
+    assert(dispatch?.manifestId)
+    const manifest = (await db.collection('manifests').doc(dispatch.manifestId).get()).data()
+    assert.equal(manifest.driverCustodyStatus, 'accepted')
+    assert.equal(manifest.custodyHandoff.recordedByUid, origin.uid)
+    assert.equal(manifest.custodyHandoff.driverUid, driver.uid)
+    assert.deepEqual(manifest.custodyHandoff.shipmentIds, [guide])
+    await originPage.getByTitle('Cerrar Ficha').click()
+    if (timing === 'destination_cod') {
+      await destPage.getByLabel('Desde').fill('2025-06-01')
+      await destPage.getByLabel('Hasta').fill('2025-06-30')
+      await destPage.getByText(guide, { exact: true }).first().waitFor()
+    }
     await openGuide(destPage, guide)
     await destPage.getByLabel(/Bultos recibidos/).fill('1')
     await btn(destPage, 'Recibir encomienda').click()
@@ -130,8 +138,22 @@ try {
     assert.equal(stored.status, 'delivered')
     assert(stored.deliveryRecord.signature)
     await destPage.reload()
+    await openGuide(destPage, guide)
+    const receiptPopup = destPage.waitForEvent('popup')
+    await btn(destPage, 'Recibo Entrega').click()
+    const receiptPage = await receiptPopup
+    await receiptPage.waitForURL(url => url.protocol === 'blob:')
+    await receiptPage.close()
+    await destPage.getByTitle('Cerrar Ficha').click()
     console.log('Navegador autenticado:', timing, guide)
   }
+  const dailyResponse = destPage.waitForResponse(r => r.url().endsWith('/getDailyOperationsReport') && r.request().method() === 'POST')
+  await btn(destPage, 'Reporte del día').click()
+  const daily = (await (await dailyResponse).json()).result
+  assert.equal(daily.branchId, 'cochabamba')
+  assert.equal(daily.delivered, 2)
+  assert.equal(daily.income.cod, 2500)
+  await btn(destPage, 'Imprimir reporte').waitFor()
   const reportResponse = adminPage.waitForResponse(r => r.url().endsWith('/getSystemReport') && r.request().method() === 'POST' && r.ok())
   await btn(adminPage, /Reportes & Estadísticas/).click()
   assert((await (await reportResponse).json()).result)

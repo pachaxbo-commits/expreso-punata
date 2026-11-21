@@ -1,3 +1,4 @@
+import { AffiliateShipmentsView } from '../modules/shipments/AffiliateShipmentsView'
 import { DailyOperationsView } from '../modules/reports/DailyOperationsView'
 import { isPublicDemo } from '../firebase/config'
 import React, { lazy, Suspense, useState, useEffect } from 'react'
@@ -46,7 +47,7 @@ import { ShipmentCustody } from '../modules/shipments/ShipmentCustody'
 import { ShipmentsManagementView } from '../modules/shipments/ShipmentsManagementView'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
 import { ShipmentDeliveryModal } from '../modules/shipments/ShipmentDeliveryModal'
-import { CashManagementView } from '../modules/cash/CashManagementView'
+import { CashManagementView, CounterCashShift } from '../modules/cash/CashManagementView'
 import { DispatchManifestView } from '../modules/dispatch/DispatchManifestView'
 import { StorageManagementView } from '../modules/storage/StorageManagementView'
 import { UserManagementView } from '../modules/users/UserManagementView'
@@ -70,7 +71,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const simpleTransferEnabled = import.meta.env.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
   const advancedContingency = import.meta.env.VITE_ADVANCED_DISPATCH === 'true'
   const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && userProfile.role === 'directiva_admin')
-  const [activeTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
+  const [requestedTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     try { return window.localStorage.getItem('expreso-sidebar-collapsed') === 'true' } catch { return false }
   })
@@ -171,18 +172,16 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
     { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['secretaria', 'tesoreria', 'directiva_admin']) },
     { id: 'sports-fines', label: 'Multas', icon: AlertTriangle, visible: hasRole(['secretaria']) },
+    { id: 'affiliate-shipments', label: 'Consulta de encomiendas', icon: Package, visible: userProfile.role === 'afiliado' },
     { id: 'my-account', label: 'Mi cuenta', icon: UserCircle, visible: hasRole(['afiliado']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
     { id: 'reports', label: userProfile.role === 'secretaria' ? 'Reporte del día' : 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
     { id: 'config', label: 'Configuración', icon: Settings, visible: hasRole(['directiva_admin']) },
-  ].filter(t => t.visible)
+  ].filter(t => t.visible && (userProfile.role !== 'secretaria' ||
+    ['shipments', 'tickets', 'storage', 'reports'].includes(t.id)))
 
-  useEffect(() => {
-    if (tabs.length > 0 && !tabs.some(t => t.id === activeTab)) {
-      setActiveTab(tabs[0].id)
-    }
-  }, [tabs, activeTab])
+  const activeTab = tabs.some(tab => tab.id === requestedTab) ? requestedTab : tabs[0]?.id
 
   useEffect(() => {
     try { window.localStorage.setItem('expreso-sidebar-collapsed', String(isSidebarCollapsed)) } catch { /* La navegación sigue disponible si el almacenamiento está bloqueado. */ }
@@ -392,6 +391,10 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           </div>
         </div>
 
+        {userProfile.role === 'secretaria' && ['shipments', 'tickets'].includes(activeTab) && (
+          <CounterCashShift key={userProfile.uid + ':' + currentBranch.id} currentUser={userProfile} currentBranch={currentBranch} />
+        )}
+
         {/* PESTAÑA 1: ENCOMIENDAS (VENTANILLA DEFINITIVA REDISEÑADA) */}
         {activeTab === 'shipments' && (
           <ShipmentsManagementView
@@ -530,6 +533,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           />
         )}
 
+        {activeTab === 'affiliate-shipments' && <AffiliateShipmentsView key={currentBranch.id} branchId={currentBranch.id} />}
         {activeTab === 'my-account' && <AffiliateAccountView currentUser={userProfile} />}
 
         {/* PESTAÑA: PERSONAL & GASTOS OPERATIVOS */}

@@ -92,7 +92,7 @@ export async function createDispatchManifestThroughBackend(input: CreateManifest
   return response.data
 }
 
-export async function confirmShipmentDeparture(input: Omit<CreateManifestInput, 'shipmentIds'> & { shipmentId: string }) {
+export async function confirmShipmentDeparture(input: Omit<CreateManifestInput, 'shipmentIds'> & { shipmentId: string; handoffNote?: string }) {
   await httpsCallable(functions, 'confirmShipmentDeparture')(input)
 }
 

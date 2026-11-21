@@ -424,6 +424,8 @@ export async function searchShipmentsServer(
 export interface FetchShipmentsPageOptions {
   branchId?: string
   pageSize?: number
+  createdFrom?: string
+  createdUntil?: string
   lastVisibleDoc?: any
 }
 
@@ -439,13 +441,16 @@ export interface FetchShipmentsPageResult {
 export async function fetchShipmentsPage(
   options: FetchShipmentsPageOptions = {}
 ): Promise<FetchShipmentsPageResult> {
-  const { branchId = 'all', pageSize = 20, lastVisibleDoc = null } = options
+  const { branchId = 'all', pageSize = 20, lastVisibleDoc = null, createdFrom, createdUntil } = options
   const shipmentsRef = collection(db, 'shipments')
 
   const constraints: any[] = [
     orderBy('createdAtIso', 'desc'),
     limit(pageSize),
   ]
+
+  if (createdFrom) constraints.push(where('createdAtIso', '>=', createdFrom))
+  if (createdUntil) constraints.push(where('createdAtIso', '<', createdUntil))
 
   if (lastVisibleDoc) {
     constraints.push(startAfter(lastVisibleDoc))
