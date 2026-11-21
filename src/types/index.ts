@@ -21,6 +21,7 @@ export interface UserProfile {
   email?: string
   phone: string
   role: UserRole
+  commissionAdministrationApproved?: boolean
   primaryBranchId: string
   allowedBranchIds: string[]
   assignedVehiclePlate?: string

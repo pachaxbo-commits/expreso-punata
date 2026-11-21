@@ -1,3 +1,5 @@
+import { AffiliatePassengerTicketsView } from '../modules/tickets/AffiliatePassengerTicketsView'
+import { BranchCommissionView } from '../modules/dispatch/BranchCommissionView'
 import { AffiliateShipmentsView } from '../modules/shipments/AffiliateShipmentsView'
 import { DailyOperationsView } from '../modules/reports/DailyOperationsView'
 import { isPublicDemo } from '../firebase/config'
@@ -169,10 +171,12 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'shipments', label: 'Encomiendas', icon: Package, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'storage', label: 'Módulos de Almacén', icon: Boxes, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: advancedDispatchVisible && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
+    { id: 'branch-commissions', label: 'Devengos de la agencia', icon: Coins, visible: userProfile.role === 'afiliado_admin' && userProfile.commissionAdministrationApproved === true },
     { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['directiva_admin']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
     { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['secretaria', 'tesoreria', 'directiva_admin']) },
     { id: 'sports-fines', label: 'Multas', icon: AlertTriangle, visible: hasRole(['secretaria']) },
+    { id: 'affiliate-tickets', label: 'Consulta de pasajes', icon: Ticket, visible: userProfile.role === 'afiliado' },
     { id: 'affiliate-shipments', label: 'Consulta de encomiendas', icon: Package, visible: userProfile.role === 'afiliado' },
     { id: 'my-account', label: 'Mi cuenta', icon: UserCircle, visible: hasRole(['afiliado']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
@@ -472,6 +476,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           <PassengerTicketsView currentUser={userProfile} currentBranch={currentBranch} tutorialFormContextOpen={ticketTutorialContextOpen} />
         )}
 
+        {activeTab === 'branch-commissions' && <BranchCommissionView key={currentBranch.id} branchId={currentBranch.id} />}
         {activeTab === 'commissions' && tabs.some(tab => tab.id === 'commissions') && (
           <DriverCommissionsView currentUser={userProfile} currentBranch={currentBranch} />
         )}
@@ -545,6 +550,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           />
         )}
 
+        {activeTab === 'affiliate-tickets' && <AffiliatePassengerTicketsView key={currentBranch.id} branchId={currentBranch.id} />}
         {activeTab === 'affiliate-shipments' && <AffiliateShipmentsView key={currentBranch.id} branchId={currentBranch.id} />}
         {activeTab === 'my-account' && <AffiliateAccountView currentUser={userProfile} />}
 

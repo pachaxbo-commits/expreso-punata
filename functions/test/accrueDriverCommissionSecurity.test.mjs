@@ -2,7 +2,7 @@ import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
-import { accrueDriverCommission } from '../index.js'
+import { accrueDriverCommission, listBranchCommissionAccruals } from '../index.js'
 
 if (getApps().length === 0) initializeApp({ projectId: process.env.GCLOUD_PROJECT || 'demo-expreso-punata-101' })
 const db = getFirestore()
@@ -146,4 +146,25 @@ test('fixed commission on manual freight is independent of price and idempotent 
   assert.equal(state.records.length, 1)
   assert.equal(state.records[0][1].baseShippingAmountCents, null)
   assert.equal(state.audits.length, 1)
+})
+
+test('approved affiliate administrator accrues a fixed commission only in their authorized branch', async () => {
+  const uid = 'affiliate-admin'
+  await db.collection('users').doc(uid).set(profile(uid, 'afiliado_admin'))
+  await seedEvent({ feeCents: null })
+  await db.collection('system_config').doc('expreso_punata').update({
+    commissions: { defaultType: 'fixed_per_shipment', defaultValue: 2 },
+  })
+  await assert.rejects(accrueDriverCommission.run(req(uid)), { code: 'permission-denied' })
+  await db.collection('users').doc(uid).update({ commissionAdministrationApproved: true, primaryBranchId: 'cochabamba', allowedBranchIds: ['cochabamba'] })
+  await assert.rejects(accrueDriverCommission.run(req(uid)), { code: 'permission-denied' })
+  assert.deepEqual(await financeState(), { accounts: [], records: [], audits: [] })
+  await db.collection('users').doc(uid).update({ primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+  const result = await accrueDriverCommission.run(req(uid))
+  const report = await listBranchCommissionAccruals.run({ auth: { uid }, data: { branchId: 'punata' } })
+  assert.equal(report.records.length, 1)
+  assert.equal(report.records[0].commissionAmountCents, 200)
+  await assert.rejects(listBranchCommissionAccruals.run({ auth: { uid }, data: { branchId: 'cochabamba' } }), { code: 'permission-denied' })
+  assert.equal(result.commissionAmountCents, 200)
+  assert.equal((await financeState()).audits[0][1].performedByUid, uid)
 })

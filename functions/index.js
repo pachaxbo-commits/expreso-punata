@@ -1127,6 +1127,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     ci: safeCi,
     phone: safePhone,
     role,
+    commissionAdministrationApproved: false,
     primaryBranchId,
     allowedBranchIds: role === 'secretaria' || role === 'afiliado_admin' || role === 'afiliado'
       ? [primaryBranchId]
@@ -6855,6 +6856,27 @@ export const listAffiliateShipments = onCall({ cors: true }, async (request) => 
   return { shipments: rows.slice(0, 30) }
 })
 
+export const listAffiliatePassengerTickets = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  const { branchId, operationNumber = '', travelDate = '' } = request.data || {}
+  const branches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : []
+  if (caller.isActive !== true || caller.role !== 'afiliado' || typeof branchId !== 'string' || !branchId ||
+      !(caller.primaryBranchId === branchId || branches.includes(branchId))) {
+    throw new HttpsError('permission-denied', 'No tiene acceso a los pasajes de esta agencia.')
+  }
+  if (typeof operationNumber !== 'string' || operationNumber.length > 40 ||
+      typeof travelDate !== 'string' || (travelDate && !/^\d{4}-\d{2}-\d{2}$/.test(travelDate))) {
+    throw new HttpsError('invalid-argument', 'Use un número de operación o una fecha válida.')
+  }
+  let query = db.collection('passenger_ticket_operations').where('branchId', '==', branchId)
+  if (operationNumber.trim()) query = query.where('operationNumber', '==', operationNumber.trim().toUpperCase())
+  if (travelDate) query = query.where('travelDate', '==', travelDate)
+  if (!operationNumber.trim() && !travelDate) query = query.orderBy('createdAtIso', 'desc')
+  const result = await query.limit(30).select('operationNumber', 'originBranchId', 'destinationBranchId',
+    'travelDate', 'quantity', 'usedCount', 'paymentStatus').get()
+  return { operations: result.docs.map(doc => doc.data()) }
+})
+
 /** Summary for today's operations only. The caller cannot select a date range. */
 export const getDailyOperationsReport = onCall({ cors: true }, async (request) => {
   const caller = await getAuthenticatedCallerProfile(request)
@@ -8289,7 +8311,9 @@ async function getAuthenticatedCallerProfile(request) {
 export const accrueDriverCommission = onCall({ cors: true }, async (request) => {
   const caller = await getAuthenticatedCallerProfile(request)
   if (!caller || !caller.isActive) throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
-  if (caller.role !== 'directiva_admin') throw new HttpsError('permission-denied', 'Solo Directiva puede devengar comisiones.')
+  if (caller.role !== 'directiva_admin' && !(caller.role === 'afiliado_admin' && caller.commissionAdministrationApproved === true)) {
+    throw new HttpsError('permission-denied', 'Solo un administrador autorizado puede devengar comisiones.')
+  }
   const payload = request.data || {}
   if (Object.keys(payload).some((key) => !['shipmentId', 'manifestId', 'driverUid'].includes(key))) {
     throw new HttpsError('invalid-argument', 'No se aceptan importes ni reglas de comision enviados por el cliente.')
@@ -8318,6 +8342,14 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     if (!shipmentDoc.exists || !manifestDoc.exists) throw new HttpsError('not-found', 'La encomienda o el manifiesto no existen.')
     const shipment = shipmentDoc.data() || {}
     const manifest = manifestDoc.data() || {}
+    if (caller.role === 'afiliado_admin') {
+      const branches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : []
+      if (!manifest.originBranchId || !shipment.originBranchId ||
+          manifest.originBranchId !== shipment.originBranchId ||
+          !(caller.primaryBranchId === manifest.originBranchId || branches.includes(manifest.originBranchId))) {
+        throw new HttpsError('permission-denied', 'La agencia de origen no está autorizada.')
+      }
+    }
     const driverUid = manifest.driverUid
     if (!driverUid || (expectedDriverUid !== undefined && expectedDriverUid.trim() !== driverUid)) throw new HttpsError('failed-precondition', 'El conductor indicado no coincide con el conductor del manifiesto.')
     const driver = await getOperationalDriver(transaction, driverUid)
@@ -8375,6 +8407,7 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     transaction.create(recordRef, {
       id: recordRef.id, driverUid, driverName, manifestId: manifestIdValue, shipmentId: shipmentIdValue,
       trackingCode: shipment.trackingCode || shipmentIdValue, baseShippingAmountCents,
+      originBranchId: manifest.originBranchId || null,
       ruleApplied: { type: ruleType, value: ruleValue }, commissionAmountCents, commissionAmountBob: commissionAmountCents / 100,
       status: 'accrued', paidAmountCents: 0, voucherIds: [], createdAtIso: nowIso,
     })
@@ -8390,6 +8423,20 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     })
     return response
   })
+})
+
+export const listBranchCommissionAccruals = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  const branchId = request.data?.branchId
+  const branches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : []
+  if (caller.isActive !== true || caller.role !== 'afiliado_admin' || caller.commissionAdministrationApproved !== true ||
+      typeof branchId !== 'string' || !branchId || !(caller.primaryBranchId === branchId || branches.includes(branchId))) {
+    throw new HttpsError('permission-denied', 'No tiene autorización para consultar comisiones de esta agencia.')
+  }
+  const result = await db.collection('driver_commission_records').where('originBranchId', '==', branchId)
+    .orderBy('createdAtIso', 'desc').limit(50)
+    .select('trackingCode', 'driverName', 'commissionAmountCents', 'status', 'createdAtIso').get()
+  return { records: result.docs.map(doc => ({ ...doc.data(), id: doc.id })) }
 })
 
 export const settleDriverCommission = onCall({ cors: true }, async (request) => {

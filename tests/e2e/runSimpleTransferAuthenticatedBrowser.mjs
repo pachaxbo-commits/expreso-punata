@@ -155,6 +155,24 @@ try {
   assert.equal(daily.delivered, 2)
   assert.equal(daily.income.cod, 2500)
   await btn(destPage, 'Imprimir reporte').waitFor()
+  await btn(destPage, 'Encomiendas').click()
+  await btn(destPage, 'Cerrar turno de ventanilla').click()
+  await btn(destPage, 'Ingreso Manual Total').click()
+  await destPage.locator('input[type=number]').fill('75')
+  await btn(destPage, 'Revisar y Cerrar').click()
+  const closeResponse = destPage.waitForResponse(r => r.url().endsWith('/closeCashShift') && r.request().method() === 'POST')
+  await btn(destPage, 'Confirmar Cierre Definitivo').click()
+  const closed = (await (await closeResponse).json()).result
+  assert.equal(closed?.shift?.status, 'closed')
+  assert.equal(closed.shift.expectedCashCents, 7500)
+  assert.equal(closed.shift.differenceCents, 0)
+  const retry = await fetch('http://127.0.0.1:5001/' + project + '/us-central1/closeCashShift', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dest.idToken },
+    body: JSON.stringify({ data: { shiftId: closed.shift.id, actualCashCents: 7500 } }),
+  })
+  assert.equal((await retry.json()).error?.status, 'FAILED_PRECONDITION')
+  await btn(destPage, 'Abrir turno de ventanilla').waitFor()
+  console.log('Arqueo integrado: Bs 75, diferencia cero, segundo cierre rechazado.')
   const reportResponse = adminPage.waitForResponse(r => r.url().endsWith('/getSystemReport') && r.request().method() === 'POST' && r.ok())
   await btn(adminPage, /Reportes & Estadísticas/).click()
   assert((await (await reportResponse).json()).result)
