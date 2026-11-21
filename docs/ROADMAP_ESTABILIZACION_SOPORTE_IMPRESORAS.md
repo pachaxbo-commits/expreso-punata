@@ -74,6 +74,19 @@ Commits funcionales: 8d994da y 7c71d79. TypeScript, build y 73 unitarias pasaron
 | 6 · Pruebas | En curso | Validación dirigida de pasajes y extensión Playwright para un conductor sin cuenta, rango de 2025, entrega y reporte diario. Chrome aprobó ambas variantes, incluida la guía de 2025 filtrada por rango, firma, historial, reimpresión PDF y recuperación tras perder la respuesta del cobro. El reporte de Cochabamba mostró dos entregas y Bs 25 de cobro en destino. Ver evidence/phase1-final-verification.log y evidence/phase1-counter-browser-final.log. |
 | 7 · Transición | En curso | Se conserva el orden de migración y reversión establecido arriba. El inventario real requiere acceso autorizado y confirmar el UID de Nelson. No se tocaron cuentas reales. |
 | 8 · Preparación | En curso | Fase 1 sigue sin aprobación para publicación. Fases 2 y 3 permanecen documentadas. |
+
+## Iteración de permisos · Devengos y consulta de pasajes
+
+Commit 3f1d442. El porcentaje de cierre integral permanece en 8.3% (1 de 12). Los siguientes avances verifican tramos de tareas abiertas.
+
+| Tarea | Estado | Resultado y evidencia |
+|---|---|---|
+| EP-03 / EP-04 / EP-05 · Comisiones | En curso | Un afiliado administrador aprobado puede consultar hasta 50 devengos y devengar comisiones en la agencia autorizada de origen. Los devengos nuevos guardan agencia. Las filas históricas sin agencia comprobada quedan fuera de la consulta. Pruebas positivas y negativas en evidence/phase1-affiliate-admin-commission.log. Falta liquidación con este rol y migrar el resto de los módulos. |
+| EP-04 / EP-07 · Afiliado | En curso | Se añadió consulta de pasajes por número y fecha, sin código de abordaje, datos personales ni referencia de pago. Functions rechaza otra agencia y cualquier validación de embarque de este perfil. Evidencia en evidence/phase1-affiliate-read.log. Pendientes los demás módulos de lectura. |
+| EP-10 · Ventanilla | En curso | Playwright verificó ambas entregas, arqueo de Bs 75 con diferencia cero y rechazo del segundo cierre. Evidencia en evidence/phase1-counter-close-retry.log. Falta un recorrido que combine también venta y cobro de pasaje en el mismo turno. |
+| EP-12 · Calidad | En curso | Build con TypeScript pasó. Lint sigue en 272 errores y 14 avisos, sin hallazgos en las dos vistas nuevas. |
+
+El permiso temporal de devengo usa el campo autoritativo commissionAdministrationApproved. El aprovisionamiento del cliente siempre lo guarda en false y una edición del perfil revoca ese permiso temporal. Antes de activar algo en producción, identificar el UID y exigir autorización de migración. No se han actualizado perfiles reales. El índice por agencia de origen y fecha se debe publicar y esperar a que esté disponible antes de habilitar esa consulta.
 ## Matriz objetivo y migración
 Actualmente el sistema contiene más roles de los necesarios.
 
