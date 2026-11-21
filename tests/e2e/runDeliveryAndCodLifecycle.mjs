@@ -102,6 +102,7 @@ async function runDeliveryLifecycle() {
       sender: { name: 'María Flores', phone: '71000001', docType: 'CI', docNumber: '3456789' },
       recipient: { name: 'Julia Zambrana', phone: '72000002', docType: 'CI', docNumber: '4567890' },
       items: [{ description: 'Documentos legales y ropa', quantity: 1, packaging: 'sobre' }],
+      agreedAmountCents: 1500,
       packageCount: 1,
       totalWeightKg: 1.5,
       paymentTiming: 'origin_paid',
@@ -120,6 +121,7 @@ async function runDeliveryLifecycle() {
       sender: { name: 'Taller Punata Mecánica', phone: '73000003', docType: 'NIT', docNumber: '102938475' },
       recipient: { name: 'Auto Repuestos Cochabamba', phone: '74000004', docType: 'NIT', docNumber: '987654321' },
       items: [{ description: 'Tambores de freno rectificados', quantity: 2, packaging: 'caja' }],
+      agreedAmountCents: 3900,
       packageCount: 2,
       totalWeightKg: 15.0,
       paymentTiming: 'destination_cod',
@@ -137,6 +139,7 @@ async function runDeliveryLifecycle() {
       sender: { name: 'Ferretería Valle Central', phone: '75000005', docType: 'NIT', docNumber: '33445566' },
       recipient: { name: 'Ing. Gonzalo Morales', phone: '76000006', docType: 'CI', docNumber: '55443322' },
       items: [{ description: 'Válvula de presión hidráulica', quantity: 1, packaging: 'caja' }],
+      agreedAmountCents: 3000,
       packageCount: 1,
       totalWeightKg: 5.0,
       paymentTiming: 'destination_cod',
@@ -362,15 +365,17 @@ async function runDeliveryLifecycle() {
   })
   assert.equal(settlRes1.success, true)
   assert.equal(settlRes1.settlementType, 'partial')
-  assert.equal(settlRes1.remainingDriverBalanceCents, 500)
+  assert.equal(settlRes1.previousDriverBalanceCents, ship3.shipment.finalAmountCents)
+  assert.equal(settlRes1.amountCents, 1000)
+  assert.equal(settlRes1.remainingDriverBalanceCents, ship3.shipment.finalAmountCents - 1000)
   console.log(`   ✓ Rendición parcial completada: Bs ${settlRes1.amountCents / 100}.00. Saldo restante bajo custodia: Bs ${settlRes1.remainingDriverBalanceCents / 100}.00`)
 
-  console.log('   Don Juan completa la rendición con los restantes Bs 5.00...')
+  console.log(`   Don Juan completa la rendición con los restantes Bs ${(ship3.shipment.finalAmountCents - 1000) / 100}.00...`)
   const settlRes2 = await settleDriverCash.run({
     auth: { uid: 'sec-cbba-deliv' },
     data: {
       driverUid: 'chofer-deliv',
-      amountCents: 500,
+      amountCents: ship3.shipment.finalAmountCents - 1000,
       shipmentIds: [ship3.shipment.id],
       notes: 'Rendición completa final de cobro de ruta',
       idempotencyKey: `idemp-settl-full-${Date.now()}`,

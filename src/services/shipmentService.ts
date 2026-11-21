@@ -29,6 +29,7 @@ export interface CreateShipmentInput {
   paymentTiming: Exclude<PaymentTiming, 'origin_pending'>
   paymentMethod?: PaymentMethod
   discountCents?: number
+  pricingMode?: 'manual' | 'automatic'
   suggestedAmountCents?: number
   agreedAmountCents?: number
   priceAdjustmentReason?: string

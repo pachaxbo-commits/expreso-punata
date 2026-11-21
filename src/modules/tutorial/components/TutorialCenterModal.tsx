@@ -260,6 +260,7 @@ export const TutorialCenterModal: React.FC<TutorialCenterModalProps> = ({
             return (
               <div
                 key={sec.id}
+                data-tutorial-section-card={sec.id}
                 className={`p-3.5 rounded-xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                   isCompleted
                     ? 'bg-emerald-50/50 border-emerald-200/80'

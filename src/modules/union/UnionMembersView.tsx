@@ -61,6 +61,7 @@ interface UnionMembersViewProps {
   currentBranch: Branch
   activeShift?: CashShift | null
   sportsFineCollectionOnly?: boolean
+  tutorialSubTab?: string
 }
 
 export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
@@ -68,6 +69,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   currentBranch,
   activeShift,
   sportsFineCollectionOnly = false,
+  tutorialSubTab,
 }) => {
     const [localShift, setLocalShift] = useState<CashShift | null>(null)
   const canReadCashShift = ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'].includes(currentUser.role)
@@ -80,6 +82,16 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   }, [canReadCashShift, currentUser?.uid, currentBranch?.id])
   const effectiveShift = activeShift || localShift
   const [activeTab, setActiveTab] = useState<'members' | 'dues' | 'loans' | 'fines' | 'sports' | 'debts' | 'annual-board'>(sportsFineCollectionOnly ? 'fines' : 'members')
+  const isManagement = currentUser.role === 'directiva_admin' || currentUser.role === 'tesoreria'
+  useEffect(() => {
+    if (sportsFineCollectionOnly || !tutorialSubTab) return
+    const allowedTabs = ['members', 'dues', 'loans', 'fines', 'debts']
+    if (tutorialSubTab === 'sports' && currentUser.role === 'afiliado_admin') return
+    if (tutorialSubTab === 'annual-board' && !isManagement) return
+    if (allowedTabs.includes(tutorialSubTab) || tutorialSubTab === 'sports' || tutorialSubTab === 'annual-board') {
+      setActiveTab(tutorialSubTab as typeof activeTab)
+    }
+  }, [tutorialSubTab, sportsFineCollectionOnly, currentUser.role, isManagement])
   const [members, setMembers] = useState<UnionMember[]>([])
   const [loadingMembers, setLoadingMembers] = useState(true)
 
@@ -127,7 +139,6 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   // Feedback y mensajes
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
-  const isManagement = currentUser.role === 'directiva_admin' || currentUser.role === 'tesoreria'
   const canManageMembers = isManagement || currentUser.role === 'afiliado_admin'
   const canGenerateDues = isManagement
   const canPrintRoster = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'afiliado_admin'].includes(currentUser.role)
@@ -442,6 +453,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
       {!sportsFineCollectionOnly && <div className="flex border-b border-slate-200 gap-2">
         <button
           type="button"
+          data-tutorial-target="union-tab-members"
           onClick={() => setActiveTab('members')}
           className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${
             activeTab === 'members'
@@ -455,6 +467,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
 
         <button
           type="button"
+          data-tutorial-target="union-tab-dues"
           onClick={() => setActiveTab('dues')}
           className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${
             activeTab === 'dues'
@@ -468,22 +481,23 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
 
         <button
           type="button"
+          data-tutorial-target="union-tab-loans"
           onClick={() => setActiveTab('loans')}
           className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'loans' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
         >
           <DollarSign className="w-4 h-4" />
           <span>Préstamos internos</span>
         </button>
-        <button type="button" onClick={() => setActiveTab('fines')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'fines' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+        <button type="button" data-tutorial-target="union-tab-fines" onClick={() => setActiveTab('fines')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'fines' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
           <AlertTriangle className="w-4 h-4" /><span>Multas</span>
         </button>
-        {currentUser.role !== 'afiliado_admin' && <button type="button" onClick={() => setActiveTab('sports')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'sports' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+        {currentUser.role !== 'afiliado_admin' && <button type="button" data-tutorial-target="union-tab-sports" onClick={() => setActiveTab('sports')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'sports' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
           <Calendar className="w-4 h-4" /><span>Deportes</span>
         </button>}
-        {isManagement && <button type="button" onClick={() => setActiveTab('annual-board')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'annual-board' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+        {isManagement && <button type="button" data-tutorial-target="union-tab-annual-board" onClick={() => setActiveTab('annual-board')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'annual-board' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
           <ClipboardList className="w-4 h-4" /><span>Directiva</span>
         </button>}
-        <button type="button" onClick={() => setActiveTab('debts')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'debts' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+        <button type="button" data-tutorial-target="union-tab-debts" onClick={() => setActiveTab('debts')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'debts' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
           <AlertTriangle className="w-4 h-4" /><span>Deudas</span>
         </button>
       </div>}
@@ -811,6 +825,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
       )}
 
       {activeTab === 'loans' && (
+        <div data-tutorial-target="union-loans-panel">
         <UnionLoansView
           members={members}
           currentUser={currentUser}
@@ -818,11 +833,12 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
           activeShift={effectiveShift}
           onOpenStatement={handleOpenStatement}
         />
+        </div>
       )}
-      {activeTab === 'fines' && <UnionFinesView members={members} canCreate={isManagement || currentUser.role === 'secretaria'} canCollect={['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'].includes(currentUser.role)} activeShift={effectiveShift} branchId={currentBranch.id} />}
-      {activeTab === 'sports' && <UnionSportsView members={members} canManage={isManagement} canDecide={currentUser.role === 'directiva_admin'} />}
-      {activeTab === 'debts' && <UnionDebtAlertsView onOpenMember={(memberId) => { const member = members.find((item) => item.id === memberId); if (member) void handleOpenStatement(member) }} />}
-      {activeTab === 'annual-board' && isManagement && <AnnualBoardView members={members} />}
+      {activeTab === 'fines' && <div data-tutorial-target="union-fines-panel"><UnionFinesView members={members} canCreate={isManagement || currentUser.role === 'secretaria'} canCollect={['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'].includes(currentUser.role)} activeShift={effectiveShift} branchId={currentBranch.id} /></div>}
+      {activeTab === 'sports' && <div data-tutorial-target="union-sports-panel"><UnionSportsView members={members} canManage={isManagement} canDecide={currentUser.role === 'directiva_admin'} /></div>}
+      {activeTab === 'debts' && <div data-tutorial-target="union-debts-panel"><UnionDebtAlertsView onOpenMember={(memberId) => { const member = members.find((item) => item.id === memberId); if (member) void handleOpenStatement(member) }} /></div>}
+      {activeTab === 'annual-board' && isManagement && <div data-tutorial-target="union-annual-board-panel"><AnnualBoardView members={members} /></div>}
 
       {/* =========================================================================
           MODAL 1: ALTA / EDICIÓN DE SOCIO

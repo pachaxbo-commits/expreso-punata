@@ -21,6 +21,9 @@ interface UseTutorialOptions {
   simplifiedTransfer?: boolean
   onNavigateToTab?: (tabId: string) => void
   onSetSubTab?: (module: string, subTabId: string) => void
+  onOpenModalContext?: (modalId: string, wizardStep?: number) => void
+  onCloseModalContext?: (modalId: string) => void
+  onSetNavigationContext?: (open: boolean) => void
 }
 
 export function useTutorial({
@@ -28,6 +31,9 @@ export function useTutorial({
   simplifiedTransfer = false,
   onNavigateToTab,
   onSetSubTab,
+  onOpenModalContext,
+  onCloseModalContext,
+  onSetNavigationContext,
 }: UseTutorialOptions) {
   const [state, setState] = useState<TutorialOrchestratorState>(() => loadTutorialState(scope))
   const [isCenterOpen, setIsCenterOpen] = useState(false)
@@ -38,6 +44,8 @@ export function useTutorial({
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false)
 
   const transitionTimerRef = useRef<number | null>(null)
+  const activeModalContextRef = useRef<string | null>(null)
+  const navigationContextOpenRef = useRef(false)
 
   // Rol-filtered sections
   const roleSections = useMemo(() => {
@@ -92,6 +100,17 @@ export function useTutorial({
   }, [activeSection, currentStepIndex])
 
   // Context synchronizer (ensures the correct tab/subtab is open when step renders)
+  const clearStepContext = useCallback(() => {
+    if (activeModalContextRef.current) {
+      onCloseModalContext?.(activeModalContextRef.current)
+      activeModalContextRef.current = null
+    }
+    if (navigationContextOpenRef.current) {
+      onSetNavigationContext?.(false)
+      navigationContextOpenRef.current = false
+    }
+  }, [onCloseModalContext, onSetNavigationContext])
+
   const applyStepContext = useCallback((step: TutorialStep) => {
     if (step.requiredContext?.tab && onNavigateToTab) {
       onNavigateToTab(step.requiredContext.tab)
@@ -99,7 +118,20 @@ export function useTutorial({
     if (step.requiredContext?.subTab && onSetSubTab && step.requiredContext?.tab) {
       onSetSubTab(step.requiredContext.tab, step.requiredContext.subTab)
     }
-  }, [onNavigateToTab, onSetSubTab])
+    const requestedModal = step.requiredContext?.openModal || null
+    if (activeModalContextRef.current !== requestedModal) {
+      if (activeModalContextRef.current) onCloseModalContext?.(activeModalContextRef.current)
+      activeModalContextRef.current = requestedModal
+      if (requestedModal) onOpenModalContext?.(requestedModal, step.requiredContext?.wizardStep)
+    } else if (requestedModal) {
+      onOpenModalContext?.(requestedModal, step.requiredContext?.wizardStep)
+    }
+    const requestedNavigation = Boolean(step.requiredContext?.openNavigation)
+    if (navigationContextOpenRef.current !== requestedNavigation) {
+      navigationContextOpenRef.current = requestedNavigation
+      onSetNavigationContext?.(requestedNavigation)
+    }
+  }, [onNavigateToTab, onSetSubTab, onOpenModalContext, onCloseModalContext, onSetNavigationContext])
 
   // Open Learning Center
   const openTutorialCenter = useCallback(() => {
@@ -166,6 +198,7 @@ export function useTutorial({
 
   // Pause tutorial
   const pauseTutorial = useCallback(() => {
+    clearStepContext()
     if (transitionTimerRef.current) {
       window.clearTimeout(transitionTimerRef.current)
       transitionTimerRef.current = null
@@ -177,10 +210,11 @@ export function useTutorial({
       isPaused: true,
       currentStepIndex,
     }))
-  }, [currentStepIndex, updateState])
+  }, [currentStepIndex, updateState, clearStepContext])
 
   // Exit tutorial
   const exitTutorial = useCallback(() => {
+    clearStepContext()
     if (transitionTimerRef.current) {
       window.clearTimeout(transitionTimerRef.current)
       transitionTimerRef.current = null
@@ -193,10 +227,11 @@ export function useTutorial({
       isContinuousActive: false,
       isPaused: false,
     }))
-  }, [updateState])
+  }, [updateState, clearStepContext])
 
   // Reset all progress
   const resetTutorial = useCallback(() => {
+    clearStepContext()
     if (transitionTimerRef.current) {
       window.clearTimeout(transitionTimerRef.current)
       transitionTimerRef.current = null
@@ -207,7 +242,7 @@ export function useTutorial({
     setCurrentStepIndex(0)
     const fresh = resetTutorialState(scope)
     setState(fresh)
-  }, [scope])
+  }, [scope, clearStepContext])
 
   // Next step / Advance
   const nextStep = useCallback(() => {
@@ -226,6 +261,7 @@ export function useTutorial({
       }))
     } else {
       // Finished section!
+      clearStepContext()
       const completedIds = Array.from(new Set([...state.completedSectionIds, activeSection.id]))
       const currentIndex = roleSections.findIndex((s: TutorialSection) => s.id === activeSection.id)
       const nextSec = currentIndex >= 0 && currentIndex < roleSections.length - 1
@@ -281,7 +317,7 @@ export function useTutorial({
         }
       }
     }
-  }, [activeSection, currentStepIndex, applyStepContext, updateState, state.completedSectionIds, state.isContinuousActive, roleSections, startSection])
+  }, [activeSection, currentStepIndex, applyStepContext, clearStepContext, updateState, state.completedSectionIds, state.isContinuousActive, roleSections, startSection])
 
   // Force skip transition timer
   const continueTransitionNow = useCallback(() => {

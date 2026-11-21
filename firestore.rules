@@ -437,6 +437,35 @@ service cloud.firestore {
       allow write: if false; // Inmutable, solo Cloud Functions (registerWorkerPayment)
     }
 
+    // Operaciones de pasajes: la oficina consulta por sucursal y el chofer solo las suyas.
+    match /passenger_ticket_operations/{operationId} {
+      allow read: if isActive() && (
+        isAdmin() || isTreasury() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) && isBranchAllowed(resource.data.branchId)) ||
+        (isDriver() && resource.data.driverUid == request.auth.uid)
+      );
+      allow write: if false; // Todas las transiciones financieras y de uso son Cloud Functions.
+
+      match /validations/{validationId} {
+        allow read: if isActive() && (
+          isAdmin() || isTreasury() ||
+          ((getUserRole() in ['secretaria', 'encargado_agencia']) && isBranchAllowed(get(/databases/$(database)/documents/passenger_ticket_operations/$(operationId)).data.branchId)) ||
+          (isDriver() && get(/databases/$(database)/documents/passenger_ticket_operations/$(operationId)).data.driverUid == request.auth.uid)
+        );
+        allow write: if false;
+      }
+    }
+
+    // Historial de uso: creado por validatePassengerTicket, consultable solo por el chofer asignado y personal autorizado.
+    match /passenger_ticket_validations/{validationId} {
+      allow read: if isActive() && (
+        isAdmin() || isTreasury() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) && isBranchAllowed(resource.data.branchId)) ||
+        (isDriver() && resource.data.driverUid == request.auth.uid)
+      );
+      allow write: if false;
+    }
+
     match /union_expenses/{expenseId} {
       allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
       allow write: if false; // Inmutable, solo Cloud Functions (registerGeneralExpense)

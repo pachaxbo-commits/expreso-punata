@@ -62,6 +62,7 @@ async function runFullCajaLifecycle() {
       sender: { name: 'Remitente Prueba 1', phone: '70011111', docType: 'CI', docNumber: '445566' },
       recipient: { name: 'Destinatario Prueba 1', phone: '70022222', docType: 'CI', docNumber: '778899' },
       items: [{ description: 'Documentos urgentes', quantity: 1, packaging: 'sobre', isFragile: false, category: 'documents' }],
+      agreedAmountCents: 1500,
       serviceType: 'regular',
       paymentTiming: 'origin_paid',
       paymentMethod: 'cash',
@@ -82,6 +83,7 @@ async function runFullCajaLifecycle() {
       sender: { name: 'Remitente Prueba QR', phone: '70033333', docType: 'CI', docNumber: '556677' },
       recipient: { name: 'Destinatario Prueba QR', phone: '70044444', docType: 'CI', docNumber: '889900' },
       items: [{ description: 'Caja de repuestos', quantity: 1, packaging: 'caja', isFragile: true, category: 'parts' }],
+      agreedAmountCents: 2000,
       serviceType: 'regular',
       paymentTiming: 'origin_paid',
       paymentMethod: 'qr',
@@ -114,10 +116,10 @@ async function runFullCajaLifecycle() {
   console.log('5. Verificación contable en base de datos:')
   console.log(`   - Fondo inicial: Bs ${(data.initialCashCents / 100).toFixed(2)}`)
   console.log(`   - Efectivo esperado en gaveta: Bs ${(data.expectedCashCents / 100).toFixed(2)} (100 + 15 - 10 = 105 Bs)`)
-  console.log(`   - Total ventas: Bs ${(data.breakdown.totalIncomeCents / 100).toFixed(2)} (15 efectivo + 15 QR = 30 Bs)`)
+  console.log(`   - Total ventas: Bs ${(data.breakdown.totalIncomeCents / 100).toFixed(2)} (15 efectivo + 20 QR = 35 Bs)`)
   console.log(`   - Egresos: Bs ${(data.breakdown.expensesCents / 100).toFixed(2)}`)
   assert.equal(data.expectedCashCents, 10500)
-  assert.equal(data.breakdown.totalIncomeCents, 3000)
+  assert.equal(data.breakdown.totalIncomeCents, 3500)
   assert.equal(data.breakdown.expensesCents, 1000)
 
   // 6. Arqueo y cierre con desglose conforme: Bs 105 (1 billete de 100 + 1 moneda de 5)

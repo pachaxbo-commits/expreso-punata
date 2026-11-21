@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import type { UserProfile, SystemConfig } from '../../types/index.ts'
+import { automaticParcelPricingEnabled } from '../../config/features.ts'
 import { fetchSystemConfig, updateSystemConfig, BLANK_UNCONFIGURED_TEMPLATE } from '../../services/configService.ts'
 
 interface SystemConfigViewProps {
@@ -375,8 +376,9 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
               Tarifario Sugerido de Ventanilla (Referencial Oficial)
             </h3>
             <p className="text-xs text-slate-500">
-              Estos valores se cargan como predeterminados en el asistente de encomienda, pero la operadora puede
-              ajustar el precio real acordado en ventanilla.
+              {automaticParcelPricingEnabled
+                ? 'El asistente puede usar estos valores para calcular una referencia que la operadora puede ajustar.'
+                : 'Esta tabla se conserva para referencia. El cálculo automático está desactivado y no determina el importe de nuevas encomiendas; el personal registra el precio acordado.'}
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">

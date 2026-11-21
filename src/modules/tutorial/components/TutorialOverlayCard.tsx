@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -52,6 +52,8 @@ export const TutorialOverlayCard: React.FC<TutorialOverlayCardProps> = ({
 }) => {
   const [targetRect, setTargetRect] = useState<Rect | null>(null)
   const [isMissing, setIsMissing] = useState(false)
+  const [naturalCardSize, setNaturalCardSize] = useState<{ stepId: string; height: number } | null>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
 
   // Keyboard navigation
   useEffect(() => {
@@ -79,6 +81,8 @@ export const TutorialOverlayCard: React.FC<TutorialOverlayCardProps> = ({
   useLayoutEffect(() => {
     let hasScrolled = false
     let timeoutId: number | null = null
+    let scrollSettleTimer: number | null = null
+    let targetSettleTimer: number | null = null
 
     const updateRect = () => {
       let r = rectFor(step.target)
@@ -87,13 +91,14 @@ export const TutorialOverlayCard: React.FC<TutorialOverlayCardProps> = ({
       }
 
       if (r) {
-        setTargetRect(r)
         setIsMissing(false)
         if (!hasScrolled) {
           hasScrolled = true
           const targetEl = document.querySelector<HTMLElement>(step.target) || (step.fallbackTarget ? document.querySelector<HTMLElement>(step.fallbackTarget) : null)
-          const prefersReduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-          targetEl?.scrollIntoView({ block: 'center', behavior: prefersReduced ? 'auto' : 'smooth' })
+          targetEl?.scrollIntoView({ block: 'center', behavior: 'auto' })
+          setTargetRect(rectFor(step.target) || r)
+        } else {
+          setTargetRect(r)
         }
       } else {
         timeoutId = window.setTimeout(() => {
@@ -104,19 +109,36 @@ export const TutorialOverlayCard: React.FC<TutorialOverlayCardProps> = ({
     }
 
     updateRect()
+    // Context changes can reveal targets with a CSS transform (for example, the
+    // mobile navigation drawer). Measure again after its short transition so
+    // the spotlight does not remain at the drawer's previous, off-screen rect.
+    targetSettleTimer = window.setTimeout(updateRect, 220)
     window.addEventListener('resize', updateRect)
-    window.addEventListener('scroll', updateRect, true)
+    const handleScroll = () => {
+      updateRect()
+      if (scrollSettleTimer) window.clearTimeout(scrollSettleTimer)
+      scrollSettleTimer = window.setTimeout(updateRect, 180)
+    }
+    window.addEventListener('scroll', handleScroll, true)
 
     const observer = new MutationObserver(updateRect)
     observer.observe(document.body, { childList: true, subtree: true, attributes: true })
 
     return () => {
       if (timeoutId) window.clearTimeout(timeoutId)
+      if (scrollSettleTimer) window.clearTimeout(scrollSettleTimer)
+      if (targetSettleTimer) window.clearTimeout(targetSettleTimer)
       window.removeEventListener('resize', updateRect)
-      window.removeEventListener('scroll', updateRect, true)
+      window.removeEventListener('scroll', handleScroll, true)
       observer.disconnect()
     }
   }, [step])
+
+  useLayoutEffect(() => {
+    const card = cardRef.current
+    if (!card) return
+    setNaturalCardSize({ stepId: step.id, height: card.getBoundingClientRect().height })
+  }, [step.id])
 
   // Posicionamiento adaptativo anti-desbordamiento
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
@@ -154,6 +176,11 @@ export const TutorialOverlayCard: React.FC<TutorialOverlayCardProps> = ({
     cardMaxHeight = windowH - 100
   }
 
+  const naturalHeightForStep = naturalCardSize?.stepId === step.id ? naturalCardSize.height : cardMaxHeight
+  const displayedCardHeight = Math.min(naturalHeightForStep, cardMaxHeight)
+  const clampedTop = Math.max(16, Math.min(computedTop, windowH - displayedCardHeight - 16))
+  const shouldClampHeight = !isMobile && naturalHeightForStep > cardMaxHeight
+
   return (
     <div className="fixed inset-0 z-[1200] pointer-events-none" aria-live="polite">
       {/* Resaltado del elemento enfocado (Spotlight) */}
@@ -161,6 +188,7 @@ export const TutorialOverlayCard: React.FC<TutorialOverlayCardProps> = ({
         <>
           <div
             className="fixed pointer-events-none rounded-xl ring-4 ring-[#facc15] shadow-2xl transition-all duration-300"
+            data-tutorial-spotlight="true"
             style={{
               top: targetRect.top - 4,
               left: targetRect.left - 4,
@@ -179,16 +207,23 @@ export const TutorialOverlayCard: React.FC<TutorialOverlayCardProps> = ({
 
       {/* Tarjeta Educativa del Paso — Rediseño Anti-Desbordamiento con Flexbox Estricto */}
       <div
+        ref={cardRef}
         role="dialog"
         aria-modal="false"
         aria-label={`${section.title}: ${step.title}`}
         data-tutorial-card="true"
-        className={`pointer-events-auto bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col transition-all duration-200 z-[1202] ${
+        className={`pointer-events-auto bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col min-h-0 transition-all duration-200 z-[1202] ${
           isMobile
             ? 'fixed bottom-0 left-0 right-0 max-h-[82vh] rounded-t-2xl border-b-0'
             : 'fixed rounded-2xl w-[420px]'
         }`}
-        style={isMobile ? { maxHeight: '82vh' } : { top: computedTop, left: computedLeft, maxHeight: `${cardMaxHeight}px` }}
+        style={isMobile ? { maxHeight: '82vh' } : {
+          top: clampedTop,
+          left: computedLeft,
+          minHeight: 0,
+          ...(shouldClampHeight ? { height: `${cardMaxHeight}px` } : {}),
+          maxHeight: `${cardMaxHeight}px`,
+        }}
       >
         {/* Cabecera Fija (shrink-0) */}
         <div className="bg-[#064e3b] text-white p-3.5 flex items-center justify-between border-b border-emerald-800 shrink-0">

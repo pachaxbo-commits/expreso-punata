@@ -17,6 +17,11 @@ import {
   BookOpen,
   UserCircle,
   AlertTriangle,
+  Menu,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Ticket,
 } from 'lucide-react'
 import {
   useTutorial,
@@ -47,6 +52,7 @@ import { UserManagementView } from '../modules/users/UserManagementView'
 import { UserProfileModal } from '../modules/users/UserProfileModal'
 import { PrinterSettingsView } from '../modules/admin/printers/PrinterSettingsView'
 import { DriverCommissionsView } from '../modules/dispatch/DriverCommissionsView'
+import { PassengerTicketsView } from '../modules/tickets/PassengerTicketsView'
 import { ConsumablesManagementView } from '../modules/assets/ConsumablesManagementView'
 import { PhysicalInventoryDocumentsView } from '../modules/assets/PhysicalInventoryDocumentsView'
 import { SystemConfigView } from '../modules/admin/SystemConfigView'
@@ -64,16 +70,23 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const advancedContingency = import.meta.env.VITE_ADVANCED_DISPATCH === 'true'
   const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && userProfile.role === 'directiva_admin')
   const [activeTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    try { return window.localStorage.getItem('expreso-sidebar-collapsed') === 'true' } catch { return false }
+  })
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const [configSubTab, setConfigSubTab] = useState<'users' | 'general' | 'tariffs' | 'printers'>('users')
   const [manifestSubTab, setManifestSubTab] = useState<'manifests' | 'commisiones'>('manifests')
   const [assetSubTab, setAssetSubTab] = useState<'fixed' | 'documents' | 'consumables'>('fixed')
+  const [unionTutorialSubTab, setUnionTutorialSubTab] = useState('members')
   const [isWizardOpen, setIsWizardOpen] = useState(false)
+  const [shipmentTutorialStep, setShipmentTutorialStep] = useState<number | null>(null)
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false)
   const [deliveryTargetShipment, setDeliveryTargetShipment] = useState<Shipment | null>(null)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
+  const [ticketTutorialContextOpen, setTicketTutorialContextOpen] = useState(false)
   const [realShipments, setRealShipments] = useState<Shipment[]>([])
   const [backendConnected, setBackendConnected] = useState(true)
-  const canReadShipments = hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor'])
+  const canReadShipments = hasRole(['secretaria', 'encargado_agencia', 'directiva_admin'])
 
   // Orquestador de Capacitación y Tutoriales Interactivos
   const tutorial = useTutorial({
@@ -88,7 +101,27 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
       if (module === 'manifests') setManifestSubTab(subTabId as any)
       if (module === 'assets') setAssetSubTab(subTabId as any)
       if (module === 'config') setConfigSubTab(subTabId as any)
+      if (module === 'dues') setUnionTutorialSubTab(subTabId)
     },
+    onOpenModalContext: (modalId, wizardStep) => {
+      if (modalId === 'shipment-new') {
+        setActiveTab('shipments')
+        setIsWizardOpen(true)
+        setShipmentTutorialStep(wizardStep ?? null)
+      }
+      if (modalId === 'ticket-new') {
+        setActiveTab('tickets')
+        setTicketTutorialContextOpen(true)
+      }
+    },
+    onCloseModalContext: (modalId) => {
+      if (modalId === 'shipment-new') {
+        setIsWizardOpen(false)
+        setShipmentTutorialStep(null)
+      }
+      if (modalId === 'ticket-new') setTicketTutorialContextOpen(false)
+    },
+    onSetNavigationContext: (open) => setIsMobileNavOpen(open && window.innerWidth < 768),
   })
 
   // Suscripción reactiva a encomiendas en Firestore Emulator por sucursal
@@ -129,6 +162,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   // Pestañas filtradas por rol del usuario (RBAC en interfaz)
   const tabs = [
     { id: 'shipment-custody', label: 'Encomiendas asignadas', icon: Package, visible: simpleTransferEnabled && userProfile.role === 'conductor' },
+    { id: 'tickets', label: userProfile.role === 'conductor' ? 'Validar pasajes' : 'Pasajes', icon: Ticket, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria', 'conductor']) },
     { id: 'shipments', label: 'Encomiendas', icon: Package, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'storage', label: 'Módulos de Almacén', icon: Boxes, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: advancedDispatchVisible && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
@@ -149,6 +183,10 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     }
   }, [tabs, activeTab])
 
+  useEffect(() => {
+    try { window.localStorage.setItem('expreso-sidebar-collapsed', String(isSidebarCollapsed)) } catch { /* La navegación sigue disponible si el almacenamiento está bloqueado. */ }
+  }, [isSidebarCollapsed])
+
   // Encomiendas a listar (prioriza registros de Firestore Emulator)
   // En entorno Cloud o cuando el backend está conectado, mostramos exclusivamente datos reales de Firestore (0 si está vacío).
   // Los fixtures DEV_SHIPMENTS solo se usan si estamos en emulador local aislado y sin conexión.
@@ -158,28 +196,40 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col text-slate-800">
+    <div className="min-h-screen overflow-x-hidden bg-slate-100 flex flex-col text-slate-800">
       {/* Top Bar Institucional de Expreso Punata */}
       <header className="bg-[#064e3b] text-white shadow-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
           {/* Logo y Nombre */}
-          <div data-tutorial-target="header-brand" className="flex items-center gap-3">
-            <div className="w-11 h-11 bg-white rounded-full p-1 shadow flex items-center justify-center shrink-0">
-              <img
-                src={EXPRESO_PUNATA_LOGO_PATH}
-                alt="Logo Expreso Punata"
-                className="w-full h-full object-contain rounded-full"
-              />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-sm sm:text-base tracking-tight text-[#facc15] uppercase">
-                  {EXPRESO_PUNATA_COMPANY.name}
-                </span>
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => setIsMobileNavOpen(true)}
+              data-tutorial-target="nav-mobile-toggle"
+              aria-label="Abrir menú de navegación"
+              aria-expanded={isMobileNavOpen}
+              className="md:hidden min-h-11 min-w-11 rounded-lg border border-emerald-700 text-emerald-50 hover:bg-emerald-800 flex items-center justify-center"
+            >
+              <Menu className="w-5 h-5" aria-hidden="true" />
+            </button>
+            <div data-tutorial-target="header-brand" className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 bg-white rounded-full p-1 shadow flex items-center justify-center shrink-0">
+                <img
+                  src={EXPRESO_PUNATA_LOGO_PATH}
+                  alt="Logo Expreso Punata"
+                  className="w-full h-full object-contain rounded-full"
+                />
               </div>
-              <p className="text-[11px] text-emerald-200 hidden sm:block">
-                'Servicio Interprovincial Punata - Cochabamba'
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-extrabold text-sm sm:text-base tracking-tight text-[#facc15] uppercase">
+                    {EXPRESO_PUNATA_COMPANY.name}
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-200 hidden sm:block">
+                  'Servicio Interprovincial Punata - Cochabamba'
+                </p>
+              </div>
             </div>
           </div>
 
@@ -262,33 +312,60 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           </div>
         </div>
 
-        {/* Barra de navegación de pestañas con scroll táctil horizontal */}
-        <div data-tutorial-target="nav-tabs-bar" className="bg-[#053d2e] border-t border-emerald-800/60">
-          <div className="max-w-7xl mx-auto px-4 flex overflow-x-auto scroll-smooth gap-1 py-1">
+      </header>
+
+      {isMobileNavOpen && <button type="button" aria-label="Cerrar menú de navegación" onClick={() => setIsMobileNavOpen(false)} className="fixed inset-0 z-40 bg-slate-950/50 md:hidden" />}
+      <div className="flex flex-1 min-w-0">
+        <aside
+          data-tutorial-target="nav-tabs-bar"
+          aria-label="Navegación principal"
+          className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-emerald-900 bg-[#064e3b] text-white shadow-xl transition-transform duration-150 md:sticky md:top-0 md:z-20 md:h-screen md:translate-x-0 md:shrink-0 md:shadow-none md:transition-none ${isMobileNavOpen ? 'translate-x-0' : '-translate-x-full'} ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'}`}
+        >
+          <div data-tutorial-target="nav-menu-controls" className={`flex min-h-16 items-center border-b border-emerald-800 px-3 ${isSidebarCollapsed ? 'md:justify-center' : 'justify-between'}`}>
+            {!isSidebarCollapsed && <span className="font-bold text-sm text-emerald-100 md:hidden">Navegación</span>}
+            <span className={`hidden text-sm font-bold text-emerald-100 ${isSidebarCollapsed ? 'md:sr-only' : 'md:inline'}`}>Secciones</span>
+            <button
+              type="button"
+              onClick={() => setIsSidebarCollapsed(value => !value)}
+              data-tutorial-target="nav-desktop-toggle"
+              aria-label={isSidebarCollapsed ? 'Expandir menú lateral' : 'Contraer menú lateral'}
+              title={isSidebarCollapsed ? 'Expandir menú' : 'Contraer menú'}
+              className="hidden min-h-11 min-w-11 items-center justify-center rounded-lg text-emerald-100 hover:bg-emerald-800 md:flex"
+            >
+              {isSidebarCollapsed ? <ChevronRight className="h-5 w-5" aria-hidden="true" /> : <ChevronLeft className="h-5 w-5" aria-hidden="true" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsMobileNavOpen(false)}
+              aria-label="Cerrar menú de navegación"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-emerald-100 hover:bg-emerald-800 md:hidden"
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
+          </div>
+          <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label="Secciones del sistema">
             {tabs.map(tab => {
               const Icon = tab.icon
               const isActive = activeTab === tab.id
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-all ${
-                    isActive
-                      ? 'bg-[#facc15] text-[#064e3b] shadow font-bold'
-                      : 'text-emerald-100 hover:bg-emerald-900/60 hover:text-white'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{tab.label}</span>
-                </button>
-              )
+              return <button
+                key={tab.id}
+                type="button"
+                onClick={() => { setActiveTab(tab.id); setIsMobileNavOpen(false) }}
+                aria-label={tab.label}
+                aria-current={isActive ? 'page' : undefined}
+                data-tutorial-target={isActive ? 'nav-current-item' : undefined}
+                title={isSidebarCollapsed ? tab.label : undefined}
+                className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold ${isActive ? 'bg-[#facc15] text-[#064e3b] shadow-sm' : 'text-emerald-50 hover:bg-emerald-800'} ${isSidebarCollapsed ? 'md:justify-center md:px-2' : ''}`}
+              >
+                <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                <span className={isSidebarCollapsed ? 'md:sr-only' : ''}>{tab.label}</span>
+              </button>
             })}
-          </div>
-        </div>
-      </header>
+          </nav>
+        </aside>
 
       {/* Contenido Principal */}
-      <main className="max-w-7xl mx-auto px-4 py-5 flex-1 w-full">
+      <main className="mx-auto w-full max-w-7xl min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-5">
         {/* Banner de Estado Operativo */}
         <div className="mb-5 bg-white rounded-xl p-4 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -297,11 +374,13 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
                 {currentBranch.name} ({currentBranch.code})
               </h2>
               <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${backendConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                {backendConnected ? 'Operativa en tiempo real' : 'Backend desconectado — sin datos demo'}
+                {!canReadShipments ? 'Sesión activa' : backendConnected ? 'Operativa en tiempo real' : 'Backend desconectado — sin datos demo'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Operador activo: <span className="font-semibold text-slate-700">{userProfile.fullName}</span> — Conectado a Backend Firebase
+              Operador activo: <span className="font-semibold text-slate-700">{userProfile.fullName}</span> — {canReadShipments
+                ? backendConnected ? 'Conectado a Firestore' : 'Sin conexión a Firestore'
+                : 'El menú muestra las funciones disponibles para tu perfil.'}
             </p>
           </div>
 
@@ -335,6 +414,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             {/* Modal de Asistente de Nueva Encomienda */}
             <NewShipmentWizardModal
               isOpen={isWizardOpen}
+              tutorialStep={shipmentTutorialStep}
               onClose={() => setIsWizardOpen(false)}
               onSuccess={() => {
                 // La lista se actualiza automáticamente gracias a onSnapshot
@@ -370,6 +450,10 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         {/* PESTAÑA 3: DESPACHOS Y RUTA */}
         {activeTab === 'shipment-custody' && simpleTransferEnabled && userProfile.role === 'conductor' && (
           <ShipmentCustody uid={userProfile.uid} includeLegacy={advancedContingency} />
+        )}
+
+        {activeTab === 'tickets' && (
+          <PassengerTicketsView currentUser={userProfile} currentBranch={currentBranch} tutorialFormContextOpen={ticketTutorialContextOpen} />
         )}
 
         {activeTab === 'commissions' && tabs.some(tab => tab.id === 'commissions') && (
@@ -433,6 +517,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           <UnionMembersView
             currentUser={userProfile}
             currentBranch={currentBranch}
+            tutorialSubTab={unionTutorialSubTab}
           />
         )}
 
@@ -592,6 +677,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           </div>
         )}
       </main>
+      </div>
 
       {/* Modal Mi Perfil */}
       {isProfileModalOpen && (
@@ -613,6 +699,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 
       {tutorial.isTourActive && tutorial.activeSection && tutorial.currentStep && (
         <TutorialOverlayCard
+          key={`${tutorial.activeSection.id}:${tutorial.currentStep.id}`}
           section={tutorial.activeSection}
           step={tutorial.currentStep}
           stepIndex={tutorial.currentStepIndex}

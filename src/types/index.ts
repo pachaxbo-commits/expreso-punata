@@ -103,6 +103,55 @@ export type PaymentTiming = 'origin_paid' | 'origin_pending' | 'destination_cod'
 export type PaymentStatus = 'pending' | 'paid' | 'refunded' | 'uncollectible'
 export type PaymentMethod = 'cash' | 'qr' | 'transfer'
 
+export type PassengerTicketPaymentStatus = 'pending_verification' | 'paid_verified' | 'cancelled'
+export type PassengerTicketUseStatus = 'pending_boarding' | 'partially_used' | 'used'
+export type PassengerTicketSettlementStatus = 'pending_delivery' | 'delivered'
+
+export interface PassengerTicketOperation {
+  id: string
+  operationNumber: string
+  ticketCode: string
+  branchId: string
+  originBranchId: string
+  destinationBranchId: string
+  travelDate: string
+  driverUid: string
+  driverName: string
+  vehicleId?: string | null
+  vehiclePlate?: string | null
+  vehicleMobileNumber?: string | null
+  passengerName?: string | null
+  quantity: number
+  unitAmountCents: number
+  totalAmountCents: number
+  paymentMethod: 'qr'
+  paymentStatus: PassengerTicketPaymentStatus
+  paymentVerificationStatus: 'pending' | 'verified' | 'not_applicable'
+  paymentReference?: string | null
+  paymentConfirmedAmountCents?: number | null
+  paymentVerifiedAtIso?: string | null
+  paymentVerifiedByUid?: string | null
+  paymentVerifiedByName?: string | null
+  paymentShiftId?: string | null
+  paymentMovementId?: string | null
+  settlementStatus: PassengerTicketSettlementStatus
+  pendingSettlementCents: number
+  expectedDeliveryDate?: string | null
+  deliveredAtIso?: string | null
+  deliveredByUid?: string | null
+  deliveredByName?: string | null
+  deliveryMovementId?: string | null
+  useStatus: PassengerTicketUseStatus
+  usedCount: number
+  createdAtIso: string
+  createdByUid: string
+  createdByName: string
+  cancelledAtIso?: string | null
+  cancelledByUid?: string | null
+  cancellationReason?: string | null
+  updatedAtIso: string
+}
+
 export interface ParcelCustomer {
   customerId?: string
   name: string
@@ -319,6 +368,7 @@ export interface CashShiftBreakdown {
   driverRemittanceCents?: number
   loanRepaymentsCents?: number
   fineIncomeCents?: number
+  passengerTicketIncomeCents?: number
   contributionsIncomeCents: number
   monthlyFeesIncomeCents: number
   otherIncomeCents: number
@@ -364,6 +414,8 @@ export interface CashShift {
 
 export type FinancialMovementType =
   | 'shipment_income'
+  | 'passenger_ticket_income'
+  | 'passenger_ticket_payout'
   | 'cod_income'
   | 'driver_remittance'
   | 'contribution_income'

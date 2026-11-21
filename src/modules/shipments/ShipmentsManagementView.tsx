@@ -458,7 +458,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
                     Actualmente no hay encomiendas registradas.
                   </h4>
                   <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    La ventanilla está lista para emitir la primera guía oficial con tarifa base o precio acordado.
+                    La ventanilla está lista para emitir la primera guía oficial con el precio que el personal acuerde e ingrese manualmente.
                   </p>
                   <button
                     onClick={onOpenNewWizard}

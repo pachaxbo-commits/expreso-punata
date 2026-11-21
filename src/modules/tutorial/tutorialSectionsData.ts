@@ -45,11 +45,11 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "whatIsItFor": "Define el recorrido del paquete (Punata a Cochabamba o viceversa) y si el cliente recogerá en oficina o requiere entrega a domicilio.",
         "whatToWriteOrSelect": "Verifica que el origen sea tu agencia y selecciona el destino acordado con el remitente.",
         "example": "Origen: Agencia Central Punata (Calle Sucre). Destino: Agencia Cochabamba (Av. República). Modalidad: Retiro en Agencia.",
-        "whatHappensAfter": "El sistema calcula la tarifa base oficial correspondiente al trayecto seleccionado.",
+        "whatHappensAfter": "El trayecto queda registrado. El personal ingresa manualmente el precio acordado con el cliente.",
         "importantTip": "Asegúrate de confirmar la sucursal de destino; si el cliente se equivoca de agencia, el paquete demorará más en ser retirado.",
         "audioScript": "En la sección de ruta, verifica que la agencia de origen coincida con tu oficina y define la agencia donde se entregará el paquete.",
         "requiredContext": {
-          "tab": "shipments"
+          "tab": "shipments", "openModal": "shipment-new", "wizardStep": 1,
         }
       },
       {
@@ -68,7 +68,7 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "importantTip": "El número de celular es vital para enviar notificaciones de estado y confirmar devoluciones en caso de rezago.",
         "audioScript": "Pide siempre el documento de identidad al remitente y anota su número de celular para que podamos mantenerlo informado.",
         "requiredContext": {
-          "tab": "shipments"
+          "tab": "shipments", "openModal": "shipment-new", "wizardStep": 2,
         }
       },
       {
@@ -87,7 +87,7 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "importantTip": "Si el remitente indica que otra persona podría recoger, anota los nombres autorizados en las observaciones.",
         "audioScript": "Registra los datos exactos del destinatario. En destino se verificará esta información antes de entregar la carga.",
         "requiredContext": {
-          "tab": "shipments"
+          "tab": "shipments", "openModal": "shipment-new", "wizardStep": 2,
         }
       },
       {
@@ -102,11 +102,11 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "whatIsItFor": "Permite el control físico en almacén, evita reclamos por contenido y ayuda a balancear la carga del vehículo interprovincial.",
         "whatToWriteOrSelect": "Describe con claridad el contenido (ej. \"Ropa\", \"Documentos\", \"Repuestos\"). Indica el número exacto de paquetes y su peso.",
         "example": "Descripción: \"Caja de cartón con repuestos de motor para Punata\". Bultos: 2. Peso: 15 kg.",
-        "whatHappensAfter": "El sistema calcula el peso facturable y propone la tarifa sugerida según la tabla de precios.",
+        "whatHappensAfter": "La descripción, los bultos y el peso quedan registrados para el control operativo.",
         "importantTip": "Está prohibido recibir sustancias peligrosas, inflamables o artículos ilegales. Pregunta siempre qué contiene el paquete.",
         "audioScript": "Detalla el tipo de mercadería, el número de bultos y el peso aproximado. Esto garantiza un control estricto durante el viaje.",
         "requiredContext": {
-          "tab": "shipments"
+          "tab": "shipments", "openModal": "shipment-new", "wizardStep": 3,
         }
       }
     ],
@@ -116,9 +116,9 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
   {
     "id": "shipments_pricing",
     "moduleId": "shipments",
-    "title": "2. Tarifas, Precio Acordado Editable y Cobro",
-    "shortTitle": "Tarifas y Cobro",
-    "description": "Aprende a gestionar precios sugeridos, editar el importe acordado con justificación y elegir entre pagar en origen y dejar el envío por pagar en destino.",
+    "title": "2. Precio Manual y Cobro",
+    "shortTitle": "Precio y Cobro",
+    "description": "Registra el importe acordado manualmente y elige entre pagar en origen o dejar el envío por pagar en destino.",
     "estimatedMinutes": 4,
     "allowedRoles": [
       "secretaria",
@@ -133,16 +133,16 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "target": "[data-tutorial-target=\"shipment-pricing-box\"]",
         "fallbackTarget": "[data-tutorial-target=\"btn-new-shipment\"]",
         "placement": "left",
-        "title": "Precio Sugerido vs. Precio Acordado Editable",
-        "whatIsIt": "El sistema propone automáticamente una tarifa según el tarifario empresarial, pero permite que la secretaria ajuste el importe real acordado.",
+        "title": "Precio ingresado manualmente",
+        "whatIsIt": "El importe que el personal registra según el acuerdo realizado con el cliente.",
         "whatIsItFor": "Otorga flexibilidad comercial para cargas voluminosas, clientes frecuentes o bultos livianos que ocupan espacio.",
-        "whatToWriteOrSelect": "Observa la sugerencia (ej. Bs 15). Si acordaste cobrar otro monto, escribe la cifra exacta en el campo \"Precio Acordado\".",
-        "example": "El sistema sugiere Bs 15 por 2 bultos, pero por ser cajas grandes acuerdas Bs 20 con el cliente. Escribes 20 en Precio Acordado.",
-        "whatHappensAfter": "El backend respeta el monto que escribiste como precio final para la guía, la caja y los reportes financieros.",
+        "whatToWriteOrSelect": "Escribe el importe exacto acordado en bolivianos. El sistema no propone ni completa una tarifa.",
+        "example": "El personal acuerda Bs 20 con el cliente y escribe 20.00 en el campo Precio del Envío.",
+        "whatHappensAfter": "El monto manual se usa para la guía, el cobro y los reportes financieros.",
         "importantTip": "El precio acordado debe ser siempre un número entero o con centavos exactos en bolivianos. Nunca dejes el campo vacío.",
-        "audioScript": "El sistema te propone un precio referencial, pero tienes la potestad de editar el precio acordado según las características de la encomienda.",
+        "audioScript": "Escribe el precio que acordaste con el cliente. El importe ingresado se conserva en la guía y en los cobros.",
         "requiredContext": {
-          "tab": "shipments"
+          "tab": "shipments", "openModal": "shipment-new", "wizardStep": 4
         }
       },
       {
@@ -152,16 +152,16 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "target": "[data-tutorial-target=\"shipment-price-reason\"]",
         "fallbackTarget": "[data-tutorial-target=\"btn-new-shipment\"]",
         "placement": "top",
-        "title": "Justificación Obligatoria de Cambio de Precio",
-        "whatIsIt": "Un campo explicativo que se activa cuando el precio acordado es distinto a la tarifa sugerida por el sistema.",
-        "whatIsItFor": "Permite la auditoría de directiva y tesorería para entender por qué se aplicó una rebaja o un recargo al cliente.",
-        "whatToWriteOrSelect": "Escribe de forma breve y clara la razón del acuerdo de precio.",
-        "example": "Acuerdo en ventanilla Punata: \"Rebaja por cliente frecuente hacia Cochabamba con flete acordado de Bs 20\".",
-        "whatHappensAfter": "La justificación queda grabada en el historial de auditoría de la encomienda y aparecerá en los reportes de administración.",
+        "title": "Motivo de cortesía o exoneración",
+        "whatIsIt": "El motivo obligatorio cuando una encomienda se registra con importe Bs 0.00.",
+        "whatIsItFor": "Deja constancia auditable de la cortesía o exoneración autorizada.",
+        "whatToWriteOrSelect": "Si el importe es cero, escribe un motivo claro. Para otros importes este campo no es necesario.",
+        "example": "Cortesía autorizada en acta de Directiva de Expreso Punata.",
+        "whatHappensAfter": "El motivo queda guardado con la encomienda para su consulta posterior.",
         "importantTip": "No uses explicaciones genéricas como \"acuerdo\". Especifica el motivo real para evitar observaciones en auditoría.",
-        "audioScript": "Siempre que modifiques el precio sugerido, registra el motivo para que la administración y tesorería conozcan la justificación.",
+        "audioScript": "Si la encomienda no tiene costo, registra el motivo de la cortesía o exoneración.",
         "requiredContext": {
-          "tab": "shipments"
+          "tab": "shipments", "openModal": "shipment-new", "wizardStep": 4
         }
       },
       {
@@ -180,7 +180,7 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "importantTip": "Confirma con el cliente si pagará en efectivo o mediante QR Simple antes de finalizar el registro.",
         "audioScript": "Elige si la encomienda queda pagada en este momento o si será cobrada al destinatario cuando la retire en la agencia de destino.",
         "requiredContext": {
-          "tab": "shipments"
+          "tab": "shipments", "openModal": "shipment-new", "wizardStep": 4
         }
       },
       {
@@ -199,7 +199,7 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "importantTip": "Pega siempre la etiqueta con cinta transparente sobre una superficie visible del paquete para agilizar su escaneo en ruta.",
         "audioScript": "Al hacer clic en Registrar Encomienda, se genera la guía oficial con su código único y podrás imprimir los comprobantes para el cliente.",
         "requiredContext": {
-          "tab": "shipments"
+          "tab": "shipments", "openModal": "shipment-new", "wizardStep": 4
         }
       }
     ],
@@ -285,7 +285,7 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
     "moduleId": "cash",
     "title": "4. Caja del Turno, Cobros, Egresos y Arqueo Físico",
     "shortTitle": "Caja del Turno",
-    "description": "Aprende a abrir tu turno de caja, controlar cobros de encomiendas, registrar egresos menores y realizar el arqueo de billetes y monedas.",
+    "description": "Aprende a revisar movimientos, distinguir QR de efectivo y hacer el arqueo de tu turno.",
     "estimatedMinutes": 5,
     "allowedRoles": [
       "secretaria",
@@ -322,12 +322,12 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "placement": "top",
         "title": "Movimientos de Caja: Ingresos y Cobranzas",
         "whatIsIt": "El registro cronológico de todas las transacciones: cobros de encomiendas en origen, cobros contraentrega COD, aportes y egresos.",
-        "whatIsItFor": "Permite supervisar en tiempo real cuánto dinero ingresó en efectivo y cuánto mediante transferencias o códigos QR.",
-        "whatToWriteOrSelect": "Los cobros de encomiendas se registran automáticamente. Para registrar un gasto menor, usa el botón \"Registrar Egreso\".",
+        "whatIsItFor": "Permite revisar los ingresos por medio de pago. Un QR verificado queda identificado como QR y no aumenta el efectivo físico de la gaveta.",
+        "whatToWriteOrSelect": "Para entregar al chofer el efectivo pendiente de pasajes QR, abre Pasajes, revisa el saldo y usa \"Entregar efectivo\" con la caja abierta. Antes de registrar otros movimientos, revisa su clasificación.",
         "example": "Ves una fila con \"Cobro Guía PNT-0042 — Bs 20.00 — Efectivo\" registrada a las 09:15 AM.",
         "whatHappensAfter": "El saldo teórico de la caja se actualiza en tiempo real sumando los ingresos y restando los egresos.",
-        "importantTip": "Separa físicamente los comprobantes de pagos por QR para que coincidan con el reporte al momento de cerrar.",
-        "audioScript": "En la tabla de movimientos puedes consultar cada cobro realizado, discriminando entre efectivo físico y cobros mediante código QR.",
+        "importantTip": "El QR no es efectivo en la gaveta. La entrega al chofer sí descuenta efectivo de la caja abierta y queda auditada.",
+        "audioScript": "En Caja revisa los movimientos por tipo de pago. El QR no aumenta el dinero físico. La entrega al chofer se inicia desde Pasajes con la caja abierta.",
         "requiredContext": {
           "tab": "cash"
         }
@@ -954,16 +954,17 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
   {
     "id": "panel_navigation",
     "moduleId": "navigation",
-    "title": "15. Panel Principal y Navegación Operativa (Opcional)",
+    "title": "15. Menú Lateral y Navegación (Opcional)",
     "shortTitle": "Panel y Menú",
-    "description": "Conoce la barra superior, la navegación de pestañas y los indicadores en tiempo real de Expreso Punata.",
+    "description": "Aprende a contraer el menú, abrirlo en el celular, encontrar la sección actual y reconocer opciones según tu rol.",
     "estimatedMinutes": 3,
     "allowedRoles": [
       "secretaria",
       "conductor",
       "tesoreria",
       "encargado_agencia",
-      "directiva_admin"
+      "directiva_admin",
+      "afiliado"
     ],
     "steps": [
       {
@@ -986,22 +987,40 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "id": "nav_tabs_menu",
         "sectionId": "panel_navigation",
         "order": 2,
-        "target": "[data-tutorial-target=\"nav-tabs-bar\"]",
+        "target": "[data-tutorial-target=\"nav-menu-controls\"]",
         "fallbackTarget": "header",
         "placement": "bottom",
-        "title": "Barra de Pestañas y Módulos Autorizados",
-        "whatIsIt": "El menú principal de navegación con desplazamiento táctil horizontal en celulares y acceso directo en computadoras.",
-        "whatIsItFor": "Te permite cambiar instantáneamente entre Encomiendas, Almacén, Manifiestos, Caja, Socios, Personal y Reportes.",
-        "whatToWriteOrSelect": "Haz clic o toca la pestaña del módulo al que deseas ingresar.",
-        "example": "Si necesitas cobrar un envío, pulsa en \"Caja del Turno\". Si vas a recibir paquetes del Móvil 14, pulsa en \"Módulos de Almacén\".",
-        "whatHappensAfter": "La vista principal cambia de inmediato sin recargar toda la página web.",
-        "importantTip": "Solo verás las pestañas correspondientes a tu rol de trabajo. Por ejemplo, un conductor solo ve Despachos y Reportes.",
-        "audioScript": "En la barra de pestañas encontrarás los módulos disponibles para tu labor diaria. Puedes desplazarte horizontalmente tanto en PC como en tu celular."
+        "title": "Contraer el menú o abrirlo en el celular",
+        "whatIsIt": "Los controles que reducen el menú a iconos en una computadora y abren o cierran el panel lateral del celular.",
+        "whatIsItFor": "Dejan más espacio en una pantalla grande o muestran la navegación cuando el menú del celular está cerrado.",
+        "whatToWriteOrSelect": "En la computadora usa la flecha para contraer o expandir. En el celular abre el menú con las tres líneas y ciérralo con la X.",
+        "example": "En un teléfono de 390 px en Punata, abre el menú para ver Pasajes. En una computadora puedes contraerlo para ampliar el área de trabajo.",
+        "whatHappensAfter": "El menú conserva las opciones autorizadas y cambia su ancho o posición según la pantalla.",
+        "importantTip": "El tutorial abre el menú móvil en este paso y lo cierra al avanzar o salir. No cambia tus permisos.",
+        "audioScript": "En la computadora usa la flecha para contraer el menú. En el celular, abre el panel con las tres líneas y ciérralo con la X.",
+        "requiredContext": { "openNavigation": true }
+      },
+      {
+        "id": "nav_current_section",
+        "sectionId": "panel_navigation",
+        "order": 3,
+        "target": "[data-tutorial-target=\"nav-current-item\"]",
+        "fallbackTarget": "[data-tutorial-target=\"nav-tabs-bar\"]",
+        "placement": "right",
+        "title": "Identificar la sección actual",
+        "whatIsIt": "La opción resaltada del menú lateral que indica qué módulo está abierto.",
+        "whatIsItFor": "Ayuda a confirmar que estás en la pantalla correcta antes de consultar o registrar información.",
+        "whatToWriteOrSelect": "Busca el nombre resaltado en amarillo. Para cambiar de sección, selecciona otra opción que aparezca en el menú.",
+        "example": "Si la opción \"Pasajes\" está resaltada, ves las operaciones de la sucursal Punata.",
+        "whatHappensAfter": "El contenido cambia a la opción seleccionada sin recargar toda la aplicación.",
+        "importantTip": "Cada usuario ve solamente las opciones de su rol. Una designación institucional no concede acceso informático.",
+        "audioScript": "La opción amarilla muestra la sección actual. El menú presenta solo las funciones habilitadas para tu cuenta.",
+        "requiredContext": { "openNavigation": true }
       },
       {
         "id": "nav_tutorial_btn",
         "sectionId": "panel_navigation",
-        "order": 3,
+        "order": 4,
         "target": "[data-tutorial-target=\"header-tutorial-btn\"]",
         "fallbackTarget": "header",
         "placement": "bottom",
@@ -1080,7 +1099,7 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
     "subModuleId": "general",
     "title": "17. Configuración Empresarial, Tarifas y Parámetros Oficiales (Opcional)",
     "shortTitle": "Configuración Oficial",
-    "description": "Aprende a configurar la identidad de la empresa, actualizar las tarifas base sugeridas y gobernar los parámetros del sistema.",
+    "description": "Aprende a revisar los datos institucionales y las referencias tarifarias conservadas en configuración.",
     "estimatedMinutes": 4,
     "allowedRoles": [
       "directiva_admin"
@@ -1113,14 +1132,14 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
         "target": "[data-tutorial-target=\"config-tariffs-table\"]",
         "fallbackTarget": "[data-tutorial-target=\"config-general-form\"]",
         "placement": "top",
-        "title": "Editor de Tarifas Base y Recargos Sugeridos",
-        "whatIsIt": "La tabla maestra de precios referenciales por sobre, paquete estándar, caja mediana y costo adicional por kilogramo excedente.",
-        "whatIsItFor": "Alimenta las sugerencias automáticas de precios que las secretarias ven en ventanilla al registrar una nueva encomienda.",
-        "whatToWriteOrSelect": "Ajusta los montos en bolivianos cuando la directiva apruebe una actualización de tarifario interprovincial.",
-        "example": "Sobre de documentos: Bs 10. Paquete mediano: Bs 25. Kilo adicional: Bs 1.50.",
-        "whatHappensAfter": "El formulario de Nueva Encomienda calcula inmediatamente las cotizaciones sugeridas con las nuevas tarifas.",
-        "importantTip": "El precio sugerido es una guía; recuerda que la secretaria siempre puede editar el precio acordado final en ventanilla.",
-        "audioScript": "Desde la pestaña de tarifas defines los precios de referencia para sobres y encomiendas, facilitando la cotización en ventanilla.",
+        "title": "Referencias de tarifas conservadas",
+        "whatIsIt": "La tabla de referencias de tarifas y recargos guardada en configuración.",
+        "whatIsItFor": "Permite consultar los valores conservados, pero no calcula ni completa el precio de una encomienda.",
+        "whatToWriteOrSelect": "Para cada envío, el personal escribe manualmente el precio acordado en el formulario. Esta tabla no se aplica automáticamente.",
+        "example": "En Expreso Punata, el precio de una encomienda se escribe manualmente y no se obtiene de las referencias aquí.",
+        "whatHappensAfter": "El importe de la guía es el que el personal ingresa en el formulario, aunque exista una referencia almacenada.",
+        "importantTip": "No presentes estos valores como tarifa automática ni uses un cálculo sugerido para cobrar.",
+        "audioScript": "Las referencias se conservan en configuración. El precio de cada encomienda se ingresa manualmente.",
         "requiredContext": {
           "tab": "config",
           "subTab": "tariffs"
@@ -1129,6 +1148,484 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
     ],
     "category": "configuration",
     "isOptional": true
+  },
+  {
+    "id": "passenger_ticket_sales",
+    "moduleId": "tickets",
+    "title": "18. Pasajes: Venta QR, comprobantes y entrega al chofer",
+    "shortTitle": "Venta de Pasajes",
+    "description": "Registra pasajes con importe manual, verifica el QR recibido, imprime comprobantes y consulta el efectivo pendiente del chofer.",
+    "estimatedMinutes": 5,
+    "allowedRoles": ["secretaria", "encargado_agencia", "directiva_admin"],
+    "steps": [
+      {
+        "id": "ticket_sale_route_driver",
+        "sectionId": "passenger_ticket_sales",
+        "order": 1,
+        "target": "[data-tutorial-target=\"tickets-route\"]",
+        "fallbackTarget": "[data-tutorial-target=\"tickets-new-operation\"]",
+        "placement": "bottom",
+        "title": "Ruta, fecha y chofer",
+        "whatIsIt": "El formulario de oficina para registrar una venta de pasajes de Punata o Cochabamba.",
+        "whatIsItFor": "Asocia cada operación con la ruta, fecha de viaje y chofer que atenderá los pasajes.",
+        "whatToWriteOrSelect": "Selecciona origen y destino, la fecha y el chofer activo. El vehículo y el nombre del pasajero son opcionales.",
+        "example": "Para el viaje Punata a Cochabamba, selecciona al chofer asignado y la fecha acordada.",
+        "whatHappensAfter": "La operación queda vinculada al recorrido y al chofer seleccionado cuando se registra.",
+        "importantTip": "Revisa la ruta y el chofer antes de continuar; el chofer solo podrá validar sus propios pasajes.",
+        "audioScript": "Elige el origen, el destino, la fecha y el chofer que corresponde al viaje.",
+        "requiredContext": { "tab": "tickets", "openModal": "ticket-new" }
+      },
+      {
+        "id": "ticket_sale_manual_amount",
+        "sectionId": "passenger_ticket_sales",
+        "order": 2,
+        "target": "[data-tutorial-target=\"tickets-manual-amount\"]",
+        "fallbackTarget": "[data-tutorial-target=\"tickets-sale-form\"]",
+        "placement": "top",
+        "title": "Cantidad e importe manual",
+        "whatIsIt": "Los campos para indicar cuántos pasajes se venden y el importe por cada uno.",
+        "whatIsItFor": "El total se calcula multiplicando la cantidad por el importe ingresado por el personal.",
+        "whatToWriteOrSelect": "Escribe la cantidad y el precio acordado en bolivianos. El sistema no propone un precio automático.",
+        "example": "Dos pasajes a Bs 12,50 cada uno generan un total de Bs 25,00 para verificar.",
+        "whatHappensAfter": "Al registrar, se crea una operación pendiente de verificación QR; el tutorial no la guarda.",
+        "importantTip": "No pulses Registrar operación durante el tutorial. No se crean ventas ni cobros de prueba.",
+        "audioScript": "Ingresa la cantidad y el precio acordado. El total se muestra para que lo revises antes de registrar.",
+        "requiredContext": { "tab": "tickets", "openModal": "ticket-new" }
+      },
+      {
+        "id": "ticket_qr_verification",
+        "sectionId": "passenger_ticket_sales",
+        "order": 3,
+        "target": "[data-tutorial-target=\"tickets-qr-guidance\"]",
+        "fallbackTarget": "[data-tutorial-target=\"tickets-sale-form\"]",
+        "placement": "bottom",
+        "title": "Comprobar el pago QR",
+        "whatIsIt": "El aviso de que el pago QR queda pendiente hasta que personal autorizado confirme el abono.",
+        "whatIsItFor": "Evita emitir comprobantes válidos basándose solamente en una captura enviada por el pasajero.",
+        "whatToWriteOrSelect": "En una operación real, revisa el abono en la cuenta de la oficina y confirma el importe exacto desde la operación. Agrega referencia bancaria si la tienes.",
+        "example": "Si la operación muestra Bs 25,00, confirma solo después de ver Bs 25,00 acreditados en la cuenta QR.",
+        "whatHappensAfter": "El pago verificado genera su registro QR auditado; no suma efectivo físico a la gaveta.",
+        "importantTip": "No confirmes pagos con una captura solamente. El pago QR verificado no puede anularse porque no hay una regla de devolución aprobada.",
+        "audioScript": "Comprueba el abono real en la cuenta de la oficina antes de confirmar el pago QR.",
+        "requiredContext": { "tab": "tickets", "openModal": "ticket-new" }
+      },
+      {
+        "id": "ticket_pending_delivery",
+        "sectionId": "passenger_ticket_sales",
+        "order": 4,
+        "target": "[data-tutorial-target=\"tickets-pending-settlement\"]",
+        "placement": "bottom",
+        "title": "QR verificado y efectivo pendiente",
+        "whatIsIt": "El resumen de los importes cobrados por QR que todavía se deben entregar en efectivo al chofer.",
+        "whatIsItFor": "Distingue el pago QR registrado de la entrega posterior de billetes al conductor.",
+        "whatToWriteOrSelect": "Revisa el saldo por chofer. Para una entrega real, usa Entregar efectivo en la operación de Pasajes y confirma solo después de entregar el dinero.",
+        "example": "Un QR de Bs 25,00 está verificado, pero continúa pendiente hasta entregar esos Bs 25,00 en efectivo al chofer.",
+        "whatHappensAfter": "La entrega descuenta efectivo de la caja abierta, genera un movimiento auditado y marca la operación como entregada.",
+        "importantTip": "No registres dos veces una entrega. El sistema no permite repetir una operación ya liquidada.",
+        "audioScript": "El pago QR no es efectivo en caja. Registra la entrega desde Pasajes después de dar el dinero al chofer.",
+        "requiredContext": { "tab": "tickets" }
+      },
+      {
+        "id": "ticket_history_print",
+        "sectionId": "passenger_ticket_sales",
+        "order": 5,
+        "target": "[data-tutorial-target=\"tickets-history\"]",
+        "placement": "top",
+        "title": "Historial, comprobantes y reimpresión",
+        "whatIsIt": "La lista de operaciones con su estado de pago, uso del pasaje y entrega al chofer.",
+        "whatIsItFor": "Permite buscar operaciones, revisar sus estados e imprimir el respaldo de oficina y el comprobante del chofer.",
+        "whatToWriteOrSelect": "Filtra por fecha, chofer, pago, uso o entrega. Imprime después de verificar el pago; usa Reimprimir para una copia marcada como duplicado.",
+        "example": "La oficina y el chofer reciben dos comprobantes de la operación PJE de Cochabamba a Punata.",
+        "whatHappensAfter": "La vista de impresión genera dos copias vinculadas al mismo número; una reimpresión no crea otra venta.",
+        "importantTip": "El tamaño 58 u 80 mm se selecciona en la vista de impresión. La compatibilidad física aún requiere probar con la impresora de oficina.",
+        "audioScript": "Busca la operación en el historial. Imprime las dos copias y recuerda que toda reimpresión se marca como duplicado.",
+        "requiredContext": { "tab": "tickets" }
+      }
+    ],
+    "category": "operational",
+    "isOptional": false
+  },
+  {
+    "id": "passenger_ticket_driver",
+    "moduleId": "tickets",
+    "title": "19. Chofer: Validar pasajes asignados",
+    "shortTitle": "Validación de Pasajes",
+    "description": "Consulta el pasaje digital y valida solamente operaciones pagadas y asignadas a tu usuario.",
+    "estimatedMinutes": 2,
+    "allowedRoles": ["conductor"],
+    "steps": [
+      {
+        "id": "driver_validate_code",
+        "sectionId": "passenger_ticket_driver",
+        "order": 1,
+        "target": "[data-tutorial-target=\"tickets-driver-validation\"]",
+        "placement": "bottom",
+        "title": "Escribir el código del comprobante",
+        "whatIsIt": "El formulario que consulta en el registro oficial si un pasaje puede utilizarse.",
+        "whatIsItFor": "Comprueba que el pago esté verificado, que la operación esté asignada a tu usuario y que aún queden usos.",
+        "whatToWriteOrSelect": "Escribe el código que aparece en el comprobante y pulsa Validar pasaje. Este módulo no incluye un lector de cámara.",
+        "example": "Antes de permitir el abordaje en Punata, consulta el código impreso del pasajero.",
+        "whatHappensAfter": "El sistema informa si el código es válido, está pendiente de pago, fue anulado o agotó sus usos.",
+        "importantTip": "No aceptes una captura como verificación. Consulta el código en el sistema antes del abordaje.",
+        "audioScript": "Escribe el código del comprobante y espera el resultado oficial antes de permitir el abordaje.",
+        "requiredContext": { "tab": "tickets" }
+      },
+      {
+        "id": "driver_assigned_tickets",
+        "sectionId": "passenger_ticket_driver",
+        "order": 2,
+        "target": "[data-tutorial-target=\"tickets-driver-assignments\"]",
+        "placement": "top",
+        "title": "Tus pasajes asignados",
+        "whatIsIt": "El historial limitado a operaciones asociadas al chofer que inició sesión.",
+        "whatIsItFor": "Permite revisar fecha, ruta, cantidad, usos y estado de pago de los pasajes asignados.",
+        "whatToWriteOrSelect": "Busca por código, número de operación o fecha. Abre una operación pagada y pendiente para validar un uso.",
+        "example": "El chofer asignado al viaje Punata a Cochabamba solo ve y valida sus propios pasajes.",
+        "whatHappensAfter": "Cada validación queda auditada y no puede superar la cantidad comprada.",
+        "importantTip": "Un código de otro chofer, anulado o sin pago verificado debe rechazarse.",
+        "audioScript": "Consulta tus pasajes y verifica que cada operación corresponda a tu usuario y al viaje.",
+        "requiredContext": { "tab": "tickets" }
+      }
+    ],
+    "category": "operational",
+    "isOptional": false
+  },
+  {
+    "id": "passenger_ticket_review",
+    "moduleId": "tickets",
+    "title": "20. Tesorería: Consulta de Pasajes",
+    "shortTitle": "Consulta de Pasajes",
+    "description": "Consulta las operaciones y sus estados desde la vista asignada a Tesorería.",
+    "estimatedMinutes": 1,
+    "allowedRoles": ["tesoreria"],
+    "steps": [
+      {
+        "id": "treasury_ticket_history",
+        "sectionId": "passenger_ticket_review",
+        "order": 1,
+        "target": "[data-tutorial-target=\"tickets-history\"]",
+        "placement": "top",
+        "title": "Consulta sin acciones de oficina",
+        "whatIsIt": "La lista de operaciones y sus estados visibles para Tesorería.",
+        "whatIsItFor": "Permite revisar pagos, uso y entrega registrados sin mostrar controles de venta, verificación o liquidación a este rol.",
+        "whatToWriteOrSelect": "Busca por fecha, chofer o estado y consulta el número de operación.",
+        "example": "Tesorería revisa en Punata que una operación esté verificada y entregada sin registrar un cobro desde esta pantalla.",
+        "whatHappensAfter": "La consulta no crea operaciones ni movimientos financieros.",
+        "importantTip": "Si una operación requiere una acción de oficina, debe realizarla un usuario con la autorización existente.",
+        "audioScript": "Esta pantalla es de consulta para Tesorería; revisa los estados sin cambiar la operación.",
+        "requiredContext": { "tab": "tickets" }
+      }
+    ],
+    "category": "operational",
+    "isOptional": true
+  },
+  {
+    "id": "union_office",
+    "moduleId": "dues",
+    "title": "21. Secretaría: Consulta de afiliados y operaciones autorizadas",
+    "shortTitle": "Afiliados en Oficina",
+    "description": "Consulta datos, cuotas, préstamos, multas y alertas desde los accesos disponibles para Secretaría.",
+    "estimatedMinutes": 3,
+    "allowedRoles": ["secretaria"],
+    "steps": [
+      {
+        "id": "office_member_lookup",
+        "sectionId": "union_office",
+        "order": 1,
+        "target": "[data-tutorial-target=\"members-table-container\"]",
+        "placement": "bottom",
+        "title": "Consultar el padrón",
+        "whatIsIt": "La lista de afiliados disponible en la sección Afiliados y Aportes.",
+        "whatIsItFor": "Ayuda a ubicar una ficha y consultar los datos que tu rol tiene autorizados.",
+        "whatToWriteOrSelect": "Busca el nombre o número de afiliado en los filtros de la lista.",
+        "example": "Busca un afiliado de Punata para responder una consulta de su cuenta.",
+        "whatHappensAfter": "La ficha muestra la información disponible según los permisos actuales.",
+        "importantTip": "Este acceso no autoriza por sí solo a editar el padrón o asignar cuentas.",
+        "audioScript": "Usa el padrón para encontrar al afiliado y consulta solo la información habilitada para tu rol.",
+        "requiredContext": { "tab": "dues", "subTab": "members" }
+      },
+      {
+        "id": "office_member_dues",
+        "sectionId": "union_office",
+        "order": 2,
+        "target": "[data-tutorial-target=\"union-tab-dues\"]",
+        "placement": "bottom",
+        "title": "Cuotas y mensualidades",
+        "whatIsIt": "La pestaña de cuotas generadas para los afiliados.",
+        "whatIsItFor": "Permite consultar períodos y registrar el pago de una cuota que ya fue emitida, con la caja activa cuando corresponda.",
+        "whatToWriteOrSelect": "Selecciona el período y la cuota del afiliado. Confirma el importe recibido y entrega el comprobante.",
+        "example": "Consulta la cuota de noviembre de un afiliado y registra el pago efectivo recibido en Punata.",
+        "whatHappensAfter": "El pago autorizado queda asociado a la cuota y al turno de Caja.",
+        "importantTip": "La generación de cuotas corresponde a los roles con esa autorización; no generes períodos nuevos desde este recorrido.",
+        "audioScript": "Consulta la cuota emitida y registra el pago solamente después de recibir el importe.",
+        "requiredContext": { "tab": "dues", "subTab": "dues" }
+      },
+      {
+        "id": "office_member_loans_fines",
+        "sectionId": "union_office",
+        "order": 3,
+        "target": "[data-tutorial-target=\"union-tab-loans\"]",
+        "placement": "bottom",
+        "title": "Préstamos y multas",
+        "whatIsIt": "Las pestañas de préstamos internos y multas de afiliados.",
+        "whatIsItFor": "Permiten consultar y realizar las acciones de cobro habilitadas para el personal de oficina.",
+        "whatToWriteOrSelect": "En préstamos revisa saldo y pagos. En multas consulta el motivo, importe y saldo antes de registrar un pago recibido.",
+        "example": "Antes de cobrar una multa en Cochabamba, verifica el registro y el saldo pendiente.",
+        "whatHappensAfter": "Los cambios quedan registrados mediante las funciones existentes y respetan el turno de Caja cuando aplica.",
+        "importantTip": "No alteres importes ni saldos para resolver diferencias; comunícalas a Administración.",
+        "audioScript": "Revisa préstamos y multas antes de atender. Confirma el saldo y registra solamente pagos realmente recibidos.",
+        "requiredContext": { "tab": "dues", "subTab": "loans" }
+      },
+      {
+        "id": "office_debt_alerts",
+        "sectionId": "union_office",
+        "order": 4,
+        "target": "[data-tutorial-target=\"union-debts-panel\"]",
+        "placement": "top",
+        "title": "Alertas de deudas",
+        "whatIsIt": "La vista que reúne avisos de saldos pendientes de afiliados.",
+        "whatIsItFor": "Ayuda a localizar una cuenta que requiere revisión o atención.",
+        "whatToWriteOrSelect": "Consulta el aviso y abre la ficha del afiliado si necesitas verificar el detalle.",
+        "example": "Revisa en Punata la alerta de una cuota pendiente y confirma el estado en la ficha del afiliado.",
+        "whatHappensAfter": "La consulta muestra información de la cuenta y no genera un cobro automáticamente.",
+        "importantTip": "La alerta es informativa; confirma siempre el saldo en el módulo correspondiente.",
+        "audioScript": "Usa las alertas para encontrar cuentas pendientes y verifica su detalle antes de responder.",
+        "requiredContext": { "tab": "dues", "subTab": "debts" }
+      }
+    ],
+    "category": "operational",
+    "isOptional": false
+  },
+  {
+    "id": "union_management",
+    "moduleId": "dues",
+    "title": "22. Administración: Afiliados, obligaciones y Directiva",
+    "shortTitle": "Administración Social",
+    "description": "Revisa las áreas de padrón, cuotas, préstamos, multas, deportes, Directiva anual y alertas.",
+    "estimatedMinutes": 5,
+    "allowedRoles": ["directiva_admin", "tesoreria"],
+    "steps": [
+      {
+        "id": "management_roster",
+        "sectionId": "union_management",
+        "order": 1,
+        "target": "[data-tutorial-target=\"members-table-container\"]",
+        "placement": "bottom",
+        "title": "Padrón e información de afiliados",
+        "whatIsIt": "El padrón social con datos del afiliado y vínculos de vehículos o conductores.",
+        "whatIsItFor": "Permite mantener las fichas y consultar la información de la organización.",
+        "whatToWriteOrSelect": "Busca una persona por sus datos. Usa las acciones de edición solamente cuando estén habilitadas en tu usuario.",
+        "example": "Consulta la ficha de un afiliado de Cochabamba antes de actualizar un dato autorizado.",
+        "whatHappensAfter": "Los cambios permitidos quedan guardados por las funciones del padrón.",
+        "importantTip": "La afiliación o un cargo institucional no asignan una cuenta ni permisos informáticos.",
+        "audioScript": "Consulta el padrón y edita datos únicamente con las autorizaciones de tu cuenta.",
+        "requiredContext": { "tab": "dues", "subTab": "members" }
+      },
+      {
+        "id": "management_dues",
+        "sectionId": "union_management",
+        "order": 2,
+        "target": "[data-tutorial-target=\"union-tab-dues\"]",
+        "placement": "bottom",
+        "title": "Cuotas y períodos",
+        "whatIsIt": "La sección de emisión y consulta de cuotas periódicas.",
+        "whatIsItFor": "Permite revisar los períodos de aportes y sus pagos registrados.",
+        "whatToWriteOrSelect": "Selecciona el período requerido y revisa los importes y estados antes de emitir o cobrar.",
+        "example": "Consulta el período 2026-11 de los afiliados de Punata y verifica qué cuotas continúan pendientes.",
+        "whatHappensAfter": "Las cuotas emitidas y sus pagos quedan vinculados al historial del afiliado.",
+        "importantTip": "Usa únicamente los importes y períodos aprobados por la organización.",
+        "audioScript": "En cuotas, selecciona el período y verifica los registros antes de emitir o cobrar.",
+        "requiredContext": { "tab": "dues", "subTab": "dues" }
+      },
+      {
+        "id": "management_loans",
+        "sectionId": "union_management",
+        "order": 3,
+        "target": "[data-tutorial-target=\"union-loans-panel\"]",
+        "placement": "top",
+        "title": "Préstamos internos",
+        "whatIsIt": "El registro de préstamos, saldos y pagos de afiliados.",
+        "whatIsItFor": "Permite consultar el historial y las obligaciones asociadas a cada préstamo.",
+        "whatToWriteOrSelect": "Revisa al afiliado, capital, saldo y pagos registrados antes de usar una acción autorizada.",
+        "example": "Consulta el saldo pendiente de un préstamo asociado a un afiliado de Punata.",
+        "whatHappensAfter": "Las operaciones autorizadas quedan auditadas por el backend.",
+        "importantTip": "No registres desembolsos ni pagos durante este tutorial.",
+        "audioScript": "Verifica el saldo y los pagos del préstamo antes de realizar una acción autorizada.",
+        "requiredContext": { "tab": "dues", "subTab": "loans" }
+      },
+      {
+        "id": "management_fines",
+        "sectionId": "union_management",
+        "order": 4,
+        "target": "[data-tutorial-target=\"union-fines-panel\"]",
+        "placement": "top",
+        "title": "Multas de afiliados",
+        "whatIsIt": "El registro de multas económicas, sus motivos, pagos y saldos pendientes.",
+        "whatIsItFor": "Permite consultar la causa y el estado de cada obligación.",
+        "whatToWriteOrSelect": "Revisa afiliado, categoría, fecha, importe y saldo. Usa únicamente las acciones autorizadas.",
+        "example": "Consulta en Punata una multa de categoría Transporte y verifica su saldo antes de informar al afiliado.",
+        "whatHappensAfter": "La consulta no registra cobros; los pagos se guardan mediante el flujo autorizado.",
+        "importantTip": "No inventes importes ni marques una multa como pagada sin recibir el dinero.",
+        "audioScript": "Consulta el motivo y el saldo de la multa. Registra un pago solo después de recibirlo.",
+        "requiredContext": { "tab": "dues", "subTab": "fines" }
+      },
+      {
+        "id": "management_sports",
+        "sectionId": "union_management",
+        "order": 5,
+        "target": "[data-tutorial-target=\"union-sports-panel\"]",
+        "placement": "top",
+        "title": "Deportes y exenciones",
+        "whatIsIt": "El módulo de eventos deportivos, deudas y decisiones de exención.",
+        "whatIsItFor": "Registra eventos y consulta las obligaciones deportivas según las autorizaciones existentes.",
+        "whatToWriteOrSelect": "Revisa el evento y el afiliado. Las decisiones de exención aparecen solamente para el rol habilitado.",
+        "example": "Consulta en Cochabamba una deuda asociada a una actividad deportiva antes de comunicarla al afiliado.",
+        "whatHappensAfter": "Las acciones disponibles dependen del rol; el tutorial no registra eventos ni decisiones.",
+        "importantTip": "Tesorería y Dirección no tienen necesariamente las mismas acciones de decisión.",
+        "audioScript": "Consulta eventos y deudas deportivas. Ejecuta una exención solo si tu rol muestra esa autorización.",
+        "requiredContext": { "tab": "dues", "subTab": "sports" }
+      },
+      {
+        "id": "management_annual_board",
+        "sectionId": "union_management",
+        "order": 6,
+        "target": "[data-tutorial-target=\"union-annual-board-panel\"]",
+        "placement": "top",
+        "title": "Directiva anual",
+        "whatIsIt": "El historial de directivas por período y los datos de sus integrantes y cargos.",
+        "whatIsItFor": "Permite consultar y mantener las gestiones institucionales anteriores y vigentes.",
+        "whatToWriteOrSelect": "Selecciona el período. Registra afiliados existentes y sus cargos según la decisión institucional.",
+        "example": "Consulta la Directiva anual de Punata del período 2026 antes de registrar una gestión nueva.",
+        "whatHappensAfter": "La información queda como designación institucional y no crea cuentas del sistema.",
+        "importantTip": "Ser integrante de la Directiva no concede automáticamente permisos de usuario.",
+        "audioScript": "Consulta las gestiones y registra cargos aprobados sin crear cuentas o accesos automáticos.",
+        "requiredContext": { "tab": "dues", "subTab": "annual-board" }
+      },
+      {
+        "id": "management_debt_alerts",
+        "sectionId": "union_management",
+        "order": 7,
+        "target": "[data-tutorial-target=\"union-debts-panel\"]",
+        "placement": "top",
+        "title": "Alertas y consulta de saldos",
+        "whatIsIt": "La lista de avisos de obligaciones pendientes de afiliados.",
+        "whatIsItFor": "Facilita la revisión de cuotas, préstamos y multas que requieren seguimiento.",
+        "whatToWriteOrSelect": "Abre el afiliado y confirma el detalle en el módulo de origen antes de comunicar un saldo.",
+        "example": "Una alerta de cuota pendiente de un afiliado de Punata se confirma consultando la cuota y sus pagos.",
+        "whatHappensAfter": "La alerta sirve para seguimiento; no crea ni cobra obligaciones por sí misma.",
+        "importantTip": "Confirma siempre la información en el registro original antes de tomar una decisión.",
+        "audioScript": "Usa las alertas para encontrar saldos que requieren revisión y comprueba cada uno en su registro.",
+        "requiredContext": { "tab": "dues", "subTab": "debts" }
+      }
+    ],
+    "category": "operational",
+    "isOptional": false
+  },
+  {
+    "id": "secretary_sports_fines",
+    "moduleId": "sports-fines",
+    "title": "23. Multas deportivas: consulta y cobro autorizado",
+    "shortTitle": "Multas Deportivas",
+    "description": "Consulta multas deportivas y registra pagos solamente después de recibir el importe.",
+    "estimatedMinutes": 2,
+    "allowedRoles": ["secretaria"],
+    "steps": [
+      {
+        "id": "sports_fines_collection",
+        "sectionId": "secretary_sports_fines",
+        "order": 1,
+        "target": "[data-tutorial-target=\"union-fines-panel\"]",
+        "placement": "top",
+        "title": "Consultar y atender una multa deportiva",
+        "whatIsIt": "La vista de multas deportivas disponible para Secretaría.",
+        "whatIsItFor": "Permite consultar registros y usar las acciones de cobro disponibles en el turno.",
+        "whatToWriteOrSelect": "Busca al afiliado, revisa la actividad y el saldo. Registra el pago solo después de recibir el importe.",
+        "example": "Confirma el saldo de un evento deportivo de Punata antes de entregar el comprobante.",
+        "whatHappensAfter": "El pago confirmado queda registrado y refleja el estado en la cuenta del afiliado.",
+        "importantTip": "No decidas una exención ni cambies una deuda; esas acciones dependen de la autorización vigente.",
+        "audioScript": "Revisa el evento y el saldo. Registra únicamente el pago realmente recibido.",
+        "requiredContext": { "tab": "sports-fines" }
+      }
+    ],
+    "category": "operational",
+    "isOptional": false
+  },
+  {
+    "id": "affiliate_account",
+    "moduleId": "my-account",
+    "title": "24. Mi cuenta de afiliado",
+    "shortTitle": "Mi Cuenta",
+    "description": "Consulta cuotas, préstamos, multas y saldos desde la cuenta personal de afiliado.",
+    "estimatedMinutes": 2,
+    "allowedRoles": ["afiliado"],
+    "steps": [
+      {
+        "id": "affiliate_profile",
+        "sectionId": "affiliate_account",
+        "order": 1,
+        "target": "[data-tutorial-target=\"affiliate-account-overview\"]",
+        "placement": "bottom",
+        "title": "Tus datos de afiliado",
+        "whatIsIt": "El resumen de identidad y afiliación vinculado a tu cuenta.",
+        "whatIsItFor": "Te ayuda a verificar tu nombre, número de afiliado y sucursal registrada.",
+        "whatToWriteOrSelect": "Revisa que los datos mostrados correspondan a ti y comunica cualquier diferencia a la oficina.",
+        "example": "Comprueba tu afiliación en la sucursal Punata antes de consultar tus obligaciones.",
+        "whatHappensAfter": "La pantalla presenta los datos disponibles; no permite administrar usuarios.",
+        "importantTip": "La cuenta de afiliado solo muestra información propia autorizada.",
+        "audioScript": "Revisa tus datos de afiliación y consulta a la oficina si observas una diferencia.",
+        "requiredContext": { "tab": "my-account" }
+      },
+      {
+        "id": "affiliate_balance_summary",
+        "sectionId": "affiliate_account",
+        "order": 2,
+        "target": "[data-tutorial-target=\"affiliate-account-balances\"]",
+        "placement": "top",
+        "title": "Resumen de saldos",
+        "whatIsIt": "Los saldos pendientes de cuotas, préstamos y multas asociados a tu cuenta.",
+        "whatIsItFor": "Permite conocer qué obligaciones requieren consulta o atención.",
+        "whatToWriteOrSelect": "Compara cada saldo con su detalle y solicita aclaración si no reconoces un registro.",
+        "example": "En la cuenta de Punata, el saldo pendiente de una multa se muestra separado del saldo de un préstamo.",
+        "whatHappensAfter": "Los importes son de consulta y no ejecutan pagos desde este resumen.",
+        "importantTip": "Un saldo mostrado no significa que el sistema haya cobrado dinero.",
+        "audioScript": "Consulta por separado tus cuotas, préstamos y multas pendientes.",
+        "requiredContext": { "tab": "my-account" }
+      },
+      {
+        "id": "affiliate_dues_detail",
+        "sectionId": "affiliate_account",
+        "order": 3,
+        "target": "[data-tutorial-target=\"affiliate-account-dues\"]",
+        "placement": "top",
+        "title": "Detalle de cuotas",
+        "whatIsIt": "El historial de cuotas y períodos registrados en tu cuenta.",
+        "whatIsItFor": "Permite revisar los estados y valores de cada período.",
+        "whatToWriteOrSelect": "Busca el período que deseas consultar y revisa su estado de pago.",
+        "example": "Consulta el período 2026-11 de Punata y confirma si figura pendiente o pagado.",
+        "whatHappensAfter": "La consulta no modifica el estado de la cuota.",
+        "importantTip": "Para corregir una diferencia, comunícate con la oficina y presenta tu comprobante.",
+        "audioScript": "Revisa el período y el estado de cada cuota registrada.",
+        "requiredContext": { "tab": "my-account" }
+      },
+      {
+        "id": "affiliate_loans_fines_detail",
+        "sectionId": "affiliate_account",
+        "order": 4,
+        "target": "[data-tutorial-target=\"affiliate-account-fines\"]",
+        "placement": "top",
+        "title": "Detalle de préstamos y multas",
+        "whatIsIt": "El detalle de saldos y pagos asociados a préstamos y multas.",
+        "whatIsItFor": "Te permite revisar cuánto queda pendiente en cada registro.",
+        "whatToWriteOrSelect": "Revisa el número, motivo y pagos. Solicita ayuda en la oficina si un dato no coincide.",
+        "example": "Verifica en Punata los pagos anotados para una multa de categoría Transporte.",
+        "whatHappensAfter": "La pantalla informa el historial disponible y no registra operaciones financieras.",
+        "importantTip": "No compartas tu sesión para pedir a otra persona que consulte tu cuenta.",
+        "audioScript": "Consulta los detalles de préstamos y multas y comunica cualquier diferencia a la oficina.",
+        "requiredContext": { "tab": "my-account" }
+      }
+    ],
+    "category": "operational",
+    "isOptional": false
   }
 ]
 

@@ -148,7 +148,7 @@ export function useDemoState() {
       weightSurchargeCents: newShipment.weightSurchargeCents || 0,
       homeDeliveryFeeCents: newShipment.homeDeliveryFeeCents || 0,
       discountCents: newShipment.discountCents || 0,
-      agreedAmountCents: newShipment.agreedAmountCents || 2000,
+      agreedAmountCents: newShipment.agreedAmountCents ?? 2000,
       finalAmountCents: newShipment.finalAmountCents || 2000,
       finalAmountBob: (newShipment.finalAmountCents || 2000) / 100,
       paymentTiming: newShipment.paymentTiming || 'origin_paid',

@@ -22,6 +22,7 @@ import type { Shipment, ParcelCustomer, ParcelItem, PaymentTiming, PaymentMethod
 import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig.ts'
 import { calculateParcelPricing, formatCurrencyBob, type ParcelTariffConfig } from '../../domain/parcelEngine.ts'
 import { fetchSystemConfig } from '../../services/configService.ts'
+import { automaticParcelPricingEnabled } from '../../config/features.ts'
 import { createShipmentThroughBackend, extractCustomerSuggestions } from '../../services/shipmentService.ts'
 import { printShipmentGuidePdf } from '../../services/pdfService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
@@ -35,6 +36,7 @@ interface WizardProps {
   onClose: () => void
   onSuccess: (shipment: Shipment) => void
   existingShipments: Shipment[]
+  tutorialStep?: number | null
   demo?: { branchId: string; operator: string; register: (shipment: Partial<Shipment>) => Shipment }
 }
 
@@ -43,6 +45,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
   onClose,
   onSuccess,
   existingShipments,
+  tutorialStep,
   demo,
 }) => {
   const { currentBranchId: authBranchId, userProfile, hasRole } = useAuth()
@@ -54,6 +57,9 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
 
   // Paso actual (1 a 4, o 5 para éxito)
   const [step, setStep] = useState<number>(1)
+  useEffect(() => {
+    if (isOpen && tutorialStep && tutorialStep >= 1 && tutorialStep <= 4) setStep(tutorialStep)
+  }, [isOpen, tutorialStep])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
@@ -126,7 +132,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
 
   useEffect(() => {
     let isMounted = true
-    if (isOpen) {
+    if (automaticParcelPricingEnabled && isOpen) {
       if (demo) return
       fetchSystemConfig().then(res => {
         if (isMounted && res.config?.tariffs) {
@@ -146,33 +152,35 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
 
   if (!isOpen) return null
 
-  // Cálculo en vivo de tarifas y centavos
+  // El motor se conserva para una activación interna futura; por defecto no se ejecuta.
   const totalWeight = items.reduce((sum, it) => sum + (Number(it.weightKg) || 0), 0)
-  const pricing = calculateParcelPricing(totalWeight, deliveryType, discountBob, systemTariffs || undefined)
-  const suggestedAmountCents = pricing.finalAmountCents
-  // Validación estricta del precio de ventanilla
+  const pricing = automaticParcelPricingEnabled
+    ? calculateParcelPricing(totalWeight, deliveryType, discountBob, systemTariffs || undefined)
+    : null
+  const suggestedAmountCents = pricing?.finalAmountCents ?? null
   const customPriceTrimmed = customPriceBob.trim()
   const isValidNumberFormat = /^\d+(\.\d{1,2})?$/.test(customPriceTrimmed)
   const numericCustomBob = isValidNumberFormat ? parseFloat(customPriceTrimmed) : NaN
-  const isCustomNumberValid = isPriceCustomized ? (!isNaN(numericCustomBob) && numericCustomBob >= 0) : true
+  const isCustomNumberValid = isPriceCustomized && !isNaN(numericCustomBob) && numericCustomBob >= 0
 
-  // Error explícito para feedback visual y bloqueo preventivo
   let customPriceError: string | null = null
   if (isPriceCustomized) {
     if (!isValidNumberFormat || isNaN(numericCustomBob) || numericCustomBob < 0) {
-      customPriceError = 'Ingrese un monto válido en Bs (número positivo, máx. 2 decimales).'
+      customPriceError = 'Ingrese un monto válido en Bs (máximo 2 decimales).'
     } else if (numericCustomBob === 0 && priceAdjustmentReason.trim().length < 3) {
-      customPriceError = 'Para envíos con precio Bs 0.00 (cortesía/exoneración) es obligatorio especificar el motivo.'
+      customPriceError = 'Para un precio de Bs 0.00 es obligatorio especificar el motivo.'
     }
   }
 
-  // Si el precio es personalizado pero inválido, NO hacer fallback silencioso (-1 bloquea)
-  const effectiveFinalAmountCents = isPriceCustomized
-    ? (isCustomNumberValid && isValidNumberFormat ? Math.round(numericCustomBob * 100) : -1)
-    : suggestedAmountCents
+  const manualPriceIsValid = isCustomNumberValid && isValidNumberFormat && customPriceError === null
+  const effectiveFinalAmountCents = manualPriceIsValid
+    ? Math.round(numericCustomBob * 100)
+    : (automaticParcelPricingEnabled && !isPriceCustomized ? (suggestedAmountCents ?? -1) : -1)
 
   const isZeroPrice = effectiveFinalAmountCents === 0
-  const priceDiffCents = effectiveFinalAmountCents >= 0 ? effectiveFinalAmountCents - suggestedAmountCents : 0
+  const priceDiffCents = automaticParcelPricingEnabled && suggestedAmountCents !== null && effectiveFinalAmountCents >= 0
+    ? effectiveFinalAmountCents - suggestedAmountCents
+    : 0
 
   // Validaciones por paso
   const canProceedStep1 = originBranchId !== destinationBranchId && (deliveryType !== 'home' || deliveryAddress.trim().length >= 4)
@@ -185,7 +193,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
     items.length > 0 &&
     items.every(it => it.description.trim().length >= 2 && it.quantity > 0) &&
     prohibitedNoticeAccepted &&
-    (!isPriceCustomized || customPriceError === null)
+    effectiveFinalAmountCents >= 0
   const canProceedStep4 =
     canProceedStep1 && canProceedStep2 && canProceedStep3 &&
     effectiveFinalAmountCents >= 0 &&
@@ -206,6 +214,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
     if (targetStep === 3) {
       items.forEach((item, index) => { if (item.description.trim().length < 2) errors[`item-${index}`] = 'Ingresa la descripción del bulto.' })
       if (!prohibitedNoticeAccepted) errors.prohibited = 'Debes aceptar la declaración de contenido.'
+      if (!automaticParcelPricingEnabled && !isPriceCustomized) errors.price = 'Ingresa manualmente el precio acordado.'
       if (customPriceError) errors.price = customPriceError
     }
     if (targetStep === 4 && !canProceedStep4) errors.payment = 'Completa y revisa los datos antes de emitir la guía.'
@@ -296,10 +305,11 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
         items,
         paymentTiming,
         paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : undefined,
-        discountCents: pricing.discountCents,
-        suggestedAmountCents,
+        discountCents: pricing?.discountCents ?? 0,
+        ...(suggestedAmountCents === null ? {} : { suggestedAmountCents }),
         agreedAmountCents: effectiveFinalAmountCents,
-        priceAdjustmentReason: isPriceCustomized && priceAdjustmentReason.trim().length > 0
+        pricingMode: automaticParcelPricingEnabled ? 'automatic' : 'manual',
+        priceAdjustmentReason: (automaticParcelPricingEnabled && isPriceCustomized && priceAdjustmentReason.trim().length > 0)
           ? priceAdjustmentReason.trim()
           : (isZeroPrice ? priceAdjustmentReason.trim() : undefined),
         prohibitedGoodsNoticeAccepted: prohibitedNoticeAccepted,
@@ -900,28 +910,35 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <label className="block text-xs font-black text-[#064e3b] uppercase tracking-wider">
+                      <label htmlFor="shipment-manual-price" className="block text-xs font-black text-[#064e3b] uppercase tracking-wider">
                         Precio del Envío (Bs) *
                       </label>
                       <span className="text-[10px] bg-emerald-200 text-emerald-900 font-bold px-2 py-0.5 rounded">
-                        Ventanilla Editable
+                        {automaticParcelPricingEnabled ? 'Ventanilla editable' : 'Precio manual'}
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-600 mt-0.5">
-                      Tarifa sugerida por peso/tipo: <strong className="text-slate-800">{formatCurrencyBob(suggestedAmountCents, true)}</strong>. Modifique directamente según el acuerdo con el cliente.
+                      {automaticParcelPricingEnabled
+                        ? <>Tarifa sugerida por peso/tipo: <strong className="text-slate-800">{formatCurrencyBob(suggestedAmountCents ?? 0, true)}</strong>. Puede modificarla según el acuerdo con el cliente.</>
+                        : 'Escriba el importe acordado con el cliente. El sistema no calcula tarifas automáticamente.'}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-lg font-black text-slate-700">Bs.</span>
                     <input
+                      id="shipment-manual-price"
                       type="number"
-                      step="0.50"
+                      step="0.01"
                       min="0"
-                      value={isPriceCustomized ? customPriceBob : (suggestedAmountCents / 100).toFixed(2)}
+                      required
+                      aria-describedby={customPriceError ? 'shipment-price-error' : undefined}
+                      value={automaticParcelPricingEnabled && !isPriceCustomized ? ((suggestedAmountCents ?? 0) / 100).toFixed(2) : customPriceBob}
                       onChange={(e) => {
                         setIsPriceCustomized(true)
                         setCustomPriceBob(e.target.value)
+                        clearValidationError('price')
                       }}
+                      placeholder="0.00"
                       className="w-36 py-2 px-3 text-2xl font-black font-mono text-[#064e3b] bg-white border-2 border-[#064e3b] rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-[#facc15] shadow-inner"
                     />
                   </div>
@@ -931,12 +948,12 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 {customPriceError && (
                   <div className="bg-rose-50 border border-rose-300 text-rose-800 text-xs px-3 py-2 rounded-lg flex items-center gap-2 font-semibold">
                     <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>{customPriceError}</span>
+                    <span id="shipment-price-error">{customPriceError}</span>
                   </div>
                 )}
 
                 {/* Resumen de diferencia de precio acordado vs sugerido */}
-                {isPriceCustomized && priceDiffCents !== 0 && (
+                {automaticParcelPricingEnabled && isPriceCustomized && priceDiffCents !== 0 && (
                   <div className="pt-2 border-t border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-xs">
                     <span className={`font-bold px-2.5 py-0.5 rounded text-[11px] ${priceDiffCents > 0 ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-blue-100 text-blue-900 border border-blue-300'}`}>
                       {priceDiffCents > 0
@@ -952,22 +969,22 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                       }}
                       className="text-[11px] text-emerald-800 underline hover:text-emerald-950 font-semibold"
                     >
-                      Restablecer precio sugerido ({formatCurrencyBob(suggestedAmountCents, true)})
+                      Restablecer precio sugerido ({formatCurrencyBob(suggestedAmountCents ?? 0, true)})
                     </button>
                   </div>
                 )}
 
                 {/* Motivo de ajuste comercial */}
-                {((isPriceCustomized && priceDiffCents !== 0) || isZeroPrice) && (
+                {((automaticParcelPricingEnabled && isPriceCustomized && priceDiffCents !== 0) || isZeroPrice) && (
                   <div data-tutorial-target="shipment-price-reason" className="pt-2 border-t border-emerald-200">
                     <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Motivo del Acuerdo Comercial / Ajuste de Precio {isZeroPrice ? '(Obligatorio para Bs. 0.00)' : '(Opcional)'}:
+                      {isZeroPrice ? 'Motivo de cortesía o exoneración (obligatorio):' : 'Motivo del ajuste de precio (opcional):'}
                     </label>
                     <input
                       type="text"
                       value={priceAdjustmentReason}
                       onChange={(e) => setPriceAdjustmentReason(e.target.value)}
-                      placeholder={isZeroPrice ? "Ej. Cortesía directiva / documento interno..." : "Ej. Paquete voluminoso pactado, cliente mayorista..."}
+                      placeholder="Ej. Cortesía autorizada / documento interno..."
                       className="w-full text-xs px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] bg-white"
                     />
                   </div>

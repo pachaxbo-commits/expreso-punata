@@ -364,7 +364,8 @@ export function subscribeBranchShiftHistory(
 export async function fetchBranchShiftsPage(
   branchId: string,
   pageSize = 15,
-  cursorDoc?: QueryDocumentSnapshot | null
+  cursorDoc?: QueryDocumentSnapshot | null,
+  operatorUid?: string
 ): Promise<{
   shifts: CashShift[]
   lastDoc: QueryDocumentSnapshot | null
@@ -374,16 +375,22 @@ export async function fetchBranchShiftsPage(
   let q
 
   if (branchId === 'all') {
-    if (cursorDoc) {
+    if (operatorUid && cursorDoc) {
+      q = query(shiftsRef, where('operatorUid', '==', operatorUid), orderBy('openedAt', 'desc'), startAfter(cursorDoc), limit(pageSize))
+    } else if (operatorUid) {
+      q = query(shiftsRef, where('operatorUid', '==', operatorUid), orderBy('openedAt', 'desc'), limit(pageSize))
+    } else if (cursorDoc) {
       q = query(shiftsRef, orderBy('openedAt', 'desc'), startAfter(cursorDoc), limit(pageSize))
     } else {
       q = query(shiftsRef, orderBy('openedAt', 'desc'), limit(pageSize))
     }
   } else {
+    const filters = [where('branchId', '==', branchId)]
+    if (operatorUid) filters.push(where('operatorUid', '==', operatorUid))
     if (cursorDoc) {
       q = query(
         shiftsRef,
-        where('branchId', '==', branchId),
+        ...filters,
         orderBy('openedAt', 'desc'),
         startAfter(cursorDoc),
         limit(pageSize)
@@ -391,7 +398,7 @@ export async function fetchBranchShiftsPage(
     } else {
       q = query(
         shiftsRef,
-        where('branchId', '==', branchId),
+        ...filters,
         orderBy('openedAt', 'desc'),
         limit(pageSize)
       )

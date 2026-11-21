@@ -179,6 +179,15 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
   const safeIdempotencyKey = idempotencyKey.trim()
 
+  const automaticPricingEnabled = process.env.ENABLE_AUTOMATIC_PARCEL_PRICING === 'true'
+  const hasManualAmount = payload.agreedAmountCents !== undefined && payload.agreedAmountCents !== null
+  if (!automaticPricingEnabled && payload.pricingMode === 'automatic') {
+    throw new HttpsError('failed-precondition', 'El cálculo automático de tarifas está desactivado. Ingrese manualmente el precio acordado.')
+  }
+  if (!automaticPricingEnabled && !hasManualAmount) {
+    throw new HttpsError('invalid-argument', 'Ingrese manualmente el precio acordado de la encomienda.')
+  }
+
   // 10. Validación estricta de descuentos
   // Descuentos arbitrarios desde ventanilla están bloqueados. Solo Directiva / Admin puede aplicar descuentos.
   const rawDiscount = Number(discountCents) || 0
@@ -189,69 +198,52 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Los descuentos desde ventanilla están deshabilitados. Solo la Directiva / Administración puede aplicar descuentos.')
   }
 
-  // 11. Cálculo canónico del costo en centavos enteros desde la configuración oficial
-  const isFunctionsEmulator = Boolean(
-    process.env.FUNCTIONS_EMULATOR === 'true' ||
-    process.env.FIRESTORE_EMULATOR_HOST
-  )
-  const sysConfigSnap = await db.collection('system_config').doc('expreso_punata').get()
-  const sysConfig = sysConfigSnap.exists ? sysConfigSnap.data() : null
-
   let baseFeeCents = null
   let freeWeightKg = null
   let extraKgRateCents = null
   let homeDeliveryRateCents = null
-
-  const hasOfficialConfig = sysConfig && sysConfig.status === 'configured' && sysConfig.isOfficial === true && sysConfig.tariffs && typeof sysConfig.tariffs === 'object'
-
-  if (hasOfficialConfig) {
-    const t = sysConfig.tariffs
-    baseFeeCents = t.baseFeeCents !== undefined && t.baseFeeCents !== null ? Number(t.baseFeeCents) : null
-    freeWeightKg = t.freeWeightKg !== undefined && t.freeWeightKg !== null ? Number(t.freeWeightKg) : null
-    extraKgRateCents = t.extraKgRateCents !== undefined && t.extraKgRateCents !== null ? Number(t.extraKgRateCents) : null
-    homeDeliveryRateCents = t.homeDeliveryFeeCents !== undefined && t.homeDeliveryFeeCents !== null ? Number(t.homeDeliveryFeeCents) : null
-  }
-
-  if (!isFunctionsEmulator) {
-    if (
-      !hasOfficialConfig ||
-      baseFeeCents === null || isNaN(baseFeeCents) ||
-      freeWeightKg === null || isNaN(freeWeightKg) ||
-      extraKgRateCents === null || isNaN(extraKgRateCents) ||
-      homeDeliveryRateCents === null || isNaN(homeDeliveryRateCents)
-    ) {
-      const missing = []
-      if (!hasOfficialConfig) {
-        missing.push('Configuración oficial de tarifas aprobada (system_config/expreso_punata)')
-      } else {
-        if (baseFeeCents === null || isNaN(baseFeeCents)) missing.push('tarifa base (baseFeeCents)')
-        if (freeWeightKg === null || isNaN(freeWeightKg)) missing.push('peso libre (freeWeightKg)')
-        if (extraKgRateCents === null || isNaN(extraKgRateCents)) missing.push('tarifa por kg adicional (extraKgRateCents)')
-        if (homeDeliveryRateCents === null || isNaN(homeDeliveryRateCents)) missing.push('tarifa de entrega a domicilio (homeDeliveryFeeCents)')
-      }
-      throw new HttpsError('failed-precondition', `El sistema no cuenta con configuración tarifaria oficial aprobada en Administración. Faltan los siguientes parámetros: ${missing.join(', ')}. Configure y guarde los parámetros oficiales antes de emitir guías en producción.`)
+  let weightSurchargeCents = null
+  let homeDeliveryFeeCents = null
+  let safeDiscountCents = 0
+  let suggestedAmountCents = null
+  if (automaticPricingEnabled) {
+    // El motor y las tarifas siguen disponibles para una activación interna futura.
+    const isFunctionsEmulator = Boolean(process.env.FUNCTIONS_EMULATOR === 'true' || process.env.FIRESTORE_EMULATOR_HOST)
+    const sysConfigSnap = await db.collection('system_config').doc('expreso_punata').get()
+    const sysConfig = sysConfigSnap.exists ? sysConfigSnap.data() : null
+    const hasOfficialConfig = sysConfig && sysConfig.status === 'configured' && sysConfig.isOfficial === true && sysConfig.tariffs && typeof sysConfig.tariffs === 'object'
+    if (hasOfficialConfig) {
+      const t = sysConfig.tariffs
+      baseFeeCents = t.baseFeeCents != null ? Number(t.baseFeeCents) : null
+      freeWeightKg = t.freeWeightKg != null ? Number(t.freeWeightKg) : null
+      extraKgRateCents = t.extraKgRateCents != null ? Number(t.extraKgRateCents) : null
+      homeDeliveryRateCents = t.homeDeliveryFeeCents != null ? Number(t.homeDeliveryFeeCents) : null
     }
-  } else {
-    // Modo emulador local / suite de pruebas: usar TARIFFS_DEV_REFERENCE sólo si no están configurados
-    if (baseFeeCents === null || isNaN(baseFeeCents)) baseFeeCents = TARIFFS_DEV_REFERENCE.baseFeeCents
-    if (freeWeightKg === null || isNaN(freeWeightKg)) freeWeightKg = TARIFFS_DEV_REFERENCE.freeWeightKg
-    if (extraKgRateCents === null || isNaN(extraKgRateCents)) extraKgRateCents = TARIFFS_DEV_REFERENCE.extraKgRateCents
-    if (homeDeliveryRateCents === null || isNaN(homeDeliveryRateCents)) homeDeliveryRateCents = TARIFFS_DEV_REFERENCE.homeDeliveryFeeCents
+    if (!isFunctionsEmulator && (!hasOfficialConfig || [baseFeeCents, freeWeightKg, extraKgRateCents, homeDeliveryRateCents].some(value => value === null || Number.isNaN(value)))) {
+      throw new HttpsError('failed-precondition', 'Falta la configuración tarifaria oficial aprobada para activar el cálculo automático.')
+    }
+    if (isFunctionsEmulator) {
+      baseFeeCents ??= TARIFFS_DEV_REFERENCE.baseFeeCents
+      freeWeightKg ??= TARIFFS_DEV_REFERENCE.freeWeightKg
+      extraKgRateCents ??= TARIFFS_DEV_REFERENCE.extraKgRateCents
+      homeDeliveryRateCents ??= TARIFFS_DEV_REFERENCE.homeDeliveryFeeCents
+    }
+    const chargeableExcessWeightKg = Math.max(0, Math.round((totalWeightKg - freeWeightKg) * 100) / 100)
+    weightSurchargeCents = Math.round(chargeableExcessWeightKg * extraKgRateCents)
+    homeDeliveryFeeCents = deliveryType === 'home' ? homeDeliveryRateCents : 0
+    const subtotalCents = baseFeeCents + weightSurchargeCents + homeDeliveryFeeCents
+    safeDiscountCents = Math.min(subtotalCents, Math.round(rawDiscount))
+    suggestedAmountCents = subtotalCents - safeDiscountCents
+  } else if (rawDiscount > 0) {
+    throw new HttpsError('invalid-argument', 'Con el precio manual, registre el importe final acordado sin aplicar un descuento tarifario separado.')
   }
 
-  const chargeableExcessWeightKg = Math.max(0, Math.round((totalWeightKg - freeWeightKg) * 100) / 100)
-  const weightSurchargeCents = Math.round(chargeableExcessWeightKg * extraKgRateCents)
-  const homeDeliveryFeeCents = deliveryType === 'home' ? homeDeliveryRateCents : 0
-  const subtotalCents = baseFeeCents + weightSurchargeCents + homeDeliveryFeeCents
-  const safeDiscountCents = Math.min(subtotalCents, Math.round(rawDiscount))
-  const suggestedAmountCents = subtotalCents - safeDiscountCents
-
-  // FASE 1: Precio de envío editable en ventanilla (Tarifa acordada vs sugerida)
-  let finalAmountCents = suggestedAmountCents
+  // Con la bandera apagada, el monto final siempre proviene del campo manual.
+  let finalAmountCents = automaticPricingEnabled ? suggestedAmountCents : Number(payload.agreedAmountCents)
   let isPriceAdjusted = false
   let cleanAdjustmentReason = null
 
-  if (payload.agreedAmountCents !== undefined && payload.agreedAmountCents !== null) {
+  if (hasManualAmount) {
     const rawAgreed = Number(payload.agreedAmountCents)
     if (!Number.isInteger(rawAgreed) || isNaN(rawAgreed) || rawAgreed < 0) {
       throw new HttpsError('invalid-argument', 'El precio acordado debe ser un número entero de centavos no negativo.')
@@ -262,9 +254,11 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       }
     }
     finalAmountCents = rawAgreed
-    if (finalAmountCents !== suggestedAmountCents) {
+    if (automaticPricingEnabled && finalAmountCents !== suggestedAmountCents) {
       isPriceAdjusted = true
       cleanAdjustmentReason = payload.priceAdjustmentReason ? String(payload.priceAdjustmentReason).trim() : null
+    } else if (!automaticPricingEnabled && payload.priceAdjustmentReason) {
+      cleanAdjustmentReason = String(payload.priceAdjustmentReason).trim()
     }
   }
 
@@ -7312,6 +7306,8 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     let fineIncomeCents = 0
     let loanRepaymentsCents = 0
     let driverRemittancesCents = 0
+    let passengerTicketIncomeCents = 0
+    let passengerTicketPayoutCents = 0
     let expensesCents = 0
     let refundsCents = 0
     let adjustmentsCents = 0
@@ -7329,11 +7325,15 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
 
     for (const m of movements) {
       const amt = m.amountCents || Math.round((Number(m.amountBob) || 0) * 100) || 0
-      const isIncome = ['shipment_income', 'cod_income', 'origin_paid', 'driver_route_cod_collected', 'contribution_income', 'monthly_fee_income', 'driver_remittance', 'fine_income', 'loan_repayment'].includes(m.type)
-      const isExpense = ['expense', 'general_expense', 'worker_payroll', 'refund'].includes(m.type)
+      const isIncome = ['shipment_income', 'cod_income', 'origin_paid', 'driver_route_cod_collected', 'passenger_ticket_income', 'contribution_income', 'monthly_fee_income', 'driver_remittance', 'fine_income', 'loan_repayment'].includes(m.type)
+      const isExpense = ['expense', 'general_expense', 'worker_payroll', 'refund', 'passenger_ticket_payout'].includes(m.type)
 
       if (['shipment_income', 'cod_income', 'origin_paid', 'driver_route_cod_collected'].includes(m.type)) {
         commercialIncomeCents += amt
+      } else if (m.type === 'passenger_ticket_income') {
+        passengerTicketIncomeCents += amt
+      } else if (m.type === 'passenger_ticket_payout') {
+        passengerTicketPayoutCents += amt
       } else if (['contribution_income', 'monthly_fee_income'].includes(m.type)) {
         contributionsIncomeCents += amt
       } else if (m.type === 'fine_income') {
@@ -7419,6 +7419,10 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         loanRepaymentsBob: loanRepaymentsCents / 100,
         driverRemittancesCents,
         driverRemittancesBob: driverRemittancesCents / 100,
+        passengerTicketIncomeCents,
+        passengerTicketIncomeBob: passengerTicketIncomeCents / 100,
+        passengerTicketPayoutCents,
+        passengerTicketPayoutBob: passengerTicketPayoutCents / 100,
         expensesCents,
         expensesBob: expensesCents / 100,
         refundsCents,
@@ -7853,11 +7857,15 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     let fineIncomeCents = 0
     let loanRepaymentsCents = 0
     let driverRemittancesCents = 0
+    let passengerTicketIncomeCents = 0
+    let passengerTicketPayoutCents = 0
     let expensesCents = 0
 
     for (const m of movements) {
       const amt = m.amountCents || Math.round((Number(m.amountBob) || 0) * 100) || 0
       if (['shipment_income', 'cod_income', 'origin_paid', 'driver_route_cod_collected'].includes(m.type)) commercialIncomeCents += amt
+      else if (m.type === 'passenger_ticket_income') passengerTicketIncomeCents += amt
+      else if (m.type === 'passenger_ticket_payout') passengerTicketPayoutCents += amt
       else if (['contribution_income', 'monthly_fee_income'].includes(m.type)) contributionsIncomeCents += amt
       else if (m.type === 'fine_income') fineIncomeCents += amt
       else if (m.type === 'loan_repayment') loanRepaymentsCents += amt
@@ -7941,6 +7949,10 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
           loanRepaymentsBob: loanRepaymentsCents / 100,
           driverRemittancesCents,
           driverRemittancesBob: driverRemittancesCents / 100,
+          passengerTicketIncomeCents,
+          passengerTicketIncomeBob: passengerTicketIncomeCents / 100,
+          passengerTicketPayoutCents,
+          passengerTicketPayoutBob: passengerTicketPayoutCents / 100,
           expensesCents,
           expensesBob: expensesCents / 100,
           netOperatingCents: (commercialIncomeCents + contributionsIncomeCents + fineIncomeCents) - expensesCents,
@@ -10350,6 +10362,498 @@ export const collectUnionFinePayment = onCall({ cors: true }, async (request) =>
       shiftId: shiftRef.id, performedByUid: caller.uid, performedByName: caller.fullName || 'Operador',
       performedByRole: caller.role, timestamp: FieldValue.serverTimestamp(), timestampIso: nowIso,
     })
+    return result
+  })
+})
+
+// PASAJES: operaciones QR de oficina. El monto lo ingresa el personal; no hay tarifario confirmado.
+const PASSENGER_TICKET_STAFF_ROLES = ['secretaria', 'encargado_agencia', 'directiva_admin']
+const PASSENGER_TICKET_READ_ROLES = ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria']
+
+function ticketIdempotencyRef(uid, action, key) {
+  const digest = crypto.createHash('sha256').update(`${uid}:${action}:${key}`).digest('hex')
+  return db.collection('idempotency_keys').doc(`passenger_ticket_${digest}`)
+}
+
+function requireTicketIdempotencyKey(value) {
+  if (typeof value !== 'string' || value.trim().length < 8 || value.trim().length > 120) {
+    throw new HttpsError('invalid-argument', 'Se requiere una clave de operación válida para evitar duplicados.')
+  }
+  return value.trim()
+}
+
+function ticketFingerprint(value) {
+  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex')
+}
+
+function ticketBranchAllowed(user, branchId) {
+  return user.role === 'directiva_admin' || user.role === 'tesoreria' ||
+    user.primaryBranchId === branchId || (Array.isArray(user.allowedBranchIds) && user.allowedBranchIds.includes(branchId))
+}
+
+function nextBoliviaCalendarDate(isoDateTime) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(isoDateTime))
+  const year = Number(parts.find((part) => part.type === 'year')?.value)
+  const month = Number(parts.find((part) => part.type === 'month')?.value)
+  const day = Number(parts.find((part) => part.type === 'day')?.value)
+  const next = new Date(Date.UTC(year, month - 1, day + 1))
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`
+}
+
+function ticketOperationAudit(transaction, operation, action, caller, details = {}) {
+  transaction.set(db.collection('audit_logs').doc(), {
+    entityType: 'passenger_ticket_operation',
+    entityId: operation.id,
+    operationNumber: operation.operationNumber,
+    ticketCode: operation.ticketCode,
+    action,
+    branchId: operation.branchId,
+    driverUid: operation.driverUid,
+    performedByUid: caller.uid,
+    performedByName: caller.fullName || 'Operador',
+    performedByRole: caller.role,
+    details,
+    timestamp: FieldValue.serverTimestamp(),
+    timestampIso: new Date().toISOString(),
+  })
+}
+
+async function getTicketCaller(transaction, uid, roles) {
+  const userSnap = await transaction.get(db.collection('users').doc(uid))
+  if (!userSnap.exists) throw new HttpsError('permission-denied', 'No existe un perfil autorizado para esta operación.')
+  const caller = { uid, ...(userSnap.data() || {}) }
+  if (caller.isActive !== true || !roles.includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'Su usuario no tiene permiso para esta operación de pasajes.')
+  }
+  return caller
+}
+
+function validatePassengerTicketTrip(data) {
+  const branches = ['punata', 'cochabamba']
+  if (!branches.includes(data.branchId) || !branches.includes(data.originBranchId) || !branches.includes(data.destinationBranchId) || data.originBranchId === data.destinationBranchId) {
+    throw new HttpsError('invalid-argument', 'Seleccione una sucursal y una ruta válida entre Punata y Cochabamba.')
+  }
+  const parsedTravelDate = typeof data.travelDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.travelDate)
+    ? new Date(`${data.travelDate}T12:00:00-04:00`)
+    : null
+  if (!parsedTravelDate || !Number.isFinite(parsedTravelDate.getTime()) || parsedTravelDate.toISOString().slice(0, 10) !== data.travelDate) {
+    throw new HttpsError('invalid-argument', 'Ingrese una fecha de viaje válida.')
+  }
+  if (typeof data.driverUid !== 'string' || !data.driverUid.trim()) throw new HttpsError('invalid-argument', 'Seleccione el chofer del viaje.')
+  const quantity = Number(data.quantity)
+  const unitAmountCents = Number(data.unitAmountCents)
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) throw new HttpsError('invalid-argument', 'La cantidad debe ser un número entero entre 1 y 100.')
+  if (!Number.isSafeInteger(unitAmountCents) || unitAmountCents <= 0 || !Number.isSafeInteger(unitAmountCents * quantity)) {
+    throw new HttpsError('invalid-argument', 'Ingrese un importe positivo por pasaje, en centavos enteros.')
+  }
+  return { quantity, unitAmountCents, totalAmountCents: unitAmountCents * quantity }
+}
+
+export const createPassengerTicket = onCall({ cors: true }, async (request) => {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión para registrar pasajes.')
+  const uid = request.auth.uid
+  const payload = request.data || {}
+  const idempotencyKey = requireTicketIdempotencyKey(payload.idempotencyKey)
+  const amounts = validatePassengerTicketTrip(payload)
+  const passengerName = typeof payload.passengerName === 'string' ? payload.passengerName.trim().slice(0, 120) : ''
+  const vehicleId = typeof payload.vehicleId === 'string' && payload.vehicleId.trim() ? payload.vehicleId.trim() : null
+  const payloadFingerprint = ticketFingerprint({
+    branchId: payload.branchId, originBranchId: payload.originBranchId, destinationBranchId: payload.destinationBranchId,
+    travelDate: payload.travelDate, driverUid: payload.driverUid, vehicleId, passengerName,
+    quantity: amounts.quantity, unitAmountCents: amounts.unitAmountCents,
+  })
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const year = Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric' }).format(now))
+  const branchCode = payload.branchId === 'punata' ? 'PUN' : 'CBB'
+  const counterRef = db.collection('passenger_ticket_counters').doc(`${branchCode}_${year}`)
+  const idemRef = ticketIdempotencyRef(uid, 'create', idempotencyKey)
+  const driverRef = db.collection('users').doc(payload.driverUid)
+  const vehicleRef = vehicleId ? db.collection('vehicles').doc(vehicleId) : null
+  const randomCode = `PJE-${crypto.randomBytes(10).toString('hex').toUpperCase()}`
+  const operationRef = db.collection('passenger_ticket_operations').doc(randomCode)
+
+  return db.runTransaction(async (transaction) => {
+    const [caller, idemSnap, counterSnap, driverSnap, vehicleSnap] = await Promise.all([
+      getTicketCaller(transaction, uid, PASSENGER_TICKET_STAFF_ROLES),
+      transaction.get(idemRef),
+      transaction.get(counterRef),
+      transaction.get(driverRef),
+      vehicleRef ? transaction.get(vehicleRef) : Promise.resolve(null),
+    ])
+    if (!ticketBranchAllowed(caller, payload.branchId)) throw new HttpsError('permission-denied', 'No puede registrar pasajes para esta sucursal.')
+    if (idemSnap.exists) {
+      const cached = idemSnap.data() || {}
+      if (cached.callerUid !== uid || cached.payloadFingerprint !== payloadFingerprint) throw new HttpsError('already-exists', 'La clave ya se usó con datos diferentes.')
+      const existing = await transaction.get(db.collection('passenger_ticket_operations').doc(cached.ticketCode))
+      if (!existing.exists) throw new HttpsError('data-loss', 'La clave de operación existe, pero no se encontró su pasaje.')
+      return { success: true, operation: { id: existing.id, ...existing.data() }, cached: true }
+    }
+    if (!driverSnap?.exists || driverSnap.data()?.role !== 'conductor' || driverSnap.data()?.isActive !== true) {
+      throw new HttpsError('failed-precondition', 'El chofer seleccionado no está activo en el directorio del sistema.')
+    }
+    const driver = driverSnap.data() || {}
+    const vehicle = vehicleSnap?.exists ? vehicleSnap.data() || {} : null
+    if (vehicleId && (!vehicle || vehicle.status !== 'active' || (vehicle.assignedDriverUid && vehicle.assignedDriverUid !== payload.driverUid))) {
+      throw new HttpsError('failed-precondition', 'El vehículo no está activo o está asignado a otro chofer.')
+    }
+    const sequence = Number(counterSnap.data()?.current || 0) + 1
+    const operationNumber = `PAS-${branchCode}-${year}-${String(sequence).padStart(6, '0')}`
+    const operation = {
+      id: randomCode,
+      operationNumber,
+      ticketCode: randomCode,
+      branchId: payload.branchId,
+      originBranchId: payload.originBranchId,
+      destinationBranchId: payload.destinationBranchId,
+      travelDate: payload.travelDate,
+      driverUid: payload.driverUid,
+      driverName: driver.fullName || 'Chofer',
+      vehicleId,
+      vehiclePlate: vehicle?.plate || driver.assignedVehiclePlate || null,
+      vehicleMobileNumber: vehicle?.mobileNumber || driver.assignedMobileNumber || null,
+      passengerName: passengerName || null,
+      quantity: amounts.quantity,
+      unitAmountCents: amounts.unitAmountCents,
+      totalAmountCents: amounts.totalAmountCents,
+      paymentMethod: 'qr',
+      paymentStatus: 'pending_verification',
+      paymentVerificationStatus: 'pending',
+      paymentReference: null,
+      paymentConfirmedAmountCents: null,
+      paymentVerifiedAtIso: null,
+      paymentVerifiedByUid: null,
+      paymentVerifiedByName: null,
+      paymentShiftId: null,
+      paymentMovementId: null,
+      settlementStatus: 'pending_delivery',
+      pendingSettlementCents: 0,
+      expectedDeliveryDate: null,
+      deliveredAtIso: null,
+      deliveredByUid: null,
+      deliveredByName: null,
+      deliveryMovementId: null,
+      useStatus: 'pending_boarding',
+      usedCount: 0,
+      createdAtIso: nowIso,
+      createdByUid: uid,
+      createdByName: caller.fullName || 'Operador',
+      cancelledAtIso: null,
+      cancelledByUid: null,
+      cancellationReason: null,
+      updatedAtIso: nowIso,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }
+    transaction.set(counterRef, { branchId: payload.branchId, year, current: sequence, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+    transaction.create(operationRef, operation)
+    transaction.create(idemRef, { callerUid: uid, payloadFingerprint, ticketCode: randomCode, operationNumber, createdAtIso: nowIso })
+    ticketOperationAudit(transaction, operation, 'passenger_ticket_created_pending_verification', caller)
+    return { success: true, operation }
+  })
+})
+
+export const verifyPassengerTicketPayment = onCall({ cors: true }, async (request) => {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión para verificar el pago QR.')
+  const uid = request.auth.uid
+  const payload = request.data || {}
+  const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : ''
+  const amountCents = Number(payload.confirmedAmountCents)
+  const paymentReference = typeof payload.paymentReference === 'string' ? payload.paymentReference.trim().slice(0, 120) : ''
+  const idempotencyKey = requireTicketIdempotencyKey(payload.idempotencyKey)
+  if (!operationId || !Number.isSafeInteger(amountCents) || amountCents <= 0) throw new HttpsError('invalid-argument', 'Operación e importe confirmado válidos son obligatorios.')
+  const operationRef = db.collection('passenger_ticket_operations').doc(operationId)
+  const idemRef = ticketIdempotencyRef(uid, 'verify', idempotencyKey)
+  const nowIso = new Date().toISOString()
+  const fingerprint = ticketFingerprint({ operationId, amountCents, paymentReference })
+
+  return db.runTransaction(async (transaction) => {
+    const [caller, operationSnap, idemSnap] = await Promise.all([
+      getTicketCaller(transaction, uid, PASSENGER_TICKET_STAFF_ROLES),
+      transaction.get(operationRef),
+      transaction.get(idemRef),
+    ])
+    if (!operationSnap.exists) throw new HttpsError('not-found', 'No se encontró la operación de pasaje.')
+    const operation = { id: operationSnap.id, ...(operationSnap.data() || {}) }
+    if (!ticketBranchAllowed(caller, operation.branchId)) throw new HttpsError('permission-denied', 'No puede verificar pasajes de otra sucursal.')
+    if (idemSnap.exists) {
+      const cached = idemSnap.data() || {}
+      if (cached.callerUid !== uid || cached.payloadFingerprint !== fingerprint) throw new HttpsError('already-exists', 'La clave de verificación ya se usó con otros datos.')
+      return { success: true, operation, cached: true }
+    }
+    if (operation.paymentStatus !== 'pending_verification') throw new HttpsError('failed-precondition', 'Solo puede verificarse una operación pendiente de verificación.')
+    if (amountCents !== operation.totalAmountCents) throw new HttpsError('failed-precondition', 'El importe recibido no coincide con el total de pasajes. No confirme el pago.')
+    const lockRef = db.collection('cash_shift_active_locks').doc(`${uid}_${operation.branchId}`)
+    const lockSnap = await transaction.get(lockRef)
+    if (!lockSnap.exists || lockSnap.data()?.status !== 'open' || !lockSnap.data()?.shiftId) throw new HttpsError('failed-precondition', 'Abra un turno de Caja en la sucursal que recibió el QR antes de confirmar el pago.')
+    const shiftRef = db.collection('cash_shifts').doc(lockSnap.data().shiftId)
+    const shiftSnap = await transaction.get(shiftRef)
+    if (!shiftSnap.exists || shiftSnap.data()?.status !== 'open' || shiftSnap.data()?.branchId !== operation.branchId || shiftSnap.data()?.operatorUid !== uid) {
+      throw new HttpsError('failed-precondition', 'El turno de Caja activo no corresponde a la sucursal y usuario actuales.')
+    }
+
+    const movementId = `MOV-PAS-QR-${operation.operationNumber}`
+    const updated = {
+      ...operation,
+      paymentStatus: 'paid_verified',
+      paymentVerificationStatus: 'verified',
+      paymentReference: paymentReference || null,
+      paymentConfirmedAmountCents: amountCents,
+      paymentVerifiedAtIso: nowIso,
+      paymentVerifiedByUid: uid,
+      paymentVerifiedByName: caller.fullName || 'Operador',
+      paymentShiftId: shiftRef.id,
+      paymentMovementId: movementId,
+      pendingSettlementCents: amountCents,
+      expectedDeliveryDate: nextBoliviaCalendarDate(nowIso),
+      updatedAtIso: nowIso,
+    }
+    transaction.create(db.collection('financial_movements').doc(movementId), {
+      id: movementId, shiftId: shiftRef.id, branchId: operation.branchId,
+      operatorUid: uid, operatorName: caller.fullName || 'Operador',
+      type: 'passenger_ticket_income', category: 'passenger_ticket_qr',
+      amountCents, paymentMethod: 'qr', concept: `Pago QR de pasajes ${operation.operationNumber}`,
+      referenceId: operation.operationNumber, ticketOperationId: operation.id,
+      status: 'completed', timestamp: nowIso, createdAt: FieldValue.serverTimestamp(),
+    })
+    transaction.update(shiftRef, {
+      'breakdown.totalIncomeCents': FieldValue.increment(amountCents),
+      'breakdown.qrIncomeCents': FieldValue.increment(amountCents),
+      'breakdown.passengerTicketIncomeCents': FieldValue.increment(amountCents),
+      movementsCount: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp(),
+    })
+    transaction.update(operationRef, {
+      paymentStatus: updated.paymentStatus,
+      paymentVerificationStatus: updated.paymentVerificationStatus,
+      paymentReference: updated.paymentReference,
+      paymentConfirmedAmountCents: amountCents,
+      paymentVerifiedAtIso: nowIso,
+      paymentVerifiedByUid: uid,
+      paymentVerifiedByName: updated.paymentVerifiedByName,
+      paymentShiftId: shiftRef.id,
+      paymentMovementId: movementId,
+      settlementStatus: 'pending_delivery',
+      pendingSettlementCents: amountCents,
+      expectedDeliveryDate: updated.expectedDeliveryDate,
+      updatedAtIso: nowIso,
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    transaction.create(idemRef, { callerUid: uid, payloadFingerprint: fingerprint, operationId, movementId, createdAtIso: nowIso })
+    ticketOperationAudit(transaction, updated, 'passenger_ticket_qr_payment_verified', caller, { amountCents, paymentReference: paymentReference || null, shiftId: shiftRef.id })
+    return { success: true, operation: updated }
+  })
+})
+
+export const cancelPassengerTicketOperation = onCall({ cors: true }, async (request) => {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión para anular una operación.')
+  const uid = request.auth.uid
+  const payload = request.data || {}
+  const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : ''
+  const reason = typeof payload.reason === 'string' ? payload.reason.trim().slice(0, 300) : ''
+  const idempotencyKey = requireTicketIdempotencyKey(payload.idempotencyKey)
+  if (!operationId || reason.length < 3) throw new HttpsError('invalid-argument', 'Indique la operación y un motivo claro para anularla.')
+  const operationRef = db.collection('passenger_ticket_operations').doc(operationId)
+  const idemRef = ticketIdempotencyRef(uid, 'cancel', idempotencyKey)
+  const fingerprint = ticketFingerprint({ operationId, reason })
+  const nowIso = new Date().toISOString()
+
+  return db.runTransaction(async (transaction) => {
+    const [caller, operationSnap, idemSnap] = await Promise.all([
+      getTicketCaller(transaction, uid, PASSENGER_TICKET_STAFF_ROLES),
+      transaction.get(operationRef),
+      transaction.get(idemRef),
+    ])
+    if (!operationSnap.exists) throw new HttpsError('not-found', 'No se encontró la operación de pasaje.')
+    const operation = { id: operationSnap.id, ...(operationSnap.data() || {}) }
+    if (!ticketBranchAllowed(caller, operation.branchId)) throw new HttpsError('permission-denied', 'No puede anular pasajes de otra sucursal.')
+    if (idemSnap.exists) {
+      const cached = idemSnap.data() || {}
+      if (cached.callerUid !== uid || cached.payloadFingerprint !== fingerprint) throw new HttpsError('already-exists', 'La clave de anulación ya se usó con otros datos.')
+      return { success: true, operation, cached: true }
+    }
+    if (operation.paymentStatus === 'paid_verified') {
+      throw new HttpsError('failed-precondition', 'El pago QR ya fue verificado. No se puede anular sin una regla de devolución aprobada.')
+    }
+    if (operation.paymentStatus !== 'pending_verification') throw new HttpsError('failed-precondition', 'La operación ya se encuentra anulada.')
+    const updated = {
+      ...operation,
+      paymentStatus: 'cancelled',
+      paymentVerificationStatus: 'not_applicable',
+      cancelledAtIso: nowIso,
+      cancelledByUid: uid,
+      cancellationReason: reason,
+      updatedAtIso: nowIso,
+    }
+    transaction.update(operationRef, {
+      paymentStatus: 'cancelled', paymentVerificationStatus: 'not_applicable',
+      cancelledAtIso: nowIso, cancelledByUid: uid, cancellationReason: reason,
+      updatedAtIso: nowIso, updatedAt: FieldValue.serverTimestamp(),
+    })
+    transaction.create(idemRef, { callerUid: uid, payloadFingerprint: fingerprint, operationId, createdAtIso: nowIso })
+    ticketOperationAudit(transaction, updated, 'passenger_ticket_cancelled', caller, { reason })
+    return { success: true, operation: updated }
+  })
+})
+
+export const validatePassengerTicket = onCall({ cors: true }, async (request) => {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión para validar un pasaje.')
+  const uid = request.auth.uid
+  const payload = request.data || {}
+  const ticketCode = typeof payload.ticketCode === 'string' ? payload.ticketCode.trim().toUpperCase() : ''
+  const idempotencyKey = requireTicketIdempotencyKey(payload.idempotencyKey)
+  if (!/^PJE-[A-F0-9]{20}$/.test(ticketCode)) throw new HttpsError('invalid-argument', 'Ingrese un código de pasaje válido.')
+  const operationRef = db.collection('passenger_ticket_operations').doc(ticketCode)
+  const idemRef = ticketIdempotencyRef(uid, 'validate', idempotencyKey)
+  const fingerprint = ticketFingerprint({ ticketCode })
+  const validationRef = db.collection('passenger_ticket_validations').doc()
+  const nowIso = new Date().toISOString()
+
+  return db.runTransaction(async (transaction) => {
+    const [caller, operationSnap, idemSnap] = await Promise.all([
+      getTicketCaller(transaction, uid, ['conductor']),
+      transaction.get(operationRef),
+      transaction.get(idemRef),
+    ])
+    if (!operationSnap.exists) throw new HttpsError('not-found', 'No se encontró un pasaje con ese código.')
+    const operation = { id: operationSnap.id, ...(operationSnap.data() || {}) }
+    if (operation.driverUid !== uid) throw new HttpsError('permission-denied', 'Este pasaje corresponde a otro chofer.')
+    if (idemSnap.exists) {
+      const cached = idemSnap.data() || {}
+      if (cached.callerUid !== uid || cached.payloadFingerprint !== fingerprint) throw new HttpsError('already-exists', 'La clave de validación ya se usó para otro pasaje.')
+      return { success: true, ...cached.result, duplicate: true }
+    }
+    if (operation.paymentStatus === 'cancelled') throw new HttpsError('failed-precondition', 'El pasaje está anulado y no se puede utilizar.')
+    if (operation.paymentStatus !== 'paid_verified' || operation.paymentVerificationStatus !== 'verified') {
+      throw new HttpsError('failed-precondition', 'El pago del pasaje no está verificado por la oficina.')
+    }
+    const usedCount = Number(operation.usedCount || 0)
+    if (usedCount >= Number(operation.quantity || 0)) throw new HttpsError('failed-precondition', 'Todos los pasajes de esta operación ya fueron utilizados.')
+    const nextUsedCount = usedCount + 1
+    const remainingCount = operation.quantity - nextUsedCount
+    const useStatus = remainingCount === 0 ? 'used' : nextUsedCount === 0 ? 'pending_boarding' : 'partially_used'
+    const routeLabel = `${operation.originBranchId === 'punata' ? 'Punata' : 'Cochabamba'} → ${operation.destinationBranchId === 'cochabamba' ? 'Cochabamba' : 'Punata'}`
+    const result = {
+      operationNumber: operation.operationNumber,
+      driverName: operation.driverName,
+      travelDate: operation.travelDate,
+      routeLabel,
+      quantity: operation.quantity,
+      usedCount: nextUsedCount,
+      remainingCount,
+      useStatus,
+      validationId: validationRef.id,
+      validatedAtIso: nowIso,
+    }
+    transaction.create(validationRef, {
+      id: validationRef.id, operationId: operation.id, operationNumber: operation.operationNumber,
+      ticketCode, branchId: operation.branchId, driverUid: uid, driverName: caller.fullName || operation.driverName,
+      validationNumber: nextUsedCount, validatedByUid: uid, validatedByName: caller.fullName || 'Chofer',
+      validatedAtIso: nowIso, createdAt: FieldValue.serverTimestamp(),
+    })
+    transaction.update(operationRef, {
+      usedCount: nextUsedCount, useStatus, lastValidatedAtIso: nowIso,
+      updatedAtIso: nowIso, updatedAt: FieldValue.serverTimestamp(),
+    })
+    transaction.create(idemRef, { callerUid: uid, payloadFingerprint: fingerprint, operationId: operation.id, result, createdAtIso: nowIso })
+    ticketOperationAudit(transaction, operation, 'passenger_ticket_validated_by_driver', caller, { ...result })
+    return { success: true, ...result }
+  })
+})
+
+export const deliverPassengerTicketToDriver = onCall({ cors: true }, async (request) => {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión para registrar la entrega al chofer.')
+  const uid = request.auth.uid
+  const payload = request.data || {}
+  const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : ''
+  const authorizationCode = typeof payload.authorizationCode === 'string' ? payload.authorizationCode.trim().toUpperCase() : ''
+  const idempotencyKey = requireTicketIdempotencyKey(payload.idempotencyKey)
+  if (!operationId) throw new HttpsError('invalid-argument', 'Seleccione la operación de pasaje que va a liquidar.')
+  const operationRef = db.collection('passenger_ticket_operations').doc(operationId)
+  const idemRef = ticketIdempotencyRef(uid, 'deliver', idempotencyKey)
+  const fingerprint = ticketFingerprint({ operationId, authorizationCode: authorizationCode || null })
+  const nowIso = new Date().toISOString()
+
+  return db.runTransaction(async (transaction) => {
+    const [caller, operationSnap, idemSnap] = await Promise.all([
+      getTicketCaller(transaction, uid, PASSENGER_TICKET_STAFF_ROLES),
+      transaction.get(operationRef),
+      transaction.get(idemRef),
+    ])
+    if (!operationSnap.exists) throw new HttpsError('not-found', 'No se encontró la operación de pasaje.')
+    const operation = { id: operationSnap.id, ...(operationSnap.data() || {}) }
+    if (!ticketBranchAllowed(caller, operation.branchId)) throw new HttpsError('permission-denied', 'No puede liquidar pasajes de otra sucursal.')
+    if (idemSnap.exists) {
+      const cached = idemSnap.data() || {}
+      if (cached.callerUid !== uid || cached.payloadFingerprint !== fingerprint) throw new HttpsError('already-exists', 'La clave de liquidación ya se usó con otros datos.')
+      return { success: true, ...cached.result, cached: true }
+    }
+    if (operation.paymentStatus !== 'paid_verified' || operation.settlementStatus !== 'pending_delivery' || Number(operation.pendingSettlementCents) <= 0) {
+      throw new HttpsError('failed-precondition', 'Esta operación no tiene un saldo verificado pendiente de entrega al chofer.')
+    }
+    const amountCents = Number(operation.pendingSettlementCents)
+    const requiresSupervisorApproval = caller.role === 'secretaria' && amountCents > PROVISIONAL_EXPENSE_APPROVAL_THRESHOLD_CENTS
+    const lockRef = db.collection('cash_shift_active_locks').doc(`${uid}_${operation.branchId}`)
+    const lockSnap = await transaction.get(lockRef)
+    if (!lockSnap.exists || lockSnap.data()?.status !== 'open' || !lockSnap.data()?.shiftId) throw new HttpsError('failed-precondition', 'Abra su turno de Caja en la sucursal responsable antes de entregar el efectivo.')
+    const shiftRef = db.collection('cash_shifts').doc(lockSnap.data().shiftId)
+    const authRef = requiresSupervisorApproval && authorizationCode ? db.collection('expense_authorizations').doc(authorizationCode) : null
+    const [shiftSnap, authSnap] = await Promise.all([
+      transaction.get(shiftRef),
+      authRef ? transaction.get(authRef) : Promise.resolve(null),
+    ])
+    if (!shiftSnap.exists || shiftSnap.data()?.status !== 'open' || shiftSnap.data()?.operatorUid !== uid || shiftSnap.data()?.branchId !== operation.branchId) {
+      throw new HttpsError('failed-precondition', 'El turno de Caja no corresponde al usuario y sucursal actuales.')
+    }
+    if (requiresSupervisorApproval) {
+      if (!authRef || !authSnap?.exists) throw new HttpsError('permission-denied', `La entrega superior a Bs ${(PROVISIONAL_EXPENSE_APPROVAL_THRESHOLD_CENTS / 100).toFixed(2)} requiere autorización vigente.`)
+      const auth = authSnap.data() || {}
+      if (auth.status !== 'approved' || auth.branchId !== operation.branchId || auth.authorizedOperatorUid !== uid || Number(auth.maxAmountCents) < amountCents || (auth.expiresAt && auth.expiresAt < nowIso)) {
+        throw new HttpsError('failed-precondition', 'La autorización de egreso no corresponde a esta entrega, sucursal, usuario o importe.')
+      }
+    }
+    const shift = shiftSnap.data() || {}
+    const expectedCashCents = Number(shift.expectedCashCents) || 0
+    if (amountCents > expectedCashCents) throw new HttpsError('failed-precondition', 'La Caja no tiene suficiente efectivo disponible para registrar esta entrega.')
+    const movementId = `MOV-PAS-EF-${operation.operationNumber}`
+    const updated = {
+      ...operation,
+      settlementStatus: 'delivered',
+      pendingSettlementCents: 0,
+      deliveredAtIso: nowIso,
+      deliveredByUid: uid,
+      deliveredByName: caller.fullName || 'Operador',
+      deliveryMovementId: movementId,
+      updatedAtIso: nowIso,
+    }
+    if (requiresSupervisorApproval && authRef) {
+      transaction.update(authRef, { status: 'used', usedByUid: uid, usedAt: nowIso, usedAmountCents: amountCents, updatedAt: FieldValue.serverTimestamp() })
+    }
+    transaction.create(db.collection('financial_movements').doc(movementId), {
+      id: movementId, shiftId: shiftRef.id, branchId: operation.branchId,
+      operatorUid: uid, operatorName: caller.fullName || 'Operador',
+      type: 'passenger_ticket_payout', category: 'pasajes_chofer', amountCents,
+      paymentMethod: 'cash', concept: `Entrega en efectivo de pasajes ${operation.operationNumber} a ${operation.driverName}`,
+      referenceId: operation.operationNumber, ticketOperationId: operation.id,
+      driverUid: operation.driverUid, driverName: operation.driverName,
+      status: 'completed', timestamp: nowIso, createdAt: FieldValue.serverTimestamp(),
+    })
+    transaction.update(shiftRef, {
+      expectedCashCents: FieldValue.increment(-amountCents),
+      'breakdown.expensesCents': FieldValue.increment(amountCents),
+      'breakdown.netCashCents': FieldValue.increment(-amountCents),
+      movementsCount: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp(),
+    })
+    transaction.update(operationRef, {
+      settlementStatus: 'delivered', pendingSettlementCents: 0,
+      deliveredAtIso: nowIso, deliveredByUid: uid, deliveredByName: updated.deliveredByName,
+      deliveryMovementId: movementId, deliveryShiftId: shiftRef.id,
+      updatedAtIso: nowIso, updatedAt: FieldValue.serverTimestamp(),
+    })
+    const result = { success: true, movementId, operation: updated, newExpectedCashCents: expectedCashCents - amountCents }
+    transaction.create(idemRef, { callerUid: uid, payloadFingerprint: fingerprint, operationId, movementId, result, createdAtIso: nowIso })
+    ticketOperationAudit(transaction, updated, 'passenger_ticket_cash_delivered_to_driver', caller, { amountCents, movementId, shiftId: shiftRef.id })
     return result
   })
 })

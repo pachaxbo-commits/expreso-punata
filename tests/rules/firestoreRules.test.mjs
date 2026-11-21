@@ -59,6 +59,32 @@ test('Seguridad financiera: clientes no pueden escribir directamente cuentas ni 
   await assertFails(deleteDoc(doc(clientDb, 'driver_commission_records', 'existing-commission-record')))
 })
 
+test('Pasajes: lectura limitada por sucursal/chofer y escrituras directas bloqueadas', async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const seed = context.firestore()
+    await setDoc(doc(seed, 'users', 'tickets-sec-punata'), { role: 'secretaria', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+    await setDoc(doc(seed, 'users', 'tickets-driver'), { role: 'conductor', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+    await setDoc(doc(seed, 'users', 'tickets-other-driver'), { role: 'conductor', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+    await setDoc(doc(seed, 'users', 'tickets-treasury'), { role: 'tesoreria', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+    await setDoc(doc(seed, 'passenger_ticket_operations', 'ticket-punata'), { branchId: 'punata', driverUid: 'tickets-driver' })
+    await setDoc(doc(seed, 'passenger_ticket_operations', 'ticket-cbba'), { branchId: 'cochabamba', driverUid: 'tickets-other-driver' })
+    await setDoc(doc(seed, 'passenger_ticket_validations', 'validation-own'), { operationId: 'ticket-punata', branchId: 'punata', driverUid: 'tickets-driver' })
+  })
+  const secretaryDb = testEnv.authenticatedContext('tickets-sec-punata').firestore()
+  const driverDb = testEnv.authenticatedContext('tickets-driver').firestore()
+  const otherDriverDb = testEnv.authenticatedContext('tickets-other-driver').firestore()
+  const treasuryDb = testEnv.authenticatedContext('tickets-treasury').firestore()
+  await assertSucceeds(getDoc(doc(secretaryDb, 'passenger_ticket_operations', 'ticket-punata')))
+  await assertFails(getDoc(doc(secretaryDb, 'passenger_ticket_operations', 'ticket-cbba')))
+  await assertSucceeds(getDoc(doc(driverDb, 'passenger_ticket_operations', 'ticket-punata')))
+  await assertFails(getDoc(doc(driverDb, 'passenger_ticket_operations', 'ticket-cbba')))
+  await assertSucceeds(getDoc(doc(driverDb, 'passenger_ticket_validations', 'validation-own')))
+  await assertFails(getDoc(doc(otherDriverDb, 'passenger_ticket_validations', 'validation-own')))
+  await assertSucceeds(getDoc(doc(treasuryDb, 'passenger_ticket_operations', 'ticket-cbba')))
+  await assertFails(setDoc(doc(secretaryDb, 'passenger_ticket_operations', 'ticket-client-write'), { branchId: 'punata' }))
+  await assertFails(setDoc(doc(driverDb, 'passenger_ticket_validations', 'ticket-client-validation'), { operationId: 'ticket-punata' }))
+})
+
 test('Cuotas: encargado limitado por sucursal sin reducir permisos vigentes de otros roles', async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const seed = context.firestore()

@@ -25,6 +25,8 @@ export interface TutorialStep {
     tab?: string
     subTab?: string
     openModal?: string
+    openNavigation?: boolean
+    wizardStep?: number
   }
 }
 

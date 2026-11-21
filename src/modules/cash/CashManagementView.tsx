@@ -127,7 +127,12 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
   const loadHistoryPage = async (pageIndex: number, cursor: any | null) => {
     setIsLoadingHistory(true)
     try {
-      const res = await fetchBranchShiftsPage(historyBranch, historyPageSize, cursor)
+      const res = await fetchBranchShiftsPage(
+        historyBranch,
+        historyPageSize,
+        cursor,
+        currentUser.role === 'secretaria' ? currentUser.uid : undefined
+      )
       setHistoryShifts(res.shifts)
       setHasNextPage(res.hasMore)
       if (res.lastDoc) {
@@ -170,7 +175,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
     return movements.filter((m) => {
       // Filtro por método / tipo
       if (movementFilterMethod === 'expense') {
-        if (m.type !== 'expense') return false
+        if (!['expense', 'passenger_ticket_payout'].includes(m.type)) return false
       } else if (movementFilterMethod !== 'all') {
         if (m.paymentMethod !== movementFilterMethod || m.type === 'expense') return false
       }
@@ -541,7 +546,8 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-medium">
                         {filteredMovements.map((mov) => {
-                          const isExpense = mov.type === 'expense' || mov.amountCents < 0
+                          const isPassengerTicketPayout = mov.type === 'passenger_ticket_payout'
+                          const isExpense = mov.type === 'expense' || isPassengerTicketPayout || mov.amountCents < 0
                           const isInit = mov.type === 'initial_cash'
                           const amountFormatted = formatCurrencyBob(Math.abs(mov.amountCents), true)
 
@@ -594,6 +600,10 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
                                 ) : isExpense ? (
                                   <span className="text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
                                     Egreso
+                                  </span>
+                                ) : isPassengerTicketPayout ? (
+                                  <span className="text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                                    Entrega de pasajes
                                   </span>
                                 ) : mov.type === 'driver_remittance' ? (
                                   <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">

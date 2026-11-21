@@ -35,6 +35,7 @@ test('Avisos entre agencias: creación atómica, acceso por destino, lectura, id
     sender: { name: 'Remitente Ficticio', phone: '+1 202 555 0123' },
     recipient: { name: 'Destinataria Ficticia', phone: '71234567' },
     items: [{ description: 'Sobre de prueba', quantity: 1, weightKg: 0.1, packaging: 'sobre' }],
+    agreedAmountCents: 1500,
     paymentTiming: 'destination_cod', paymentMethod: 'cash', prohibitedGoodsNoticeAccepted: true, idempotencyKey,
   }
   const attempts = await Promise.all([

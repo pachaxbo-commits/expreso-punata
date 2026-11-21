@@ -1,57 +1,76 @@
-# EXPRESO PUNATA — MATRIZ DE COBERTURA INTEGRAL DE TUTORIALES
+# Expreso Punata — cobertura del tutorial interactivo
 
-Esta matriz certifica que absolutamente todos los módulos, submódulos y pantallas operativas de la plataforma cuentan con un recorrido formativo y sus correspondientes anclajes interactivos en el DOM (`data-tutorial-target`).
+**Actualizado:** 21 de noviembre de 2026. Esta matriz describe el código y las comprobaciones realizadas en `feature/sidebar-manual-tariffs`. La presencia de un recorrido explica el flujo disponible; por sí sola no prueba que todas las operaciones del módulo estén listas en producción.
 
-| Módulo / Pestaña | Submódulo / Flujo | Sección Tutorial | Pasos | Selector Objetivo | Roles Autorizados | Estado |
-| :--- | :--- | :--- | :---: | :--- | :--- | :---: |
-| `shipments` | `principal` | Botón «Nueva Encomienda» | 1 | `[data-tutorial-target="btn-new-shipment"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Ruta: Origen y Destino del Envío | 1 | `[data-tutorial-target="shipment-form-route"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Datos del Remitente (Quien Envía) | 1 | `[data-tutorial-target="shipment-form-sender"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Datos del Destinatario (Quien Recibe) | 1 | `[data-tutorial-target="shipment-form-recipient"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Descripción de la Carga, Bultos y Peso | 1 | `[data-tutorial-target="shipment-form-cargo"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Precio Sugerido vs. Precio Acordado Editable | 1 | `[data-tutorial-target="shipment-pricing-box"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Justificación Obligatoria de Cambio de Precio | 1 | `[data-tutorial-target="shipment-price-reason"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Condición de pago — Pagado en origen o Por pagar | 1 | `[data-tutorial-target="shipment-payment-mode"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Emisión de la Guía Oficial e Impresión Térmica | 1 | `[data-tutorial-target="shipment-btn-submit"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Buscador Universal de Guías y Clientes | 1 | `[data-tutorial-target="shipment-search-input"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Ficha Detallada, Historial y Auditoría | 1 | `[data-tutorial-target="shipments-table-row"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `shipments` | `principal` | Entrega de Encomienda y Firma Digital | 1 | `[data-tutorial-target="btn-deliver-shipment"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `cash` | `principal` | Estado de la Caja y Apertura de Turno | 1 | `[data-tutorial-target="cash-status-card"]` | secretaria, encargado_agencia, tesoreria, directiva_admin | **100% CUBIERTO** |
-| `cash` | `principal` | Movimientos de Caja: Ingresos y Cobranzas | 1 | `[data-tutorial-target="cash-movements-section"]` | secretaria, encargado_agencia, tesoreria, directiva_admin | **100% CUBIERTO** |
-| `cash` | `principal` | Arqueo Físico de Billetes y Monedas Bolivianas | 1 | `[data-tutorial-target="cash-count-drawer"]` | secretaria, encargado_agencia, tesoreria, directiva_admin | **100% CUBIERTO** |
-| `cash` | `principal` | Cierre Definitivo de Caja e Impresión de Acta | 1 | `[data-tutorial-target="btn-close-cash-shift"]` | secretaria, encargado_agencia, tesoreria, directiva_admin | **100% CUBIERTO** |
-| `storage` | `principal` | Recepción de Encomiendas Llegadas de Viaje | 1 | `[data-tutorial-target="storage-reception-list"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `storage` | `principal` | Asignación de Estante y Módulo Físico | 1 | `[data-tutorial-target="storage-racks-grid"]` | secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `manifests` | `principal` | Creación del Manifiesto de Despacho | 1 | `[data-tutorial-target="btn-new-manifest"]` | secretaria, encargado_agencia, directiva_admin, conductor | **100% CUBIERTO** |
-| `manifests` | `principal` | Asignación de Vehículo y Conductor Responsable | 1 | `[data-tutorial-target="manifest-assign-vehicle"]` | secretaria, encargado_agencia, directiva_admin, conductor | **100% CUBIERTO** |
-| `manifests` | `principal` | Selección y Cotejo Físico de Encomiendas | 1 | `[data-tutorial-target="manifest-shipments-checklist"]` | secretaria, encargado_agencia, directiva_admin, conductor | **100% CUBIERTO** |
-| `manifests` | `principal` | Firma de Custodia y Salida a Ruta | 1 | `[data-tutorial-target="btn-confirm-departure"]` | secretaria, encargado_agencia, directiva_admin, conductor | **100% CUBIERTO** |
-| `manifests` | `commisiones` | Saldo de Cuenta y Comisiones Devengadas | 1 | `[data-tutorial-target="driver-commissions-card"]` | conductor, secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `manifests` | `commisiones` | Diferencia Crítica: Comisión vs. Dinero COD Custodiado | 1 | `[data-tutorial-target="driver-cod-warning-box"]` | conductor, secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `manifests` | `commisiones` | Liquidación de Comisión y Emisión de Vale | 1 | `[data-tutorial-target="btn-settle-commission"]` | conductor, secretaria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `dues` | `principal` | Padrón Oficial de Socios Afiliados | 1 | `[data-tutorial-target="members-table-container"]` | tesoreria, directiva_admin | **100% CUBIERTO** |
-| `dues` | `principal` | Emisión y Recaudación de Cuotas Mensuales | 1 | `[data-tutorial-target="btn-collect-member-fee"]` | tesoreria, directiva_admin | **100% CUBIERTO** |
-| `workers` | `principal` | Padrón de Trabajadores y Salarios | 1 | `[data-tutorial-target="workers-roster-section"]` | directiva_admin, tesoreria, encargado_agencia | **100% CUBIERTO** |
-| `workers` | `principal` | Registro de Gastos Operativos de Agencia | 1 | `[data-tutorial-target="btn-new-expense"]` | directiva_admin, tesoreria, encargado_agencia | **100% CUBIERTO** |
-| `assets` | `fixed` | Inventario Patrimonial de la Agencia | 1 | `[data-tutorial-target="assets-table-container"]` | encargado_agencia, directiva_admin, tesoreria | **100% CUBIERTO** |
-| `assets` | `consumables` | Control de Existencias y Stock Mínimo | 1 | `[data-tutorial-target="consumables-grid"]` | encargado_agencia, directiva_admin, tesoreria | **100% CUBIERTO** |
-| `reports` | `principal` | Filtros de Período y Sucursal | 1 | `[data-tutorial-target="reports-filters-card"]` | secretaria, encargado_agencia, tesoreria, directiva_admin, conductor | **100% CUBIERTO** |
-| `reports` | `principal` | Exportación a Excel XLSX y Reporte PDF Imprimible | 1 | `[data-tutorial-target="reports-export-actions"]` | secretaria, encargado_agencia, tesoreria, directiva_admin, conductor | **100% CUBIERTO** |
-| `config` | `printers` | Perfiles de Impresión y Formato Térmico (80mm / 58mm) | 1 | `[data-tutorial-target="printers-config-panel"]` | directiva_admin | **100% CUBIERTO** |
-| `auth` | `principal` | Tu Identidad y Rol en Expreso Punata | 1 | `[data-tutorial-target="header-user-badge"]` | secretaria, conductor, tesoreria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `auth` | `principal` | Agencia Asignada y Conmutación de Sucursal | 1 | `[data-tutorial-target="header-branch-badge"]` | secretaria, conductor, tesoreria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `auth` | `principal` | Mi Perfil y Medidas de Seguridad | 1 | `[data-tutorial-target="header-profile-btn"]` | secretaria, conductor, tesoreria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `navigation` | `principal` | Identidad Institucional de Expreso Punata | 1 | `[data-tutorial-target="header-brand"]` | secretaria, conductor, tesoreria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `navigation` | `principal` | Barra de Pestañas y Módulos Autorizados | 1 | `[data-tutorial-target="nav-tabs-bar"]` | secretaria, conductor, tesoreria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `navigation` | `principal` | Centro de Tutoriales Siempre Accesible | 1 | `[data-tutorial-target="header-tutorial-btn"]` | secretaria, conductor, tesoreria, encargado_agencia, directiva_admin | **100% CUBIERTO** |
-| `config` | `users` | Padrón de Usuarios del Sistema | 1 | `[data-tutorial-target="users-management-table"]` | directiva_admin | **100% CUBIERTO** |
-| `config` | `users` | Asignación Estricta de Sucursal por Rol | 1 | `[data-tutorial-target="btn-new-user-modal"]` | directiva_admin | **100% CUBIERTO** |
-| `config` | `general` | Identidad Legal y Datos Comerciales | 1 | `[data-tutorial-target="config-general-form"]` | directiva_admin | **100% CUBIERTO** |
-| `config` | `general` | Editor de Tarifas Base y Recargos Sugeridos | 1 | `[data-tutorial-target="config-tariffs-table"]` | directiva_admin | **100% CUBIERTO** |
+## Estado implementado
 
-## Estadísticas de Cobertura
+El tutorial actual tiene **24 secciones y 69 pasos**. La lista de secciones se filtra por `UserRole`; sus anclas se prueban contra el código fuente y los pasos que necesitan formularios solicitan al orquestador abrirlos en modo educativo. Los formularios que abre el tutorial se cierran al pausar, finalizar o salir. El tutorial no pulsa botones de envío, cobro, verificación, impresión o cierre.
 
-- **Módulos Cubiertos:** 100% de la barra de navegación principal (`shipments`, `storage`, `manifests`, `cash`, `dues`, `workers`, `assets`, `reports`, `config`).
-- **Subpestañas Cubiertas:** 100% (`commisiones`, `fixed`, `consumables`, `users`, `general`, `tariffs`, `printers`).
-- **Total de Pasos Interactivos:** 44 pasos detallados.
-- **Garantía Financiera:** 0 mutaciones en base de datos causadas por el tutorial (modo puramente explicativo).
+### Cobertura por rol
+
+| Rol | Secciones y alcance que muestra el tutorial |
+|---|---|
+| `secretaria` | Encomiendas y precio manual, Caja, almacén, despachos y comisiones, reportes, navegación, venta QR de pasajes, consulta de afiliados/cuotas/préstamos/multas/deudas y multas deportivas. La aprobación de exenciones deportivas no se enseña como acción permitida. |
+| `encargado_agencia` | Encomiendas, Caja, almacén, despacho, comisiones, personal/gastos, inventario, reportes, navegación y venta QR de pasajes. |
+| `directiva_admin` | Operación, Caja, almacén, afiliados, préstamos/multas/deportes/deudas, Directiva anual, personal, activos/consumibles, reportes, impresoras y configuración. La directiva institucional no crea cuentas ni permisos. |
+| `tesoreria` | Caja, afiliados/cuotas, préstamos/multas/deportes/deudas, Directiva anual, personal, activos/consumibles, reportes y consulta de pasajes. El tutorial no le muestra venta, verificación o liquidación de pasajes porque esos controles no están visibles para este rol en la interfaz actual. |
+| `conductor` | Manifiestos/despachos según la configuración, comisiones, reportes, perfil, navegación y validación de sus propios pasajes. No muestra Caja ni venta de pasajes. La validación de pasajes se hace escribiendo el código; no hay lector de cámara en esta pantalla. |
+| `afiliado` | Navegación y consulta de su propia cuenta: datos, saldos, cuotas, préstamos y multas. |
+| `afiliado_admin` | Sin secciones en el tutorial actual. La aplicación no expone una pestaña principal para este rol; no se inventan rutas ni accesos para completar el tutorial. |
+
+### Flujos explicados
+
+- **Encomiendas:** el tutorial acompaña el asistente real por ruta, personas, carga y cobro. El importe se ingresa manualmente; las referencias tarifarias de configuración se explican como datos conservados y no como cálculo automático. Al avanzar, se cambia el paso interno del asistente sin guardar el envío.
+- **Pasajes de oficina:** ruta/fecha/chofer, cantidad e importe manual, QR pendiente, verificación contra el abono real, historial, dos comprobantes, reimpresión marcada como duplicado y saldo pendiente del chofer.
+- **Chofer:** consulta el código desde la pantalla de validación y explica los rechazos de pagos no verificados, operaciones ajenas, anuladas o sin usos disponibles.
+- **Caja y QR:** el ingreso se clasifica como QR y no aumenta el efectivo físico. En la interfaz actual, la acción `Entregar efectivo` se inicia en Pasajes con un turno de Caja abierto; esa entrega descuenta efectivo y registra el movimiento en Caja. El tutorial comunica este recorrido observado, no afirma que el botón esté dentro de Caja.
+- **Administración social:** padrón, cuotas, préstamos, multas, deportes, deudas y Directiva anual usan las subpestañas existentes. El tutorial distingue designaciones institucionales y cuentas informáticas.
+- **Reembolsos:** se mantiene el bloqueo de anulación de pagos QR verificados. Una devolución excepcional necesita procedimiento y autorizaciones aprobados por Administración antes de habilitarse.
+
+## Interacción y seguridad didáctica
+
+`useTutorial.ts` sincroniza pestañas, subpestañas, el paso del asistente de encomienda, el formulario vacío de pasajes y el drawer móvil. Los formularios abiertos por el tutorial se cierran al pausar, salir o terminar la sección. El progreso local continúa aislado por UID y rol.
+
+El indicador global distingue los roles que tienen la suscripción de Encomiendas: para ellos informa conexión a Firestore; para Chofer y otros roles sin esa suscripción indica `Sesión activa` y no deduce que Firestore esté conectado a partir de una lectura que no realiza.
+
+La prueba unitaria comprueba IDs únicos/orden, campos pedagógicos, anclas declaradas, pestañas/subpestañas conocidas, roles y contextos de formulario permitidos. La prueba E2E comprueba cada ancla real y la coincidencia geométrica entre su rectángulo y el foco amarillo, incluyendo la transición de apertura del menú móvil; también verifica avanzar/retroceder/pausar/reanudar/finalizar, persistencia y que no cambien encomiendas, operaciones de pasajes ni movimientos financieros.
+
+## Impresión de pasajes
+
+El generador produce dos comprobantes vinculados al mismo número. El de oficina incluye operación, fecha, ruta, chofer, vehículo, cantidad, importe, estado QR, fecha de verificación, sucursal y entrega pendiente/realizada. El del chofer incluye esos datos y el código QR verificable. Una reimpresión marca ambas copias `DUPLICADO · REIMPRESIÓN`. El HTML define `@page` para rollos de 58 mm y 80 mm. La validación en navegador no reemplaza una prueba en impresora física.
+
+## Limitaciones conocidas
+
+- La liquidación del efectivo se inicia hoy desde **Pasajes** y se registra contra Caja. El requisito del Prompt 3 menciona “desde Caja”; no se cambió la ruta comercial para evitar duplicar el punto de liquidación sin definición del propietario del proceso.
+- No hay regla aprobada para devolver un pago QR verificado; continúa bloqueado.
+- No hay lector de cámara de pasajes en el formulario del chofer; se enseña el ingreso manual del código.
+- El rol `afiliado_admin` carece de módulo principal en el panel actual y por eso no tiene una ruta de tutorial.
+- No hay impresora física disponible en esta prueba; quedan pendientes alimentación, corte, márgenes y legibilidad del QR en los equipos usados por la agencia.
+- Los tutoriales de perfiles que requieren datos de negocio (p. ej. detalle de pasajes, entrega de encomienda, reportes poblados) explican el flujo y señalan el contenedor real; no crean fixtures dentro de los datos usados por una sesión de usuario.
+- El historial paginado de Caja ahora incluye el UID del operador en la consulta de Secretaría, de acuerdo con la regla de lectura ya existente. No se cambiaron reglas ni permisos.
+- El recorrido `runDeliveryAndCodLifecycle.mjs` comprobó que la entrega en ruta crea Bs 30.00 bajo custodia y que rendir Bs 10.00 deja Bs 20.00. La expectativa anterior de Bs 5.00 y la segunda rendición de Bs 5.00 eran datos de prueba obsoletos; se corrigieron únicamente esas expectativas y el recorrido completo pasó. La lógica de custodia, las comisiones y Caja no se modificaron.
+
+## Evidencia automática de esta ejecución
+
+| Comprobación | Resultado |
+|---|---|
+| Typecheck (`npm run typecheck`) | Aprobado en la compilación final con TypeScript. |
+| Build (`npm run build`) | Aprobado. Vite advierte que los bundles principales/config superan 500 KB y que una importación dinámica de `configService.ts` no produce un chunk separado. |
+| Unitarias | 73/73 aprobadas. Incluyen 7 verificaciones del orquestador tutorial y comprobantes de pasajes. |
+| Firebase Functions / Pasajes | 1/1 suite aprobada en Firestore/Auth Emulator: precios, permiso de creación, QR, efectivo físico, validaciones, duplicación, entrega, auditoría y reporte. |
+| Firebase Functions / precio manual de encomienda | 1/1 aprobada en Firestore/Auth Emulator: importe manual obligatorio, no consulta tarifas y rechaza activar cálculo automático desde la llamada. |
+| Firestore Rules Emulator | 23/23 aprobadas en proyecto demo aislado. |
+| E2E tutorial | Aprobado en Auth/Firestore/Functions Emulator para Secretaría, Tesorería, Directiva, Chofer y Afiliado. Cubrió navegación, formularios educativos, pausa/reanudación, progreso después de recarga, visibilidad y alineación geométrica del foco con cada target (incluida la animación del drawer móvil), ausencia de escrituras de encomienda/pasajes/Caja y errores de navegador. |
+| E2E Pasajes | Aprobado: venta, QR, validación de chofer, liquidación y comprobantes. Evidencias en `tmp/passenger-tickets/`. |
+| E2E menú y precio manual | Aprobado: menú de escritorio/móvil, acceso por rol e importe manual de Bs 12.34 verificado en documentos y movimiento. Evidencias en `tmp/navigation-manual-pricing/`. |
+| E2E ciclo de Caja | Aprobado después de corregir la expectativa de prueba: Bs 15 efectivo + Bs 20 QR = Bs 35 total; el efectivo esperado sigue en Bs 105 tras un egreso de Bs 10. |
+| E2E logística | Aprobado: encomienda, manifiesto, custodia, recepción y ubicación de almacén. |
+| E2E entrega/COD/custodia | Aprobado en Emulator aislado: COD en ruta Bs 30, rendición parcial Bs 10, saldo restante Bs 20 y rendición final Bs 20; Caja termina con el efectivo esperado. Se corrigió solo la expectativa obsoleta del E2E. |
+| Anchuras 390, 768, 1440 y 1920 px | Aprobadas en Playwright Chromium usando ventanas responsivas. Capturas reales en `tmp/tutorial-final/`. No equivale a probar un teléfono físico. |
+| Impresión física | Pendiente: requiere las impresoras locales de la agencia. |
+
+Capturas tutorial generadas: `01-menu-lateral-1440.png`, `02-encomiendas-formulario.png`, `02b-precio-manual.png`, `03-pasajes-venta-manual.png`, `04-caja-movimientos-qr.png`, `05-chofer-validar-pasaje.png`, `06-tutorial-movil-menu-390.png`, `06-tutorial-movil-chofer-390.png`, `07-tutorial-768.png` y `08-tutorial-1920.png`.
+
+Las pruebas usaron Node.js 24.21.0 porque Node.js 22 no está instalado. Firebase Emulator inició correctamente con un aviso de diferencia de runtime. Los avisos de metadatos de Google por DNS/timeout no bloquearon los emuladores ni los flujos autenticados.
+
+Los archivos de `tmp/`, `dist/` y registros locales de Emulator son evidencia/salida temporal y no deben añadirse a una integración futura. El código fuente, Rules/índices que correspondan a las funciones modificadas, pruebas y esta documentación sí deben revisarse para versionar. La impresión térmica física continúa pendiente.
