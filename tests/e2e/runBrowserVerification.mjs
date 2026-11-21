@@ -228,6 +228,11 @@ async function runE2E() {
       await page.click('button:has-text("Listo")')
     }
 
+    await page.getByRole('button', { name: 'Reporte del día', exact: true }).click()
+    const dailyReport = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Reporte del día' }) })
+    await dailyReport.getByText('Encomiendas registradas', { exact: true }).waitFor()
+    await dailyReport.getByRole('button', { name: 'Imprimir reporte' }).waitFor()
+
     // 8. Prueba del Módulo de Configuración -> Usuarios y Permisos
     console.log('[E2E] Probando navegación a Módulo de Configuración...')
     // Cerrar sesión
@@ -273,6 +278,15 @@ async function runE2E() {
     await page.setViewportSize({ width: 360, height: 800 })
     await page.screenshot({ path: path.join(evidenceDir, '17-caja-mobile-360x800.png') })
     await page.setViewportSize({ width: 1280, height: 800 })
+
+    await page.getByTitle('Cerrar Sesión').click()
+    await login(page, await seedOperator('soporte_pachax'))
+    await page.getByRole('heading', { name: 'Soporte PACHAX', exact: true }).waitFor()
+    for (const name of ['Encomiendas', 'Caja del Turno', 'Configuración']) {
+      if (await page.getByRole('button', { name, exact: true }).count()) {
+        throw new Error('La sesión de soporte mostró un módulo operativo: ' + name)
+      }
+    }
 
     console.log('[E2E] ¡TODAS LAS PRUEBAS DE NAVEGADOR COMPLETADAS CON ÉXITO!')
   } finally {

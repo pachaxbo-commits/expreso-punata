@@ -16,6 +16,7 @@ service cloud.firestore {
     function isActive() {
       return isAuthenticated() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        getUserRole() != 'soporte_pachax' &&
         ('isActive' in getUserData()) &&
         getUserData().isActive == true &&
         (!('isActive' in request.auth.token) || request.auth.token.isActive == true);

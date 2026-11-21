@@ -1,3 +1,4 @@
+import { DailyOperationsView } from '../modules/reports/DailyOperationsView'
 import { isPublicDemo } from '../firebase/config'
 import React, { lazy, Suspense, useState, useEffect } from 'react'
 import {
@@ -173,7 +174,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'my-account', label: 'Mi cuenta', icon: UserCircle, visible: hasRole(['afiliado']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
-    { id: 'reports', label: 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
+    { id: 'reports', label: userProfile.role === 'secretaria' ? 'Reporte del día' : 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
     { id: 'config', label: 'Configuración', icon: Settings, visible: hasRole(['directiva_admin']) },
   ].filter(t => t.visible)
 
@@ -594,14 +595,16 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         )}
 
         {/* PESTAÑA: REPORTES Y ESTADÍSTICAS */}
-        {activeTab === 'reports' && (
+        {activeTab === 'reports' && (userProfile.role === 'secretaria' ? (
+          <DailyOperationsView key={currentBranch.id} branchId={currentBranch.id} branchName={currentBranch.name} />
+        ) : (
           <Suspense fallback={<div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Cargando reportes…</div>}>
             <ReportsManagementView
               currentUser={userProfile}
               currentBranch={currentBranch}
             />
           </Suspense>
-        )}
+        ))}
 
         {/* PESTAÑA 7: CONFIGURACIÓN Y ADMINISTRACIÓN */}
         {activeTab === 'config' && (
@@ -744,7 +747,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 }
 
 const AuthenticatedAppContent: React.FC = () => {
-  const { userProfile, isInitializing } = useAuth()
+  const { userProfile, isInitializing, signOut } = useAuth()
 
   if (isInitializing) {
     return (
@@ -757,6 +760,16 @@ const AuthenticatedAppContent: React.FC = () => {
 
   if (!userProfile || userProfile.isActive === false) {
     return <LoginView />
+  }
+
+  if (userProfile.role === 'soporte_pachax') {
+    return (
+      <main className="mx-auto max-w-lg p-6">
+        <h1 className="text-xl font-bold">Soporte PACHAX</h1>
+        <p>Sesión técnica activa. Las herramientas de soporte aún no están habilitadas.</p>
+        <button type="button" onClick={() => void signOut()}>Cerrar sesión</button>
+      </main>
+    )
   }
 
   return <MainDashboard userProfile={userProfile} />

@@ -29,7 +29,8 @@ import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig'
 import { getUnionMembersRosterThroughBackend, type UnionRosterMember } from '../../services/unionService.ts'
 
 const ROLE_LABELS: Record<UserRole, { label: string; bg: string; text: string }> = {
-  directiva_admin: { label: 'Administrador General (Directiva)', bg: 'bg-purple-100', text: 'text-purple-800' },
+  soporte_pachax: { label: 'Soporte PACHAX', bg: 'bg-slate-100', text: 'text-slate-800' },
+   directiva_admin: { label: 'Administrador General (Directiva)', bg: 'bg-purple-100', text: 'text-purple-800' },
   encargado_agencia: { label: 'Encargado de Agencia', bg: 'bg-blue-100', text: 'text-blue-800' },
   secretaria: { label: 'Secretaria / Ventanilla', bg: 'bg-emerald-100', text: 'text-emerald-800' },
   afiliado_admin: { label: 'Administrador de Afiliados', bg: 'bg-cyan-100', text: 'text-cyan-800' },

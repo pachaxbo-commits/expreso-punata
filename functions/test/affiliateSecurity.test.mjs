@@ -47,3 +47,38 @@ test('adminProvisionUser valida vínculo activo, sucursal y duplicación', async
   await auth.deleteUser(target.uid)
   await auth.deleteUser(duplicate.uid)
 })
+
+test('Mi cuenta handles missing links and legacy branch lists without an internal error', async () => {
+  const id = suffix()
+  const uid = 'legacy-' + id
+  const memberId = 'member-' + id
+  const profile = db.collection('users').doc(uid)
+  const request = { auth: { uid }, data: {} }
+  await profile.set({ uid, role: 'afiliado', isActive: true, primaryBranchId: 'punata', allowedBranchIds: 7 })
+  await assert.rejects(getMyUnionAccount.run(request), { code: 'failed-precondition' })
+  await profile.update({ unionMemberId: memberId })
+  await db.collection('union_members').doc(memberId).set({ fullName: 'Cuenta histórica', branchId: 'punata', status: 'active' })
+  assert.equal((await getMyUnionAccount.run(request)).member.id, memberId)
+  await profile.update({ primaryBranchId: 'cochabamba' })
+  await assert.rejects(getMyUnionAccount.run(request), { code: 'permission-denied' })
+})
+
+test('company administrator cannot grant technical support or change a technical account', async () => {
+  const id = suffix()
+  const uid = 'admin-support-test-' + id
+  await db.collection('users').doc(uid).set({ uid, role: 'directiva_admin', isActive: true })
+  const email = 'support-' + id + '@example.test'
+  const target = await auth.createUser({ email, password: 'Synthetic-Local!789' })
+  try {
+    const request = { auth: { uid, token: { email: 'admin@example.test' } }, data: { fullName: 'Cuenta técnica', phone: '70000000', email } }
+    await assert.rejects(adminProvisionUser.run({ ...request, data: { ...request.data, role: 'soporte_pachax' } }), { code: 'invalid-argument' })
+    await db.collection('users').doc(target.uid).set({ role: 'soporte_pachax', isActive: true })
+    for (const selector of [{ targetUid: target.uid }, {}]) {
+      await assert.rejects(adminProvisionUser.run({ ...request, data: { ...request.data, ...selector, role: 'secretaria', isActive: false } }), { code: 'permission-denied' })
+    }
+    assert.equal((await auth.getUser(target.uid)).disabled, false)
+    assert.equal((await db.collection('users').doc(target.uid).get()).data().role, 'soporte_pachax')
+  } finally {
+    await auth.deleteUser(target.uid)
+  }
+})

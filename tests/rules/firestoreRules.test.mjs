@@ -6,7 +6,7 @@ import {
   assertFails,
   assertSucceeds,
 } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { doc, getDoc, collection, getDocs, query, where, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
 
 let testEnv
 
@@ -890,4 +890,32 @@ test('only the active company administrator can read the global commissions ledg
     await assertFails(updateDoc(ref('ledger-admin'), { pendingCents: 0 }))
     for (const uid of ['ledger-inactive', 'ledger-secretary', 'ledger-affiliate']) await assertFails(getDoc(ref(uid)))
   }
+})
+
+test('soporte técnico solo puede leer su propio perfil de Firestore', async () => {
+  const uid = 'technical-support-test'
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    await setDoc(doc(seed, 'users', uid), { role: 'soporte_pachax', isActive: true })
+    await setDoc(doc(seed, 'branches', 'technical-branch'), { name: 'Sucursal' })
+  })
+  const support = testEnv.authenticatedContext(uid, { role: 'directiva_admin' }).firestore()
+  await assertSucceeds(getDoc(doc(support, 'users', uid)))
+  await assertFails(getDoc(doc(support, 'branches', 'technical-branch')))
+  await assertFails(updateDoc(doc(support, 'users', uid), { role: 'directiva_admin' }))
+})
+
+test('historical search accepts an agency-scoped phone query and rejects an unscoped search', async () => {
+  const uid = 'historical-search-secretary'
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    await setDoc(doc(seed, 'users', uid), { role: 'secretaria', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+    await setDoc(doc(seed, 'shipments', 'old-guide-punata'), { originBranchId: 'punata', destinationBranchId: 'cochabamba', createdAtIso: '2025-01-01T00:00:00.000Z', sender: { phone: '70000001' } })
+    await setDoc(doc(seed, 'shipments', 'old-guide-foreign'), { originBranchId: 'cochabamba', destinationBranchId: 'cochabamba', createdAtIso: '2025-01-01T00:00:00.000Z', sender: { phone: '70000001' } })
+  })
+  const shipments = collection(testEnv.authenticatedContext(uid).firestore(), 'shipments')
+  const phone = where('sender.phone', '==', '70000001')
+  const result = await assertSucceeds(getDocs(query(shipments, where('originBranchId', '==', 'punata'), phone)))
+  assert.deepEqual(result.docs.map(doc => doc.id), ['old-guide-punata'])
+  await assertFails(getDocs(query(shipments, phone)))
 })

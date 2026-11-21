@@ -1009,6 +1009,9 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
 
       if (existingTargetDoc.exists) {
         const existingData = existingTargetDoc.data() || {}
+        if (existingData.role === 'soporte_pachax') {
+          throw new HttpsError('permission-denied', 'Las cuentas técnicas se administran mediante un procedimiento separado.')
+        }
         const isCurrentlyActiveAdmin = existingData.role === 'directiva_admin' && existingData.isActive === true
         const willBeInactive = Boolean(isActive) === false
         const willDemoteRole = role !== 'directiva_admin'
@@ -1080,6 +1083,13 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     }
   }
 
+  // A request using the account email must pass the same technical-account
+  // restriction before changing Firebase Auth.
+  const resolvedProfile = await db.collection('users').doc(safeTargetUid).get()
+  if (resolvedProfile.data()?.role === 'soporte_pachax') {
+    throw new HttpsError('permission-denied', 'Las cuentas técnicas se administran mediante un procedimiento separado.')
+  }
+
   // Sincronizar estado disabled, displayName y cambio de email en Firebase Auth de forma FAIL-CLOSED
   if (targetAuthUser) {
     const requestedEmail = payload.email && typeof payload.email === 'string' && payload.email.includes('@')
@@ -1142,6 +1152,9 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     const existingDoc = await transaction.get(targetUserRef)
     if (existingDoc.exists) {
       const existingData = existingDoc.data() || {}
+      if (existingData.role === 'soporte_pachax') {
+        throw new HttpsError('permission-denied', 'Las cuentas técnicas se administran mediante un procedimiento separado.')
+      }
       const isCurrentlyActiveAdmin = existingData.role === 'directiva_admin' && existingData.isActive === true
       const willBeInactive = Boolean(isActive) === false
       const willDemoteRole = role !== 'directiva_admin'
@@ -3407,6 +3420,10 @@ export const listActiveDrivers = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no autorizado o inactivo.')
   }
 
+  if (!['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin'].includes(userDoc.data()?.role)) {
+    throw new HttpsError('permission-denied', 'No tiene acceso al directorio de conductores.')
+  }
+
   const snapshot = await db.collection('users')
     .where('role', '==', 'conductor')
     .where('isActive', '==', true)
@@ -3453,6 +3470,13 @@ export const manageShelf = onCall({ cors: true }, async (request) => {
   const { action = 'get_or_seed', branchId, shelfData } = request.data || {}
   if (!branchId || (branchId !== 'punata' && branchId !== 'cochabamba')) {
     throw new HttpsError('invalid-argument', 'Sucursal inválida.')
+  }
+
+  const allowedBranches = Array.isArray(callerData.allowedBranchIds) ? callerData.allowedBranchIds : []
+  if (callerData.role !== 'directiva_admin' &&
+      (!['secretaria', 'encargado_agencia'].includes(callerData.role) ||
+       (branchId !== callerData.primaryBranchId && !allowedBranches.includes(branchId)))) {
+    throw new HttpsError('permission-denied', 'No tiene acceso al almacén de esta agencia.')
   }
 
   const shelvesCol = db.collection('branches').doc(branchId).collection('shelves')
@@ -6788,6 +6812,55 @@ function financialMovementDateKey(movement) {
   return ''
 }
 
+/** Summary for today's operations only. The caller cannot select a date range. */
+export const getDailyOperationsReport = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (caller.isActive !== true || !['secretaria', 'directiva_admin'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tiene acceso al reporte diario.')
+  }
+
+  const { branchId } = request.data || {}
+  const allowedBranches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : []
+  if (typeof branchId !== 'string' || !branchId || (caller.role === 'secretaria' &&
+      branchId !== caller.primaryBranchId && !allowedBranches.includes(branchId))) {
+    throw new HttpsError('permission-denied', 'La agencia no está autorizada.')
+  }
+
+  const timeZone = 'America/La_Paz'
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date())
+  const start = new Date(day + 'T00:00:00-04:00')
+  const end = new Date(start.getTime() + 86_400_000)
+  const byDay = (collection, branchField, dateField, from = start.toISOString(), to = end.toISOString()) =>
+    db.collection(collection).where(branchField, '==', branchId).where(dateField, '>=', from).where(dateField, '<', to)
+
+  const [registered, delivered, tickets, movementsByDate, movementsByCreated, movementsByLegacyDate] = await Promise.all([
+    byDay('shipments', 'originBranchId', 'createdAtIso').select('status').get(),
+    byDay('shipments', 'deliveryRecord.branchId', 'deliveredAtIso').count().get(),
+    byDay('passenger_ticket_operations', 'branchId', 'createdAtIso').count().get(),
+    byDay('financial_movements', 'branchId', 'createdAt', start, end).select('type', 'amountCents', 'status').get(),
+    byDay('financial_movements', 'branchId', 'createdAtIso').select('type', 'amountCents', 'status').get(),
+    byDay('financial_movements', 'branchId', 'timestamp').select('type', 'amountCents', 'status').get(),
+  ])
+
+  const movements = new Map()
+  for (const snapshot of [movementsByDate, movementsByCreated, movementsByLegacyDate]) {
+    for (const doc of snapshot.docs) movements.set(doc.id, doc.data())
+  }
+  const income = { shipments: 0, cod: 0, tickets: 0 }
+  let collections = 0
+  for (const movement of movements.values()) {
+    const category = { shipment_income: 'shipments', cod_income: 'cod', passenger_ticket_income: 'tickets' }[movement.type]
+    if (!Object.hasOwn(income, category) || movement.status !== 'completed' ||
+        !Number.isSafeInteger(movement.amountCents) || movement.amountCents < 0) continue
+    income[category] += movement.amountCents
+    collections++
+  }
+  const pending = registered.docs.filter(doc => !['delivered', 'cancelled', 'returned'].includes(doc.data().status)).length
+
+  return { day, branchId, registered: registered.size, delivered: delivered.data().count,
+    pending, tickets: tickets.data().count, collections, income }
+})
+
 export const getSystemReport = onCall({ cors: true }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para consultar reportes del sistema.')
@@ -6824,14 +6897,13 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
   }
 
   if (role === 'secretaria') {
-    if (!['shipments', 'cash_financial'].includes(reportType)) {
-      throw new HttpsError('permission-denied', 'El rol secretaria no tiene acceso a reportes confidenciales de nómina, gastos generales o padrón de socios.')
-    }
+    throw new HttpsError('permission-denied', 'Secretaría solo puede consultar el Reporte del día.')
+  }
+  if (!['directiva_admin', 'encargado_agencia', 'tesoreria', 'conductor'].includes(role)) {
+    throw new HttpsError('permission-denied', 'No tiene acceso a reportes generales.')
   }
 
-  const effectiveBranchId = (role === 'secretaria' && caller.primaryBranchId)
-    ? caller.primaryBranchId
-    : branchId
+  const effectiveBranchId = branchId
 
   const { startIso, endIso } = resolveLaPazBounds(startDate, endDate, period)
   const safePage = Math.max(1, parseInt(page, 10) || 1)
@@ -9307,7 +9379,7 @@ export const getMyUnionAccount = onCall({ cors: true }, async (request) => {
   const memberRef = db.collection('union_members').doc(memberId)
   const memberDoc = await memberRef.get()
   const member = memberDoc.data() || {}
-  const allowedBranches = caller.allowedBranchIds || [caller.primaryBranchId]
+  const allowedBranches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : [caller.primaryBranchId]
   if (!memberDoc.exists || member.status === 'inactive' || member.status === 'retired') {
     throw new HttpsError('permission-denied', 'El afiliado vinculado no está activo.')
   }
