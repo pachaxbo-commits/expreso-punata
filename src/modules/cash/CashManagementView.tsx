@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../auth/operationalRoles'
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   Wallet,
@@ -659,7 +660,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
             </div>
 
             {/* Selector de sucursal para Administrador y Tesorería */}
-            {(currentUser.role === 'directiva_admin' || currentUser.role === 'tesoreria') && (
+            {(isOperationalAdmin(currentUser) || currentUser.role === 'tesoreria') && (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-500">Sucursal:</span>
                 <select

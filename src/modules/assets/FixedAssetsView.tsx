@@ -1,3 +1,4 @@
+import { hasOperationalRole } from '../auth/operationalRoles'
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Building2,
@@ -117,8 +118,8 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
   const [disposeReason, setDisposeReason] = useState('')
 
   // Permisos
-  const canManage = ['directiva_admin', 'encargado_agencia', 'tesoreria'].includes(userProfile.role)
-  const canReadAllBranches = ['directiva_admin', 'tesoreria'].includes(userProfile.role)
+  const canManage = hasOperationalRole(userProfile, ['directiva_admin', 'encargado_agencia', 'tesoreria'])
+  const canReadAllBranches = hasOperationalRole(userProfile, ['directiva_admin', 'tesoreria'])
   const assetBranchScope = canReadAllBranches ? undefined : (currentBranchId === 'cochabamba' ? 'cochabamba' : 'punata')
 
   // Suscripción a Firestore en tiempo real

@@ -1,3 +1,4 @@
+import { hasOperationalRole } from '../auth/operationalRoles'
 import React, { useState, useEffect, useCallback } from 'react'
 import {
   TrendingUp,
@@ -76,7 +77,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
   const role = currentUser.role
 
   // Determinación de pestañas permitidas según rol
-  const canViewAll = ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(role)
+  const canViewAll = hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'encargado_agencia'])
   const isConductor = role === 'conductor'
   const isSecretaria = role === 'secretaria'
 
@@ -240,13 +241,13 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
       id: 'dues' as ReportType,
       label: 'Socios y Mensualidades',
       icon: Users,
-      visible: ['directiva_admin', 'tesoreria'].includes(role),
+      visible: hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria']),
     },
     {
       id: 'payroll_expenses' as ReportType,
       label: 'Personal y Gastos',
       icon: Briefcase,
-      visible: ['directiva_admin', 'tesoreria'].includes(role),
+      visible: hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria']),
     },
     {
       id: 'fixed_assets' as ReportType,
@@ -254,10 +255,10 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
       icon: Building2,
       visible: canViewAll,
     },
-    { id: 'members' as ReportType, label: GENERIC_REPORT_LABELS.members, icon: Users, visible: ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(role) },
-    { id: 'loans' as ReportType, label: GENERIC_REPORT_LABELS.loans, icon: Wallet, visible: ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(role) },
-    { id: 'fines' as ReportType, label: GENERIC_REPORT_LABELS.fines, icon: FileText, visible: ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(role) },
-    { id: 'sports' as ReportType, label: GENERIC_REPORT_LABELS.sports, icon: Users, visible: ['directiva_admin', 'tesoreria', 'encargado_agencia'].includes(role) },
+    { id: 'members' as ReportType, label: GENERIC_REPORT_LABELS.members, icon: Users, visible: hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'encargado_agencia']) },
+    { id: 'loans' as ReportType, label: GENERIC_REPORT_LABELS.loans, icon: Wallet, visible: hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'encargado_agencia']) },
+    { id: 'fines' as ReportType, label: GENERIC_REPORT_LABELS.fines, icon: FileText, visible: hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'encargado_agencia']) },
+    { id: 'sports' as ReportType, label: GENERIC_REPORT_LABELS.sports, icon: Users, visible: hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'physical_inventory' as ReportType, label: GENERIC_REPORT_LABELS.physical_inventory, icon: Building2, visible: canViewAll },
     { id: 'commissions' as ReportType, label: GENERIC_REPORT_LABELS.commissions, icon: Truck, visible: canViewAll },
     { id: 'consumables' as ReportType, label: GENERIC_REPORT_LABELS.consumables, icon: Layers, visible: canViewAll },

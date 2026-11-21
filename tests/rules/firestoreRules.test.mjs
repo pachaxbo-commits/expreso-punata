@@ -26,7 +26,7 @@ test('19. Incidencias: lectura por sucursal y escritura directa bloqueada', asyn
   await testEnv.withSecurityRulesDisabled(async context => {
     const seed = context.firestore()
     await setDoc(doc(seed, 'users', 'incident-sec-punata'), { role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true })
-    await setDoc(doc(seed, 'users', 'incident-admin'), { role: 'directiva_admin', primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'], isActive: true })
+    await setDoc(doc(seed, 'users', 'incident-admin'), { role: 'afiliado_admin', primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'], isActive: true })
     await setDoc(doc(seed, 'users', 'incident-inactive'), { role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: false })
     await setDoc(doc(seed, 'users', 'incident-no-role'), { primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true })
     await setDoc(doc(seed, 'shipment_incidents', 'incident-punata'), { branchId: 'punata', shipmentId: 'shipment-punata', incidentType: 'uncollected' })
@@ -918,4 +918,40 @@ test('historical search accepts an agency-scoped phone query and rejects an unsc
   const result = await assertSucceeds(getDocs(query(shipments, where('originBranchId', '==', 'punata'), phone)))
   assert.deepEqual(result.docs.map(doc => doc.id), ['old-guide-punata'])
   await assertFails(getDocs(query(shipments, phone)))
+})
+
+test('administración institucional y perfiles de agencia mantienen fronteras de lectura y escritura', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    for (const [uid, role, agencies] of [
+      ['scope-full', 'afiliado_admin', ['punata', 'cochabamba']],
+      ['scope-limit', 'afiliado_admin', ['punata']],
+      ['scope-secretary', 'secretaria', ['punata']],
+      ['scope-member', 'afiliado', ['punata']],
+      ['scope-support', 'soporte_pachax', ['punata', 'cochabamba']],
+    ]) {
+      await setDoc(doc(seed, 'users', uid), { role, primaryBranchId: 'punata', allowedBranchIds: agencies, isActive: true })
+    }
+    await setDoc(doc(seed, 'driver_commission_accounts', 'scope-driver'), { pendingCents: 200 })
+    await setDoc(doc(seed, 'driver_commission_records', 'scope-record'), { originBranchId: 'punata', commissionAmountCents: 200 })
+    await setDoc(doc(seed, 'financial_movements', 'scope-financial'), { branchId: 'cochabamba', amountCents: 200 })
+    await setDoc(doc(seed, 'union_members', 'scope-member-punata'), { branchId: 'punata' })
+    await setDoc(doc(seed, 'union_members', 'scope-member-cocha'), { branchId: 'cochabamba' })
+  })
+  const full = testEnv.authenticatedContext('scope-full').firestore()
+  const limited = testEnv.authenticatedContext('scope-limit').firestore()
+  await assertSucceeds(getDoc(doc(limited, 'union_members', 'scope-member-punata')))
+  await assertFails(getDoc(doc(limited, 'union_members', 'scope-member-cocha')))
+  for (const [collectionId, id] of [
+    ['driver_commission_accounts', 'scope-driver'],
+    ['driver_commission_records', 'scope-record'],
+    ['financial_movements', 'scope-financial'],
+  ]) {
+    await assertSucceeds(getDoc(doc(full, collectionId, id)))
+    await assertFails(updateDoc(doc(full, collectionId, id), { amountCents: 0 }))
+    for (const uid of ['scope-limit', 'scope-secretary', 'scope-member', 'scope-support']) {
+      const db = testEnv.authenticatedContext(uid, { role: 'directiva_admin' }).firestore()
+      await assertFails(getDoc(doc(db, collectionId, id)))
+    }
+  }
 })

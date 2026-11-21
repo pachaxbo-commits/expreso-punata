@@ -1,3 +1,4 @@
+import { isOperationalAdmin, hasOperationalRole } from '../auth/operationalRoles'
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   Users,
@@ -72,7 +73,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   tutorialSubTab,
 }) => {
     const [localShift, setLocalShift] = useState<CashShift | null>(null)
-  const canReadCashShift = ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'].includes(currentUser.role)
+  const canReadCashShift = hasOperationalRole(currentUser, ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'])
   useEffect(() => {
     if (!canReadCashShift || !currentUser?.uid || !currentBranch?.id) return
     const unsubscribe = subscribeActiveCashShift(currentUser.uid, currentBranch.id, (sh) => {
@@ -82,7 +83,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   }, [canReadCashShift, currentUser?.uid, currentBranch?.id])
   const effectiveShift = activeShift || localShift
   const [activeTab, setActiveTab] = useState<'members' | 'dues' | 'loans' | 'fines' | 'sports' | 'debts' | 'annual-board'>(sportsFineCollectionOnly ? 'fines' : 'members')
-  const isManagement = currentUser.role === 'directiva_admin' || currentUser.role === 'tesoreria'
+  const isManagement = isOperationalAdmin(currentUser) || currentUser.role === 'tesoreria'
   useEffect(() => {
     if (sportsFineCollectionOnly || !tutorialSubTab) return
     const allowedTabs = ['members', 'dues', 'loans', 'fines', 'debts']
@@ -141,8 +142,8 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
 
   const canManageMembers = isManagement || currentUser.role === 'afiliado_admin'
   const canGenerateDues = isManagement
-  const canPrintRoster = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'afiliado_admin'].includes(currentUser.role)
-  const isCashier = ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'].includes(currentUser.role)
+  const canPrintRoster = hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'encargado_agencia', 'afiliado_admin'])
+  const isCashier = hasOperationalRole(currentUser, ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'])
 
   // 1. Suscripción a socios
   useEffect(() => {
@@ -835,8 +836,8 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
         />
         </div>
       )}
-      {activeTab === 'fines' && <div data-tutorial-target="union-fines-panel"><UnionFinesView members={members} canCreate={isManagement || currentUser.role === 'secretaria'} canCollect={['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'].includes(currentUser.role)} activeShift={effectiveShift} branchId={currentBranch.id} /></div>}
-      {activeTab === 'sports' && <div data-tutorial-target="union-sports-panel"><UnionSportsView members={members} canManage={isManagement} canDecide={currentUser.role === 'directiva_admin'} /></div>}
+      {activeTab === 'fines' && <div data-tutorial-target="union-fines-panel"><UnionFinesView members={members} canCreate={isManagement || currentUser.role === 'secretaria'} canCollect={hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'])} activeShift={effectiveShift} branchId={currentBranch.id} /></div>}
+      {activeTab === 'sports' && <div data-tutorial-target="union-sports-panel"><UnionSportsView members={members} canManage={isManagement} canDecide={isOperationalAdmin(currentUser)} /></div>}
       {activeTab === 'debts' && <div data-tutorial-target="union-debts-panel"><UnionDebtAlertsView onOpenMember={(memberId) => { const member = members.find((item) => item.id === memberId); if (member) void handleOpenStatement(member) }} /></div>}
       {activeTab === 'annual-board' && isManagement && <div data-tutorial-target="union-annual-board-panel"><AnnualBoardView members={members} /></div>}
 

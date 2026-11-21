@@ -36,10 +36,10 @@ async function user(uid, role, allowedBranchIds = ['punata']) {
 
 beforeEach(clear)
 
-test('adminProvisionUser: vincula afiliado_admin a un afiliado activo de su sucursal y rechaza vínculos inválidos', async () => {
+test('adminProvisionUser: valida el vínculo opcional de afiliado_admin cuando se proporciona', async () => {
   const suffix = runId()
   const adminUid = `directiva-link-${suffix}`
-  await user(adminUid, 'directiva_admin', ['punata', 'cochabamba'])
+  await user(adminUid, 'afiliado_admin', ['punata', 'cochabamba'])
 
   const activeMemberId = `member-link-${suffix}`
   await db.collection('union_members').doc(activeMemberId).set({
@@ -71,7 +71,6 @@ test('adminProvisionUser: vincula afiliado_admin a un afiliado activo de su sucu
   assert.deepEqual(result.profile.allowedBranchIds, ['punata'])
 
   const invalidCases = [
-    { id: `missing-${suffix}`, expected: 'invalid-argument', label: 'sin afiliado' },
     { id: `inactive-${suffix}`, expected: 'failed-precondition', label: 'inactivo', member: { id: `inactive-${suffix}`, branchId: 'punata', status: 'inactive' } },
     { id: `wrong-branch-${suffix}`, expected: 'permission-denied', label: 'otra sucursal', member: { id: `wrong-branch-${suffix}`, branchId: 'cochabamba', status: 'active' } },
   ]

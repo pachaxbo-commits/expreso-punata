@@ -68,7 +68,7 @@ before(async () => {
 
 beforeEach(async () => {
   await clearCollections()
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
   await createTestUser('manager-1', 'encargado_agencia')
   await createTestUser('cashier-1', 'secretaria')
   await createTestUser('driver-1', 'conductor')
@@ -365,4 +365,50 @@ test('5. FASE 7: updateSystemConfig y getSystemConfig gestionan configuración o
   const verified = await getSystemConfig.run({})
   assert.strictEqual(verified.isDefault, false)
   assert.strictEqual(verified.config.company.tradeName, 'EXPRESO PUNATA OFICIAL')
+})
+
+test('afiliado_admin devenga y liquida Bs 2 una sola vez para un conductor de directorio', async () => {
+  const driverUid = 'directorio-sin-cuenta'
+  await db.collection('driver_directory').doc(driverUid).set({ uid: driverUid, fullName: 'Conductor sintético', isActive: true })
+  await seedCommissionEvent('ship-fixed', 'MAN-FIXED', 2500)
+  await db.collection('system_config').doc('expreso_punata').update({ commissions: { defaultType: 'fixed_per_shipment', defaultValue: 2 } })
+  await db.collection('shipments').doc('ship-fixed').update({ originBranchId: 'punata' })
+  await db.collection('manifests').doc('MAN-FIXED').update({ driverUid, originBranchId: 'punata' })
+  await createTestUser('limited-admin', 'afiliado_admin', 'cochabamba')
+  await db.collection('users').doc('limited-admin').update({ allowedBranchIds: ['cochabamba'], commissionAdministrationApproved: true })
+  await createTestUser('technical', 'soporte_pachax')
+  const auth = { uid: 'admin-1' }
+  const data = { shipmentId: 'ship-fixed', manifestId: 'MAN-FIXED' }
+  await assert.rejects(accrueDriverCommission.run({ auth: { uid: 'limited-admin' }, data }), { code: 'permission-denied' })
+  await assert.rejects(accrueDriverCommission.run({ auth: { uid: 'technical' }, data }), { code: 'permission-denied' })
+  const [first, retry] = await Promise.all([accrueDriverCommission.run({ auth, data }), accrueDriverCommission.run({ auth, data })])
+  assert.equal(first.commissionAmountCents, 200)
+  assert.equal(first.recordId, retry.recordId)
+  assert.equal((await db.collection('driver_commission_records').get()).size, 1)
+  const account = db.collection('driver_commission_accounts').doc(driverUid)
+  assert.equal((await account.get()).data().pendingCents, 200)
+  const { shift } = await openCashShift.run({ auth, data: { branchId: 'punata', initialCashCents: 1000 } })
+  const payment = { driverUid, amountCents: 200, branchId: 'punata' }
+  for (const uid of ['limited-admin', 'technical']) {
+    await assert.rejects(settleDriverCommission.run({ auth: { uid }, data: payment }), { code: 'permission-denied' })
+  }
+  await assert.rejects(settleDriverCommission.run({ auth, data: { ...payment, branchId: 'cochabamba' } }), { code: 'failed-precondition' })
+  const results = await Promise.allSettled([settleDriverCommission.run({ auth, data: payment }), settleDriverCommission.run({ auth, data: payment })])
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1)
+  assert.equal(results.find(result => result.status === 'rejected').reason.code, 'failed-precondition')
+  const vouchers = await db.collection('driver_commission_vouchers').where('driverUid', '==', driverUid).get()
+  assert.equal(vouchers.size, 1)
+  const ledger = await db.collection('financial_movements').where('category', '==', 'driver_commission').get()
+  assert.equal(ledger.size, 1)
+  assert.equal(ledger.docs[0].data().amountCents, 200)
+  assert.equal((await db.collection('cash_shifts').doc(shift.id).get()).data().expectedCashCents, 800)
+  const record = (await db.collection('driver_commission_records').doc(first.recordId).get()).data()
+  assert.equal(record.status, 'paid')
+  assert.equal(record.paidAmountCents, 200)
+  assert.equal((await account.get()).data().pendingCents, 0)
+  const day = first.createdAtIso?.slice(0, 10) || record.createdAtIso.slice(0, 10)
+  const report = await getSystemReport.run({ auth, data: { reportType: 'commissions', startDate: day, endDate: day } })
+  assert.equal(report.summary.totalPaidCents, 200)
+  assert.equal(report.summary.totalPendingCents, 0)
+  assert.equal(report.records[0].id, first.recordId)
 })

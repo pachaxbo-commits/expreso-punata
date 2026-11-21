@@ -13,6 +13,20 @@ const db = getFirestore()
 const authAdmin = getAuth()
 const storageAdmin = getStorage()
 
+// Transitional access for legacy profiles. New administrators require both agencies.
+function isOperationalAdmin(profile) {
+  return profile?.role === 'directiva_admin' || (
+    profile?.role === 'afiliado_admin' &&
+    ['punata', 'cochabamba'].includes(profile.primaryBranchId) &&
+    Array.isArray(profile.allowedBranchIds) &&
+    ['punata', 'cochabamba'].every((branchId) => profile.allowedBranchIds.includes(branchId))
+  )
+}
+
+function hasOperationalRole(profile, roles) {
+  return roles.includes(profile?.role) || (roles.includes('directiva_admin') && isOperationalAdmin(profile))
+}
+
 /**
  * Crea el perfil operativo inicial únicamente dentro de Firebase Emulator.
  * Las escrituras siguen pasando por Admin SDK; firestore.rules permanece cerrado.
@@ -81,7 +95,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
   }
 
   const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
-  if (!allowedRoles.includes(userProfile.role)) {
+  if (!hasOperationalRole(userProfile, allowedRoles)) {
     throw new HttpsError('permission-denied', `El rol '${userProfile.role}' no tiene permiso para emitir guías de encomienda.`)
   }
 
@@ -104,7 +118,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
   // 3. Validar sucursal autorizada para el usuario
   const userAllowedBranches = userProfile.allowedBranchIds || [userProfile.primaryBranchId]
-  if (userProfile.role !== 'directiva_admin' && !userAllowedBranches.includes(originBranchId)) {
+  if (!isOperationalAdmin(userProfile) && !userAllowedBranches.includes(originBranchId)) {
     throw new HttpsError('permission-denied', `No está autorizado para registrar envíos con origen en la sucursal '${originBranchId}'.`)
   }
 
@@ -194,7 +208,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
   if (rawDiscount < 0) {
     throw new HttpsError('invalid-argument', 'El descuento no puede ser un valor negativo.')
   }
-  if (rawDiscount > 0 && userProfile.role !== 'directiva_admin') {
+  if (rawDiscount > 0 && !isOperationalAdmin(userProfile)) {
     throw new HttpsError('permission-denied', 'Los descuentos desde ventanilla están deshabilitados. Solo la Directiva / Administración puede aplicar descuentos.')
   }
 
@@ -575,10 +589,10 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
 function assertShipmentNotificationBranchAccess(caller, branchId) {
   if (!['punata', 'cochabamba'].includes(branchId)) throw new HttpsError('invalid-argument', 'Agencia de notificaciones no válida.')
-  if (!['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'].includes(caller.role)) {
+  if (!hasOperationalRole(caller, ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'])) {
     throw new HttpsError('permission-denied', 'No tiene acceso a las notificaciones operativas de agencias.')
   }
-  if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+  if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
     const allowed = new Set([caller.primaryBranchId, ...(Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : [])])
     if (!allowed.has(branchId)) throw new HttpsError('permission-denied', 'No tiene autorización para consultar notificaciones de esta agencia.')
   }
@@ -665,7 +679,7 @@ export const updateShipment = onCall({ cors: true }, async (request) => {
 
   const userProfile = userDoc.data() || {}
   const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
-  if (!allowedRoles.includes(userProfile.role)) {
+  if (!hasOperationalRole(userProfile, allowedRoles)) {
     throw new HttpsError('permission-denied', `El rol '${userProfile.role}' no tiene permiso para editar encomiendas.`)
   }
 
@@ -704,7 +718,7 @@ export const updateShipment = onCall({ cors: true }, async (request) => {
     const isOriginBranch = userAllowedBranches.includes(currentData.originBranchId)
     const isDestBranch = userAllowedBranches.includes(currentData.destinationBranchId)
 
-    if (userProfile.role !== 'directiva_admin' && !isOriginBranch && !isDestBranch) {
+    if (!isOperationalAdmin(userProfile) && !isOriginBranch && !isDestBranch) {
       throw new HttpsError('permission-denied', 'No tiene permisos sobre la sucursal de esta encomienda.')
     }
 
@@ -876,14 +890,14 @@ export const cancelShipment = onCall({ cors: true }, async (request) => {
   return db.runTransaction(async (transaction) => {
     const callerSnap = await transaction.get(callerRef)
     const caller = callerSnap.data() || {}
-    if (!callerSnap.exists || caller.isActive !== true || !['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+    if (!callerSnap.exists || caller.isActive !== true || !hasOperationalRole(caller, ['secretaria', 'encargado_agencia', 'directiva_admin'])) {
       throw new HttpsError('permission-denied', 'No tiene permisos para anular encomiendas.')
     }
     const shipmentSnap = await transaction.get(shipmentRef)
     if (!shipmentSnap.exists) throw new HttpsError('not-found', 'No existe la encomienda indicada.')
     const current = shipmentSnap.data() || {}
     const allowedBranches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : [caller.primaryBranchId]
-    if (caller.role !== 'directiva_admin' && !allowedBranches.includes(current.originBranchId)) {
+    if (!isOperationalAdmin(caller) && !allowedBranches.includes(current.originBranchId)) {
       throw new HttpsError('permission-denied', 'Solo la sucursal de origen puede anular esta encomienda.')
     }
     if (current.status === 'cancelled') throw new HttpsError('already-exists', 'La encomienda ya está anulada.')
@@ -911,7 +925,7 @@ export const cancelShipment = onCall({ cors: true }, async (request) => {
 
 /**
  * Cloud Function Callable para aprovisionamiento seguro de perfiles de usuario.
- * Solo puede ser ejecutada por usuarios con rol 'directiva_admin' activo.
+ * Solo puede ser ejecutada por administradores activos de Expreso Punata.
  * (El bootstrap inicial del primer administrador se realiza exclusivamente vía CLI privada bajo control de PACHAX).
  */
 export const adminProvisionUser = onCall({ cors: true }, async (request) => {
@@ -923,16 +937,16 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
   const callerUid = request.auth.uid
   const callerEmail = request.auth.token.email || ''
 
-  // 2. Validar que el llamador sea un directiva_admin activo (autoritativo desde Firestore)
+  // Validar el permiso administrativo desde el perfil autoritativo.
   const callerDoc = await db.collection('users').doc(callerUid).get()
   if (!callerDoc.exists) {
     throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
   }
   const callerData = callerDoc.data() || {}
-  if (callerData.isActive === false) {
+  if (callerData.isActive !== true) {
     throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
   }
-  if (callerData.role !== 'directiva_admin') {
+  if (!isOperationalAdmin(callerData)) {
     throw new HttpsError('permission-denied', 'Solo la Directiva / Administración puede aprovisionar o modificar usuarios.')
   }
 
@@ -944,7 +958,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     phone,
     role = 'secretaria',
     primaryBranchId = 'punata',
-    allowedBranchIds = ['punata'],
+    allowedBranchIds = [],
     assignedVehiclePlate,
     assignedMobileNumber,
     unionMemberId,
@@ -968,19 +982,26 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     throw new HttpsError('invalid-argument', `Sucursal primaria inválida: '${primaryBranchId}'.`)
   }
 
+  if (!Array.isArray(allowedBranchIds) || allowedBranchIds.some((branchId) => !validBranches.includes(branchId))) {
+    throw new HttpsError('invalid-argument', 'Las sucursales autorizadas deben ser agencias válidas.')
+  }
+
   let safeTargetUid = targetUid && typeof targetUid === 'string' && targetUid.trim() ? targetUid.trim() : null
-  let targetAuthUser = null
+  let targetAuthUser
   let safeUnionMemberId = typeof unionMemberId === 'string' && unionMemberId.trim() ? unionMemberId.trim() : null
 
-  const requiresMemberLink = role === 'afiliado' || role === 'afiliado_admin'
+  const requiresMemberLink = role === 'afiliado'
+  const canLinkMember = requiresMemberLink || role === 'afiliado_admin'
 
-  if (requiresMemberLink && !safeUnionMemberId && safeTargetUid) {
+  if (canLinkMember && !safeUnionMemberId && safeTargetUid) {
     const existingProfile = await db.collection('users').doc(safeTargetUid).get()
     safeUnionMemberId = existingProfile.data()?.unionMemberId || null
   }
 
-  if (requiresMemberLink) {
-    if (!safeUnionMemberId) throw new HttpsError('invalid-argument', 'Debe vincular la cuenta con un afiliado existente.')
+  if (requiresMemberLink && !safeUnionMemberId) {
+    throw new HttpsError('invalid-argument', 'Debe vincular la cuenta con un afiliado existente.')
+  }
+  if (canLinkMember && safeUnionMemberId) {
     const memberRef = db.collection('union_members').doc(safeUnionMemberId)
     const memberDoc = await memberRef.get()
     const member = memberDoc.data() || {}
@@ -991,53 +1012,11 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
       throw new HttpsError('permission-denied', 'El afiliado no pertenece a la sucursal asignada.')
     }
     const linkedUsers = await db.collection('users').where('unionMemberId', '==', safeUnionMemberId).get()
-    if (linkedUsers.docs.some((doc) => doc.id !== safeTargetUid && doc.data()?.isActive !== false)) {
+    if (linkedUsers.docs.some((doc) => doc.id !== safeTargetUid && (doc.data().isActive !== false || doc.data().syncStatus === 'syncing'))) {
       throw new HttpsError('already-exists', 'El afiliado ya está vinculado a otra cuenta activa.')
     }
   } else {
     safeUnionMemberId = null
-  }
-
-  // PROTECCIÓN ESTRICTA DEL ÚLTIMO ADMINISTRADOR ACTIVO CONTRA CONCURRENCIA
-  if (safeTargetUid) {
-    await db.runTransaction(async (transaction) => {
-      const lockRef = db.collection('system_locks').doc('admin_management')
-      await transaction.get(lockRef)
-
-      const targetDocRef = db.collection('users').doc(safeTargetUid)
-      const existingTargetDoc = await transaction.get(targetDocRef)
-
-      if (existingTargetDoc.exists) {
-        const existingData = existingTargetDoc.data() || {}
-        if (existingData.role === 'soporte_pachax') {
-          throw new HttpsError('permission-denied', 'Las cuentas técnicas se administran mediante un procedimiento separado.')
-        }
-        const isCurrentlyActiveAdmin = existingData.role === 'directiva_admin' && existingData.isActive === true
-        const willBeInactive = Boolean(isActive) === false
-        const willDemoteRole = role !== 'directiva_admin'
-
-        if (isCurrentlyActiveAdmin && (willBeInactive || willDemoteRole)) {
-          // Consultar por rol y filtrar isActive en memoria evita depender de un
-          // índice compuesto durante las pruebas y mantiene la protección fail-closed.
-          const activeAdminsQuery = db.collection('users').where('role', '==', 'directiva_admin')
-          const activeAdminsSnap = await transaction.get(activeAdminsQuery)
-          const activeAdmins = activeAdminsSnap.docs.filter((d) => d.data()?.isActive === true)
-          const otherAdmins = activeAdmins.filter((d) => d.id !== safeTargetUid)
-
-          if (otherAdmins.length === 0) {
-            throw new HttpsError(
-              'failed-precondition',
-              'Operación denegada por seguridad: no es posible suspender ni retirar privilegios al único Administrador General activo del sistema.'
-            )
-          }
-        }
-      }
-
-      transaction.set(lockRef, {
-        lastEvaluatedAt: FieldValue.serverTimestamp(),
-        targetUid: safeTargetUid,
-      }, { merge: true })
-    })
   }
 
   // 3. Resolución / Creación en Firebase Authentication
@@ -1064,7 +1043,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
           email: safeEmail,
           displayName: fullName.trim(),
           password: tempPassword,
-          disabled: !Boolean(isActive),
+          disabled: true,
         })
         safeTargetUid = targetAuthUser.uid
       } else {
@@ -1083,37 +1062,6 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     }
   }
 
-  // A request using the account email must pass the same technical-account
-  // restriction before changing Firebase Auth.
-  const resolvedProfile = await db.collection('users').doc(safeTargetUid).get()
-  if (resolvedProfile.data()?.role === 'soporte_pachax') {
-    throw new HttpsError('permission-denied', 'Las cuentas técnicas se administran mediante un procedimiento separado.')
-  }
-
-  // Sincronizar estado disabled, displayName y cambio de email en Firebase Auth de forma FAIL-CLOSED
-  if (targetAuthUser) {
-    const requestedEmail = payload.email && typeof payload.email === 'string' && payload.email.includes('@')
-      ? payload.email.trim().toLowerCase()
-      : targetAuthUser.email
-
-    const authUpdatePayload = {
-      disabled: !Boolean(isActive),
-      displayName: fullName.trim(),
-    }
-
-    const emailChanged = requestedEmail && requestedEmail !== targetAuthUser.email
-    if (emailChanged) {
-      authUpdatePayload.email = requestedEmail
-      authUpdatePayload.emailVerified = false // Exige verificación de la nueva dirección
-    }
-
-    try {
-      targetAuthUser = await authAdmin.updateUser(safeTargetUid, authUpdatePayload)
-    } catch (authUpErr) {
-      throw new HttpsError('internal', `Fallo crítico al actualizar cuenta en Firebase Authentication: ${authUpErr.message}`)
-    }
-  }
-
   const nowIso = new Date().toISOString()
   const targetUserRef = db.collection('users').doc(safeTargetUid)
   const auditDocRef = db.collection('audit_logs').doc()
@@ -1122,14 +1070,16 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
 
   const profileData = {
     uid: safeTargetUid,
-    email: targetAuthUser?.email || (payload.email ? payload.email.trim().toLowerCase() : ''),
+    email: typeof payload.email === 'string' && payload.email.includes('@')
+      ? payload.email.trim().toLowerCase()
+      : targetAuthUser.email || '',
     fullName: fullName.trim(),
     ci: safeCi,
     phone: safePhone,
     role,
     commissionAdministrationApproved: false,
     primaryBranchId,
-    allowedBranchIds: role === 'secretaria' || role === 'afiliado_admin' || role === 'afiliado'
+    allowedBranchIds: role === 'secretaria' || role === 'afiliado'
       ? [primaryBranchId]
       : role === 'directiva_admin'
         ? ['punata', 'cochabamba']
@@ -1138,7 +1088,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
             : [primaryBranchId]),
     assignedVehiclePlate: role === 'conductor' ? (assignedVehiclePlate || '') : null,
     assignedMobileNumber: role === 'conductor' ? (assignedMobileNumber || '') : null,
-    unionMemberId: requiresMemberLink ? safeUnionMemberId : null,
+    unionMemberId: safeUnionMemberId,
     isActive: Boolean(isActive),
     syncStatus: 'syncing',
     updatedAt: FieldValue.serverTimestamp(),
@@ -1146,27 +1096,46 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
   }
 
   // Escribir perfil en Firestore bajo candado transaccional
-  await db.runTransaction(async (transaction) => {
+  const previousProfile = await db.runTransaction(async (transaction) => {
     const lockRef = db.collection('system_locks').doc('admin_management')
     await transaction.get(lockRef)
 
+    const callerSnapshot = await transaction.get(callerDoc.ref)
+    const currentCaller = callerSnapshot.data()
+    if (currentCaller?.isActive !== true || !isOperationalAdmin(currentCaller)) {
+      throw new HttpsError('permission-denied', 'La cuenta ya no tiene autorización para administrar usuarios.')
+    }
     const existingDoc = await transaction.get(targetUserRef)
+    if (role === 'directiva_admin' && existingDoc.data()?.role !== 'directiva_admin') {
+      throw new HttpsError('invalid-argument', 'Use afiliado_admin para asignar la administración de Expreso Punata.')
+    }
+    const existingProfile = existingDoc.data()
+    const syncAgeMs = Date.now() - Date.parse(existingProfile?.updatedAtIso || '')
+    if (existingProfile?.syncStatus === 'syncing' && syncAgeMs < 120_000) {
+      throw new HttpsError('aborted', 'Ya hay una actualización en curso para esta cuenta.')
+    }
+    if (safeUnionMemberId) {
+      const linkedProfiles = await transaction.get(db.collection('users').where('unionMemberId', '==', safeUnionMemberId))
+      if (linkedProfiles.docs.some((doc) => doc.id !== safeTargetUid && (doc.data().isActive !== false || doc.data().syncStatus === 'syncing'))) {
+        throw new HttpsError('already-exists', 'El afiliado ya está vinculado a otra cuenta activa.')
+      }
+    }
     if (existingDoc.exists) {
-      const existingData = existingDoc.data() || {}
+      const existingData = existingProfile
       if (existingData.role === 'soporte_pachax') {
         throw new HttpsError('permission-denied', 'Las cuentas técnicas se administran mediante un procedimiento separado.')
       }
-      const isCurrentlyActiveAdmin = existingData.role === 'directiva_admin' && existingData.isActive === true
+      const isCurrentlyActiveAdmin = isOperationalAdmin(existingData) && existingData.isActive === true
       const willBeInactive = Boolean(isActive) === false
-      const willDemoteRole = role !== 'directiva_admin'
+      const willDemoteRole = !isOperationalAdmin(profileData)
 
       if (isCurrentlyActiveAdmin && (willBeInactive || willDemoteRole)) {
         const activeAdminsQuery = db.collection('users')
-          .where('role', '==', 'directiva_admin')
+          .where('role', 'in', ['directiva_admin', 'afiliado_admin'])
           .where('isActive', '==', true)
 
         const activeAdminsSnap = await transaction.get(activeAdminsQuery)
-        const otherAdmins = activeAdminsSnap.docs.filter((d) => d.id !== safeTargetUid)
+        const otherAdmins = activeAdminsSnap.docs.filter((d) => d.id !== safeTargetUid && isOperationalAdmin(d.data()) && !['syncing', 'failed'].includes(d.data().syncStatus))
 
         if (otherAdmins.length === 0) {
           throw new HttpsError(
@@ -1190,17 +1159,33 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
       modifiedUid: safeTargetUid,
     }, { merge: true })
 
-    transaction.set(targetUserRef, profileData, { merge: true })
+    const retainsAccess = existingProfile?.isActive === true && (
+      (existingProfile.role === role && isOperationalAdmin(existingProfile) === isOperationalAdmin(profileData)) ||
+      (isOperationalAdmin(existingProfile) && isOperationalAdmin(profileData))
+    )
+    transaction.set(targetUserRef, {
+      ...profileData,
+      isActive: profileData.isActive && retainsAccess,
+    }, { merge: true })
+    return existingProfile
   })
 
   // 4. Sincronizar Custom Claims en Firebase Authentication
+  let authProfileUpdated = false
   try {
+    await authAdmin.updateUser(safeTargetUid, {
+      displayName: profileData.fullName,
+      ...(profileData.email !== targetAuthUser.email ? { email: profileData.email, emailVerified: false } : {}),
+    })
+    authProfileUpdated = true
     await authAdmin.setCustomUserClaims(safeTargetUid, {
       role: profileData.role,
       branchId: profileData.primaryBranchId,
       allowedBranches: profileData.allowedBranchIds,
       isActive: profileData.isActive,
     })
+
+    await authAdmin.updateUser(safeTargetUid, { disabled: !profileData.isActive })
 
     // Si el usuario fue desactivado, revocar tokens de sesión inmediatamente
     if (!profileData.isActive) {
@@ -1211,6 +1196,8 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     await db.runTransaction(async (transaction) => {
       transaction.update(targetUserRef, {
         syncStatus: 'synced',
+        syncError: FieldValue.delete(),
+        isActive: profileData.isActive,
         claimsSyncedAt: FieldValue.serverTimestamp(),
         claimsSyncedAtIso: new Date().toISOString(),
       })
@@ -1225,7 +1212,9 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
           email: profileData.email,
           fullName: profileData.fullName,
           role,
+          previousRole: previousProfile?.role || null,
           primaryBranchId,
+          allowedBranchIds: profileData.allowedBranchIds,
           isActive: Boolean(isActive),
           ciProvided: safeCi !== null,
           claimsSynced: true,
@@ -1239,10 +1228,12 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
 
     // Reconciliación: Registrar fallo explícito en Firestore y auditoría
     try {
-      await targetUserRef.set({
+      if (!authProfileUpdated) {
+        if (previousProfile) await targetUserRef.set(previousProfile)
+        else await targetUserRef.delete()
+      } else await targetUserRef.set({
         syncStatus: 'failed',
         syncError: claimErr.message,
-        isActive: false, // Forzar inactivo por seguridad hasta reconciliación
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true })
 
@@ -1263,7 +1254,9 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     // NO declarar éxito si la sincronización falló
     throw new HttpsError(
       'internal',
-      `Fallo crítico al sincronizar Custom Claims en Firebase Authentication: ${claimErr.message}. El usuario no fue habilitado.`
+      authProfileUpdated
+        ? 'Fallo crítico al sincronizar Custom Claims en Firebase Authentication. Revise el estado de sincronización antes de reintentar.'
+        : 'Fallo crítico al actualizar cuenta en Firebase Authentication.'
     )
   }
 
@@ -1282,7 +1275,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
 
 /**
  * Cloud Function Callable para autorizar solicitud de restablecimiento de contraseña.
- * Protegido exclusivamente para directiva_admin.
+ * Protegido para la administración de Expreso Punata.
  * NO expone enlaces sensibles: registra la auditoría y permite al cliente disparar
  * el correo oficial de Firebase Auth hacia la bandeja registrada del trabajador.
  */
@@ -1297,26 +1290,30 @@ export const adminSendPasswordReset = onCall({ cors: true }, async (request) => 
     throw new HttpsError('permission-denied', 'No tiene un perfil asignado en el sistema.')
   }
   const callerData = callerDoc.data() || {}
-  if (!callerData.isActive || callerData.role !== 'directiva_admin') {
+  if (!callerData.isActive || !isOperationalAdmin(callerData)) {
     throw new HttpsError('permission-denied', 'Solo la Directiva / Administración puede solicitar restablecimiento de contraseñas.')
   }
 
   const payload = request.data || {}
-  let userEmail = payload.email && typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : ''
+  const requestedEmail = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : ''
   const targetUid = payload.targetUid && typeof payload.targetUid === 'string' ? payload.targetUid.trim() : null
 
-  if (!userEmail && targetUid) {
-    try {
-      const user = await authAdmin.getUser(targetUid)
-      userEmail = user.email || ''
-    } catch (err) {
-      throw new HttpsError('not-found', `No se encontró usuario en Auth con UID '${targetUid}'.`)
-    }
-  }
-
-  if (!userEmail) {
+  if (!targetUid && !requestedEmail) {
     throw new HttpsError('invalid-argument', 'Se requiere el correo electrónico del usuario.')
   }
+  let target
+  try {
+    target = targetUid ? await authAdmin.getUser(targetUid) : await authAdmin.getUserByEmail(requestedEmail)
+  } catch (err) {
+    if (err.code !== 'auth/user-not-found') throw err
+    throw new HttpsError('not-found', 'No se encontró la cuenta solicitada.')
+  }
+  const targetProfile = await db.collection('users').doc(target.uid).get()
+  if (targetProfile.data()?.role === 'soporte_pachax') {
+    throw new HttpsError('permission-denied', 'Las cuentas técnicas se administran mediante un procedimiento separado.')
+  }
+  const userEmail = target.email
+  if (!userEmail) throw new HttpsError('failed-precondition', 'La cuenta no tiene un correo electrónico registrado.')
 
   // Registrar auditoría de seguridad
   await db.collection('audit_logs').add({
@@ -1360,7 +1357,7 @@ export const openCashShift = onCall({ cors: true }, async (request) => {
   }
 
   const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', `El rol '${callerData.role}' no tiene permiso para abrir turnos de caja.`)
   }
 
@@ -1375,7 +1372,7 @@ export const openCashShift = onCall({ cors: true }, async (request) => {
   const allowedBranches = Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.length > 0
     ? callerData.allowedBranchIds
     : [callerData.primaryBranchId]
-  if (callerData.role !== 'directiva_admin' && !allowedBranches.includes(branchId)) {
+  if (!isOperationalAdmin(callerData) && !allowedBranches.includes(branchId)) {
     throw new HttpsError('permission-denied', `No tiene permiso para operar la caja de la sucursal '${branchId}'.`)
   }
 
@@ -1634,7 +1631,7 @@ export const closeCashShift = onCall({ cors: true }, async (request) => {
     // Permisos: el mismo operador, encargado de esa sucursal, tesorería de esa sucursal, o admin general
     const isOwner = shiftData.operatorUid === callerUid
     const isManagerOfBranch = callerData.role === 'encargado_agencia' && (callerData.allowedBranchIds || [callerData.primaryBranchId]).includes(shiftData.branchId)
-    const isAdmin = callerData.role === 'directiva_admin'
+    const isAdmin = isOperationalAdmin(callerData)
 
     if (!isOwner && !isManagerOfBranch && !isAdmin) {
       throw new HttpsError('permission-denied', 'No tiene autorización para cerrar este turno de caja.')
@@ -1746,7 +1743,7 @@ export const createExpenseAuthorization = onCall({ cors: true }, async (request)
   }
 
   const allowedRoles = ['encargado_agencia', 'directiva_admin']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'Solo Encargados de Agencia o Directiva pueden autorizar egresos extraordinarios.')
   }
 
@@ -1839,7 +1836,7 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
   }
 
   const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para registrar gastos de caja.')
   }
 
@@ -1880,7 +1877,7 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
   }
 
   // 2. Límites y autorización verificable para rol 'secretaria'
-  const isSupervisorOrAdmin = ['encargado_agencia', 'directiva_admin'].includes(callerData.role)
+  const isSupervisorOrAdmin = hasOperationalRole(callerData, ['encargado_agencia', 'directiva_admin'])
   const requiresSupervisorApproval = !isSupervisorOrAdmin && callerData.role === 'secretaria' && amountCents > PROVISIONAL_EXPENSE_APPROVAL_THRESHOLD_CENTS
 
   if (requiresSupervisorApproval && !authorizationCode) {
@@ -2092,7 +2089,7 @@ export const collectShipmentPayment = onCall({ cors: true }, async (request) => 
   }
 
   const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos de cobranza en ventanilla.')
   }
 
@@ -2291,7 +2288,7 @@ async function createDispatch(request) {
   }
 
   const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', `El rol '${callerData.role}' no tiene permiso para crear manifiestos de despacho.`)
   }
 
@@ -2314,7 +2311,7 @@ async function createDispatch(request) {
     throw new HttpsError('invalid-argument', 'La sucursal de origen y destino no pueden ser iguales.')
   }
 
-  if (callerData.role !== 'directiva_admin') {
+  if (!isOperationalAdmin(callerData)) {
     const isAllowed = callerData.primaryBranchId === originBranchId ||
       (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(originBranchId))
     if (!isAllowed) {
@@ -2604,7 +2601,7 @@ export const driverConfirmCustody = onCall({ cors: true }, async (request) => {
     // A3: Validación estricta del conductor titular asignado
     let overrideApplied = false
     if (manifestData.driverUid !== callerUid) {
-      const isSupervisor = ['encargado_agencia', 'directiva_admin'].includes(callerData.role)
+      const isSupervisor = hasOperationalRole(callerData, ['encargado_agencia', 'directiva_admin'])
       const hasValidOverride = supervisorOverride &&
         typeof supervisorOverride.reason === 'string' &&
         supervisorOverride.reason.trim().length >= 10
@@ -2718,7 +2715,7 @@ async function receiveDispatch(request) {
   }
 
   const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', `El rol '${callerData.role}' no tiene permiso para recibir manifiestos en destino.`)
   }
 
@@ -2744,7 +2741,7 @@ async function receiveDispatch(request) {
 
     const manifestData = manifestDoc.data() || {}
 
-    if (callerData.role !== 'directiva_admin') {
+    if (!isOperationalAdmin(callerData)) {
       const isAllowed = callerData.primaryBranchId === manifestData.destinationBranchId ||
         (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(manifestData.destinationBranchId))
       if (!isAllowed) {
@@ -2768,7 +2765,7 @@ async function receiveDispatch(request) {
     // A2: Custodia de conductor previa obligatoria, salvo contingencia autorizada con motivo explícito de supervisor
     let custodyOverrideApplied = false
     if (manifestData.driverCustodyStatus !== 'accepted') {
-      const isSupervisor = ['encargado_agencia', 'directiva_admin'].includes(callerData.role)
+      const isSupervisor = hasOperationalRole(callerData, ['encargado_agencia', 'directiva_admin'])
       const hasValidOverride = supervisorOverride &&
         typeof supervisorOverride.reason === 'string' &&
         supervisorOverride.reason.trim().length >= 10
@@ -2787,7 +2784,7 @@ async function receiveDispatch(request) {
     }
     if (simplified) {
       const profile = await assertTransferBranch(transaction, callerUid, manifestData.destinationBranchId)
-      if (custodyOverrideApplied && !['encargado_agencia', 'directiva_admin'].includes(profile.role)) {
+      if (custodyOverrideApplied && !hasOperationalRole(profile, ['encargado_agencia', 'directiva_admin'])) {
         throw new HttpsError('permission-denied', 'La contingencia requiere un supervisor autorizado.')
       }
     }
@@ -2975,7 +2972,7 @@ async function assertTransferBranch(transaction, uid, branchId) {
   const allowed = profile?.primaryBranchId === branchId ||
     (Array.isArray(profile?.allowedBranchIds) && profile.allowedBranchIds.includes(branchId))
   if (!branchId || !allowed || profile?.isActive !== true ||
-      !['secretaria', 'encargado_agencia', 'directiva_admin'].includes(profile.role)) {
+      !hasOperationalRole(profile, ['secretaria', 'encargado_agencia', 'directiva_admin'])) {
     throw new HttpsError('permission-denied', 'Se requiere un perfil activo autorizado en la sucursal.')
   }
   return profile
@@ -3042,7 +3039,7 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
   }
 
   const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permiso para gestionar almacén.')
   }
 
@@ -3092,7 +3089,7 @@ export const assignShipmentStorage = onCall({ cors: true }, async (request) => {
     const sData = shipmentDoc.data() || {}
 
     // A1: Validar permisos sobre sucursal de destino
-    if (callerData.role !== 'directiva_admin') {
+    if (!isOperationalAdmin(callerData)) {
       const isAllowed = callerData.primaryBranchId === sData.destinationBranchId ||
         (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(sData.destinationBranchId))
       if (!isAllowed) {
@@ -3295,7 +3292,7 @@ export const manageVehicle = onCall({ cors: true }, async (request) => {
   }
 
   const allowedRoles = ['encargado_agencia', 'directiva_admin']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'Solo encargados de agencia o administración pueden gestionar vehículos.')
   }
 
@@ -3429,7 +3426,7 @@ export const listActiveDrivers = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no autorizado o inactivo.')
   }
 
-  if (!['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin'].includes(userDoc.data()?.role)) {
+  if (!hasOperationalRole(userDoc.data(), ['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin'])) {
     throw new HttpsError('permission-denied', 'No tiene acceso al directorio de conductores.')
   }
 
@@ -3484,7 +3481,7 @@ export const manageShelf = onCall({ cors: true }, async (request) => {
   }
 
   const allowedBranches = Array.isArray(callerData.allowedBranchIds) ? callerData.allowedBranchIds : []
-  if (callerData.role !== 'directiva_admin' &&
+  if (!isOperationalAdmin(callerData) &&
       (!['secretaria', 'encargado_agencia'].includes(callerData.role) ||
        (branchId !== callerData.primaryBranchId && !allowedBranches.includes(branchId)))) {
     throw new HttpsError('permission-denied', 'No tiene acceso al almacén de esta agencia.')
@@ -3553,10 +3550,10 @@ export const manageShelf = onCall({ cors: true }, async (request) => {
   }
 
   // Creación o actualización (requiere encargado o directiva_admin)
-  if (!['encargado_agencia', 'directiva_admin'].includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, ['encargado_agencia', 'directiva_admin'])) {
     throw new HttpsError('permission-denied', 'Solo encargados de agencia o directiva pueden configurar estantes.')
   }
-  if (callerData.role !== 'directiva_admin') {
+  if (!isOperationalAdmin(callerData)) {
     const isAllowed = callerData.primaryBranchId === branchId ||
       (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(branchId))
     if (!isAllowed) {
@@ -3766,7 +3763,7 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
   }
 
   const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', `El rol '${callerData.role}' no tiene permiso para entregar encomiendas.`)
   }
 
@@ -3848,7 +3845,7 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
         }
       } else {
         // Entrega en ventanilla de sucursal
-        if (callerData.role !== 'directiva_admin') {
+        if (!isOperationalAdmin(callerData)) {
           const isAllowed = callerData.primaryBranchId === sData.destinationBranchId ||
             (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.includes(sData.destinationBranchId))
           if (!isAllowed) {
@@ -4158,7 +4155,7 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
   }
 
   const allowedRoles = ['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permiso para liquidar custodia financiera de conductores.')
   }
 
@@ -4555,7 +4552,7 @@ export const getShipmentSignatureUrl = onCall({ cors: true }, async (request) =>
   }
   const sData = shipmentDoc.data()
 
-  const isGlobalAdmin = ['directiva_admin', 'tesoreria'].includes(callerData.role)
+  const isGlobalAdmin = hasOperationalRole(callerData, ['directiva_admin', 'tesoreria'])
   const isBranchOperator = ['secretaria', 'encargado_agencia'].includes(callerData.role) &&
     (sData.originBranchId === callerData.primaryBranchId || sData.destinationBranchId === callerData.primaryBranchId ||
      (callerData.allowedBranchIds && (callerData.allowedBranchIds.includes(sData.originBranchId) || callerData.allowedBranchIds.includes(sData.destinationBranchId))))
@@ -4628,7 +4625,7 @@ export const getDriverCustodyBalance = onCall({ cors: true }, async (request) =>
   }
   const callerData = userDoc.data()
   const allowedRoles = ['conductor', 'secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']
-  if (!allowedRoles.includes(callerData.role)) {
+  if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para consultar saldos de custodia.')
   }
 
@@ -4702,8 +4699,8 @@ export const manageUnionMember = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  const isAffiliateAdmin = caller.role === 'afiliado_admin'
-  if (!['directiva_admin', 'tesoreria', 'afiliado_admin'].includes(caller.role)) {
+  const isAffiliateAdmin = caller.role === 'afiliado_admin' && !isOperationalAdmin(caller)
+  if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria', 'afiliado_admin'])) {
     throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden administrar socios.')
   }
 
@@ -5001,7 +4998,7 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+  if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
     throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden emitir cuotas mensuales.')
   }
 
@@ -5209,7 +5206,7 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
   }
   const caller = callerDoc.data()
   const allowedRoles = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia']
-  if (!allowedRoles.includes(caller.role)) {
+  if (!hasOperationalRole(caller, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para cobrar cuotas de socios.')
   }
 
@@ -5298,7 +5295,7 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
         throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
       }
       const shiftOperator = activeShift.cashierUid || activeShift.operatorUid
-      if (shiftOperator && shiftOperator !== callerUid && caller.role !== 'directiva_admin') {
+      if (shiftOperator && shiftOperator !== callerUid && !isOperationalAdmin(caller)) {
         throw new HttpsError('permission-denied', 'El turno de caja no pertenece al operador que realiza el cobro.')
       }
       if (activeShift.branchId !== effectiveBranchId) {
@@ -5307,7 +5304,7 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
     } else {
       // paymentMethod === 'qr' o 'transfer'
       if (!shiftId) {
-        if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+        if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
           throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden registrar cobros directos fuera de turno de caja.')
         }
       } else {
@@ -5503,7 +5500,7 @@ export const getMemberAccountStatement = onCall({ cors: true }, async (request) 
   }
   const caller = callerDoc.data()
   const allowedRoles = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia']
-  if (!allowedRoles.includes(caller.role)) {
+  if (!hasOperationalRole(caller, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para consultar estados de cuenta de socios.')
   }
 
@@ -5580,7 +5577,7 @@ export const getUnionMembersRoster = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia']
-  if (!allowedRoles.includes(callerDoc.data()?.role)) {
+  if (!hasOperationalRole(callerDoc.data(), allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para consultar el padrón completo de afiliados.')
   }
 
@@ -5669,7 +5666,7 @@ export const manageWorker = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+  if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
     throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden administrar trabajadores.')
   }
 
@@ -5834,7 +5831,7 @@ export const registerWorkerPayment = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+  if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
     throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden autorizar y registrar pagos de sueldos o anticipos.')
   }
 
@@ -6056,7 +6053,7 @@ export const registerGeneralExpense = onCall({ cors: true }, async (request) => 
   }
   const caller = callerDoc.data()
   const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'secretaria']
-  if (!allowedRoles.includes(caller.role)) {
+  if (!hasOperationalRole(caller, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para registrar egresos operativos.')
   }
 
@@ -6282,7 +6279,7 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  if (!['directiva_admin', 'encargado_agencia', 'tesoreria'].includes(caller.role)) {
+  if (!hasOperationalRole(caller, ['directiva_admin', 'encargado_agencia', 'tesoreria'])) {
     throw new HttpsError('permission-denied', 'No tiene permisos para administrar el inventario de bienes fijos.')
   }
 
@@ -6402,7 +6399,7 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     }
 
     if (currentAsset.status === 'disposed') {
-      if (caller.role !== 'directiva_admin') {
+      if (!isOperationalAdmin(caller)) {
         throw new HttpsError('permission-denied', 'Un activo dado de baja no puede ser modificado ni reactivado sin rol directiva_admin.')
       }
       const justification = (request.data?.justification || request.data?.notes || '').trim()
@@ -6521,7 +6518,7 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     const currentAsset = assetSnap.data()
 
     if (currentAsset.status === 'disposed') {
-      if (caller.role !== 'directiva_admin') {
+      if (!isOperationalAdmin(caller)) {
         throw new HttpsError('permission-denied', 'Un activo dado de baja no puede reactivarse sin rol directiva_admin.')
       }
       const justification = (request.data?.justification || request.data?.notes || '').trim()
@@ -6701,7 +6698,7 @@ const PATRIMONIAL_MANAGE_ROLES = ['directiva_admin', 'encargado_agencia', 'tesor
 async function requirePatrimonialUser(request, allowedRoles, message) {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión.')
   const snap = await db.collection('users').doc(request.auth.uid).get()
-  if (!snap.exists || snap.data().isActive === false || !allowedRoles.includes(snap.data().role)) {
+  if (!snap.exists || snap.data().isActive === false || !hasOperationalRole(snap.data(), allowedRoles)) {
     throw new HttpsError('permission-denied', message)
   }
   return { uid: request.auth.uid, profile: snap.data() }
@@ -6880,7 +6877,7 @@ export const listAffiliatePassengerTickets = onCall({ cors: true }, async (reque
 /** Summary for today's operations only. The caller cannot select a date range. */
 export const getDailyOperationsReport = onCall({ cors: true }, async (request) => {
   const caller = await getAuthenticatedCallerProfile(request)
-  if (caller.isActive !== true || !['secretaria', 'directiva_admin'].includes(caller.role)) {
+  if (caller.isActive !== true || !hasOperationalRole(caller, ['secretaria', 'directiva_admin'])) {
     throw new HttpsError('permission-denied', 'No tiene acceso al reporte diario.')
   }
 
@@ -6964,7 +6961,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
   if (role === 'secretaria') {
     throw new HttpsError('permission-denied', 'Secretaría solo puede consultar el Reporte del día.')
   }
-  if (!['directiva_admin', 'encargado_agencia', 'tesoreria', 'conductor'].includes(role)) {
+  if (!hasOperationalRole(caller, ['directiva_admin', 'encargado_agencia', 'tesoreria', 'conductor'])) {
     throw new HttpsError('permission-denied', 'No tiene acceso a reportes generales.')
   }
 
@@ -8139,7 +8136,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
   // REPORTE: COMISIONES DE CONDUCTORES (FASE 5A)
   // =========================================================================
   if (reportType === 'commissions' || reportType === 'driver_commissions') {
-    let q = db.collection('driver_commission_records')
+    const q = db.collection('driver_commission_records')
       .where('createdAtIso', '>=', startIso)
       .where('createdAtIso', '<=', endIso)
       .orderBy('createdAtIso', 'desc')
@@ -8311,7 +8308,7 @@ async function getAuthenticatedCallerProfile(request) {
 export const accrueDriverCommission = onCall({ cors: true }, async (request) => {
   const caller = await getAuthenticatedCallerProfile(request)
   if (!caller || !caller.isActive) throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
-  if (caller.role !== 'directiva_admin' && !(caller.role === 'afiliado_admin' && caller.commissionAdministrationApproved === true)) {
+  if (!isOperationalAdmin(caller) && !(caller.role === 'afiliado_admin' && caller.commissionAdministrationApproved === true)) {
     throw new HttpsError('permission-denied', 'Solo un administrador autorizado puede devengar comisiones.')
   }
   const payload = request.data || {}
@@ -8342,7 +8339,7 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     if (!shipmentDoc.exists || !manifestDoc.exists) throw new HttpsError('not-found', 'La encomienda o el manifiesto no existen.')
     const shipment = shipmentDoc.data() || {}
     const manifest = manifestDoc.data() || {}
-    if (caller.role === 'afiliado_admin') {
+    if (caller.role === 'afiliado_admin' && !isOperationalAdmin(caller)) {
       const branches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : []
       if (!manifest.originBranchId || !shipment.originBranchId ||
           manifest.originBranchId !== shipment.originBranchId ||
@@ -8368,14 +8365,14 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
       const prior = priorRecords.docs[0]
       const data = prior.data()
       if (data.manifestId !== manifestIdValue || data.driverUid !== driverUid) throw new HttpsError('failed-precondition', 'Existe un devengo previo ambiguo; no se generara otro.')
-      if (!idempotencyDoc.exists) return { success: true, recordId: prior.id, commissionAmountCents: data.commissionAmountCents, commissionAmountBob: data.commissionAmountCents / 100 }
+      if (!idempotencyDoc.exists) return { success: true, recordId: prior.id, driverUid, commissionAmountCents: data.commissionAmountCents, commissionAmountBob: data.commissionAmountCents / 100 }
     }
     if (idempotencyDoc.exists) {
       const saved = idempotencyDoc.data() || {}
       if (saved.eventHash !== eventHash || !saved.response?.recordId) throw new HttpsError('failed-precondition', 'La clave de idempotencia es inconsistente.')
       const savedRecord = await transaction.get(db.collection('driver_commission_records').doc(saved.response.recordId))
       if (!savedRecord.exists || savedRecord.data()?.driverUid !== driverUid || savedRecord.data()?.shipmentId !== shipmentIdValue || savedRecord.data()?.manifestId !== manifestIdValue) throw new HttpsError('failed-precondition', 'El devengo previo es inconsistente.')
-      return saved.response
+      return { ...saved.response, driverUid }
     }
 
     const config = configDoc.exists ? configDoc.data() || {} : {}
@@ -8403,7 +8400,7 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     if ([accrued, pending, paid].some((value) => !Number.isSafeInteger(value) || value < 0)) throw new HttpsError('failed-precondition', 'La cuenta de comisiones contiene saldos invalidos.')
     if (!Number.isSafeInteger(accrued + commissionAmountCents) || !Number.isSafeInteger(pending + commissionAmountCents)) throw new HttpsError('failed-precondition', 'El nuevo devengo excede el rango seguro de importes.')
     const driverName = driver.fullName || manifest.driverName || 'Conductor'
-    const response = { success: true, recordId: recordRef.id, commissionAmountCents, commissionAmountBob: commissionAmountCents / 100 }
+    const response = { success: true, recordId: recordRef.id, driverUid, commissionAmountCents, commissionAmountBob: commissionAmountCents / 100 }
     transaction.create(recordRef, {
       id: recordRef.id, driverUid, driverName, manifestId: manifestIdValue, shipmentId: shipmentIdValue,
       trackingCode: shipment.trackingCode || shipmentIdValue, baseShippingAmountCents,
@@ -8444,7 +8441,7 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
   if (!caller || !caller.isActive) {
     throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
   }
-  if (!['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin'].includes(caller.role)) {
+  if (!hasOperationalRole(caller, ['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin'])) {
     throw new HttpsError('permission-denied', 'No tiene permisos para liquidar comisiones de conductores.')
   }
 
@@ -8456,8 +8453,8 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
   if (!Number.isInteger(amountCents) || amountCents <= 0) {
     throw new HttpsError('invalid-argument', 'El importe a liquidar debe ser un entero positivo en centavos.')
   }
-  if (!branchId) {
-    throw new HttpsError('invalid-argument', 'La sucursal de pago es obligatoria.')
+  if (!['punata', 'cochabamba'].includes(branchId)) {
+    throw new HttpsError('invalid-argument', 'La sucursal de pago no es válida.')
   }
 
   const callerUid = caller.uid || caller.id
@@ -8465,62 +8462,61 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
   const nowIso = new Date().toISOString()
   const currentYear = new Date().getFullYear()
 
-  // Validar turno de caja activo de quien efectúa el pago
-  const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
-  const lockDoc = await lockRef.get()
-  if (!lockDoc.exists || lockDoc.data().status !== 'open' || !lockDoc.data().shiftId) {
-    throw new HttpsError('failed-precondition', 'Debe tener un turno de caja abierto en esta sucursal para pagar comisiones.')
-  }
-
-  const shiftId = lockDoc.data().shiftId
-  const shiftRef = db.collection('cash_shifts').doc(shiftId)
-  const shiftDoc = await shiftRef.get()
-  if (!shiftDoc.exists || shiftDoc.data().status !== 'open') {
-    throw new HttpsError('failed-precondition', 'El turno de caja activo no es válido o ya fue cerrado.')
-  }
-
-  const shiftData = shiftDoc.data()
-  const availableCashCents = Number(shiftData.expectedCashCents) || Number(shiftData.breakdown?.netCashCents) || 0
-  if (availableCashCents < amountCents) {
-    throw new HttpsError(
-      'failed-precondition',
-      `Efectivo insuficiente en caja. Saldo disponible: Bs. ${(availableCashCents / 100).toFixed(2)}, Requerido: Bs. ${(amountCents / 100).toFixed(2)}.`
-    )
-  }
-
-  // Cuenta de comisiones del chofer
-  const accountRef = db.collection('driver_commission_accounts').doc(driverUid)
-  const accountDoc = await accountRef.get()
-  if (!accountDoc.exists) {
-    throw new HttpsError('not-found', 'El conductor no tiene cuenta de comisiones registrada.')
-  }
-  const accountData = accountDoc.data()
-  const pendingCents = accountData.pendingCents || 0
-  if (pendingCents <= 0) {
-    throw new HttpsError('failed-precondition', 'El conductor no tiene saldo de comisiones pendiente de cobro.')
-  }
-  if (amountCents > pendingCents) {
-    throw new HttpsError(
-      'failed-precondition',
-      `El importe a liquidar (Bs. ${(amountCents / 100).toFixed(2)}) supera el saldo de comisiones pendiente del conductor (Bs. ${(pendingCents / 100).toFixed(2)}).`
-    )
-  }
-
-  const driverName = accountData.driverName || 'Conductor'
-
-  // Leer asientos pendientes en driver_commission_records (FIFO)
-  const recordsSnap = await db.collection('driver_commission_records')
-    .where('driverUid', '==', driverUid)
-    .where('status', 'in', ['accrued', 'partially_paid'])
-    .orderBy('createdAtIso', 'asc')
-    .limit(100)
-    .get()
-
   // Generar número correlativo de comprobante
   const counterRef = db.collection('counters').doc(`commission_voucher_${currentYear}`)
   const voucherRef = db.collection('driver_commission_vouchers').doc()
 
   const result = await db.runTransaction(async (t) => {
+    // Validar turno de caja activo de quien efectúa el pago
+    const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
+    const lockDoc = await t.get(lockRef)
+    if (!lockDoc.exists || lockDoc.data().status !== 'open' || !lockDoc.data().shiftId) {
+      throw new HttpsError('failed-precondition', 'Debe tener un turno de caja abierto en esta sucursal para pagar comisiones.')
+    }
+
+    const shiftId = lockDoc.data().shiftId
+    const shiftRef = db.collection('cash_shifts').doc(shiftId)
+    const shiftDoc = await t.get(shiftRef)
+    if (!shiftDoc.exists || shiftDoc.data().status !== 'open' || shiftDoc.data().branchId !== branchId) {
+      throw new HttpsError('failed-precondition', 'El turno de caja activo no es válido o ya fue cerrado.')
+    }
+
+    const shiftData = shiftDoc.data()
+    const availableCashCents = Number(shiftData.expectedCashCents ?? shiftData.breakdown?.netCashCents ?? 0)
+    if (availableCashCents < amountCents) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Efectivo insuficiente en caja. Saldo disponible: Bs. ${(availableCashCents / 100).toFixed(2)}, Requerido: Bs. ${(amountCents / 100).toFixed(2)}.`
+      )
+    }
+
+    // Cuenta de comisiones del chofer
+    const accountRef = db.collection('driver_commission_accounts').doc(driverUid)
+    const accountDoc = await t.get(accountRef)
+    if (!accountDoc.exists) {
+      throw new HttpsError('not-found', 'El conductor no tiene cuenta de comisiones registrada.')
+    }
+    const accountData = accountDoc.data()
+    const pendingCents = accountData.pendingCents || 0
+    if (pendingCents <= 0) {
+      throw new HttpsError('failed-precondition', 'El conductor no tiene saldo de comisiones pendiente de cobro.')
+    }
+    if (amountCents > pendingCents) {
+      throw new HttpsError(
+        'failed-precondition',
+        `El importe a liquidar (Bs. ${(amountCents / 100).toFixed(2)}) supera el saldo de comisiones pendiente del conductor (Bs. ${(pendingCents / 100).toFixed(2)}).`
+      )
+    }
+
+    const driverName = accountData.driverName || 'Conductor'
+
+    // Leer asientos pendientes en driver_commission_records (FIFO)
+    const recordsSnap = await t.get(db.collection('driver_commission_records')
+      .where('driverUid', '==', driverUid)
+      .where('status', 'in', ['accrued', 'partially_paid'])
+      .orderBy('createdAtIso', 'asc')
+      .limit(100))
+
     const counterDoc = await t.get(counterRef)
     const currentSeq = counterDoc.exists ? (counterDoc.data().seq || 0) + 1 : 1
     t.set(counterRef, { seq: currentSeq, year: currentYear }, { merge: true })
@@ -8553,6 +8549,10 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
       })
 
       remainingToAllocate -= allocation
+    }
+
+    if (remainingToAllocate !== 0) {
+      throw new HttpsError('failed-precondition', 'Los registros pendientes no cubren el importe solicitado.')
     }
 
     // Actualizar cuenta del chofer
@@ -8646,7 +8646,7 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
   return {
     success: true,
     voucher: result,
-    message: `Comisión de Bs. ${(amountCents / 100).toFixed(2)} liquidada exitosamente al conductor ${driverName}.`,
+    message: `Comisión de Bs. ${(amountCents / 100).toFixed(2)} liquidada exitosamente al conductor ${result.driverName}.`,
   }
 })
 
@@ -8684,7 +8684,7 @@ export const manageConsumable = onCall({ cors: true }, async (request) => {
 
   // 1. CREACIÓN DE ÍTEM DE CONSUMIBLE
   if (action === 'create_item') {
-    if (!['encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+    if (!hasOperationalRole(caller, ['encargado_agencia', 'directiva_admin'])) {
       throw new HttpsError('permission-denied', 'Solo encargados o administradores pueden crear insumos en catálogo.')
     }
     if (!code || !name || !category || !branchId) {
@@ -8744,7 +8744,7 @@ export const manageConsumable = onCall({ cors: true }, async (request) => {
 
   // 2. ACTUALIZACIÓN DE DATOS DE ÍTEM
   if (action === 'update_item' && id) {
-    if (!['encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+    if (!hasOperationalRole(caller, ['encargado_agencia', 'directiva_admin'])) {
       throw new HttpsError('permission-denied', 'Solo encargados o administradores pueden modificar ítems de insumos.')
     }
     const docRef = db.collection('branch_consumables').doc(id)
@@ -8771,7 +8771,7 @@ export const manageConsumable = onCall({ cors: true }, async (request) => {
 
   // 3. REGISTRO DE ENTRADA (COMPRA O REMESA)
   if (action === 'record_entry' && id) {
-    if (!['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin'].includes(caller.role)) {
+    if (!hasOperationalRole(caller, ['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin'])) {
       throw new HttpsError('permission-denied', 'No tiene permisos para registrar entradas de insumos.')
     }
     if (!Number.isInteger(quantity) || quantity <= 0) {
@@ -8825,7 +8825,7 @@ export const manageConsumable = onCall({ cors: true }, async (request) => {
 
   // 4. REGISTRO DE CONSUMO / SALIDA (USO DIARIO EN VENTANILLA)
   if (action === 'record_consumption' && id) {
-    if (!['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+    if (!hasOperationalRole(caller, ['secretaria', 'encargado_agencia', 'directiva_admin'])) {
       throw new HttpsError('permission-denied', 'No tiene permisos para registrar consumo de insumos.')
     }
     if (!Number.isInteger(quantity) || quantity <= 0) {
@@ -8880,7 +8880,7 @@ export const manageConsumable = onCall({ cors: true }, async (request) => {
 
   // 5. AJUSTE FÍSICO DE INVENTARIO
   if (action === 'record_adjustment' && id) {
-    if (!['encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+    if (!hasOperationalRole(caller, ['encargado_agencia', 'directiva_admin'])) {
       throw new HttpsError('permission-denied', 'Solo administradores o encargados pueden ajustar inventario.')
     }
     if (!Number.isInteger(newStock) || newStock < 0) {
@@ -8967,7 +8967,7 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
 
   // 1. REPORTAR INCIDENCIA
   if (action === 'report_incident') {
-    if (!['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+    if (!hasOperationalRole(caller, ['secretaria', 'encargado_agencia', 'directiva_admin'])) {
       throw new HttpsError('permission-denied', 'No tiene permisos para registrar incidencias de encomiendas.')
     }
     if (!shipmentId) {
@@ -9083,7 +9083,7 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
 
   // 2. RESOLVER INCIDENCIA
   if (action === 'resolve_incident' && incidentId) {
-    if (!['encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+    if (!hasOperationalRole(caller, ['encargado_agencia', 'directiva_admin'])) {
       throw new HttpsError('permission-denied', 'Solo encargados o directiva pueden resolver incidencias.')
     }
     if (!resolutionNotes || resolutionNotes.trim().length < 5) {
@@ -9110,7 +9110,7 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
 
   // 3. INDEMNIZAR / COMPENSAR ECONÓMICAMENTE POR DAÑO O EXTRAVÍO
   if (action === 'indemnify_incident' && incidentId) {
-    if (!['directiva_admin', 'encargado_agencia'].includes(caller.role)) {
+    if (!hasOperationalRole(caller, ['directiva_admin', 'encargado_agencia'])) {
       throw new HttpsError('permission-denied', 'Solo directiva o encargados pueden autorizar indemnizaciones financieras.')
     }
     if (!Number.isInteger(compensationAmountCents) || compensationAmountCents <= 0) {
@@ -9230,7 +9230,7 @@ export const registerShipmentIncident = onCall({ cors: true }, async (request) =
 export const registerShipmentContact = onCall({ cors: true }, async (request) => {
   const caller = await getAuthenticatedCallerProfile(request)
   if (!caller || caller.isActive !== true) throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
-  if (!['secretaria', 'encargado_agencia', 'directiva_admin'].includes(caller.role)) {
+  if (!hasOperationalRole(caller, ['secretaria', 'encargado_agencia', 'directiva_admin'])) {
     throw new HttpsError('permission-denied', 'No tiene permisos para registrar seguimientos.')
   }
   const { shipmentId, method, result, notes = '', idempotencyKey } = request.data || {}
@@ -9249,7 +9249,7 @@ export const registerShipmentContact = onCall({ cors: true }, async (request) =>
     if (!shipmentSnap.exists) throw new HttpsError('not-found', 'La encomienda no existe.')
     const shipment = shipmentSnap.data() || {}
     const branches = [shipment.originBranchId, shipment.destinationBranchId].filter(Boolean)
-    if (caller.role !== 'directiva_admin' && !branches.some((branch) => allowedBranches.includes(branch))) throw new HttpsError('permission-denied', 'No puede registrar seguimientos de otra sucursal.')
+    if (!isOperationalAdmin(caller) && !branches.some((branch) => allowedBranches.includes(branch))) throw new HttpsError('permission-denied', 'No puede registrar seguimientos de otra sucursal.')
     const data = { id: contactRef.id, shipmentId: shipmentRef.id, trackingCode: shipment.trackingCode || shipmentRef.id, contactedAtIso: nowIso, method, result, notes: notes.trim(), performedByUid: caller.uid, performedByName: caller.fullName || 'Operador', branchId: shipment.destinationBranchId || shipment.originBranchId || caller.primaryBranchId, createdAtIso: nowIso }
     transaction.create(contactRef, data)
     return data
@@ -9304,7 +9304,7 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
   if (!caller || !caller.isActive) {
     throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
   }
-  if (caller.role !== 'directiva_admin') {
+  if (!isOperationalAdmin(caller)) {
     throw new HttpsError('permission-denied', 'Solo la Directiva / Administrador general puede actualizar la configuración oficial del sistema.')
   }
 
@@ -9457,7 +9457,7 @@ async function requireUnionLoanCaller(request, allowedRoles, operation) {
   const userDoc = await db.collection('users').doc(request.auth.uid).get()
   if (!userDoc.exists || userDoc.data()?.isActive === false) throw new HttpsError('permission-denied', 'Usuario no activo.')
   const caller = userDoc.data()
-  if (!allowedRoles.includes(caller.role)) throw new HttpsError('permission-denied', `No tiene permisos para ${operation}.`)
+  if (!hasOperationalRole(caller, allowedRoles)) throw new HttpsError('permission-denied', `No tiene permisos para ${operation}.`)
   return { uid: request.auth.uid, ...caller }
 }
 
@@ -9663,8 +9663,8 @@ export const collectUnionLoanPayment = onCall({ cors: true }, async (request) =>
       if (shift.status !== 'open') throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
       if (shift.branchId !== effectiveBranchId) throw new HttpsError('permission-denied', 'El turno de caja pertenece a otra sucursal.')
       const shiftOperator = shift.cashierUid || shift.operatorUid
-      if (paymentMethod === 'cash' && shiftOperator && shiftOperator !== caller.uid && caller.role !== 'directiva_admin') throw new HttpsError('permission-denied', 'El turno de caja no pertenece al operador.')
-    } else if (!['directiva_admin', 'tesoreria'].includes(caller.role)) {
+      if (paymentMethod === 'cash' && shiftOperator && shiftOperator !== caller.uid && !isOperationalAdmin(caller)) throw new HttpsError('permission-denied', 'El turno de caja no pertenece al operador.')
+    } else if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
       throw new HttpsError('permission-denied', 'Solo Directiva o Tesorería pueden cobrar fuera de turno.')
     }
 
@@ -9764,7 +9764,7 @@ export const listUnionLoans = onCall({ cors: true }, async (request) => {
     query = db.collection('union_loans').where('memberId', '==', memberId)
   }
   const loanSnapshot = await query.get()
-  const visibleLoanDocs = ['afiliado_admin', 'secretaria'].includes(caller.role)
+  const visibleLoanDocs = !isOperationalAdmin(caller) && ['afiliado_admin', 'secretaria'].includes(caller.role)
     ? (await Promise.all(loanSnapshot.docs.map(async (loanDoc) => {
       const memberDoc = await db.collection('union_members').doc(loanDoc.data()?.memberId).get()
       return memberDoc.exists && (caller.allowedBranchIds || [caller.primaryBranchId]).includes(memberDoc.data()?.branchId) ? loanDoc : null
@@ -9817,7 +9817,7 @@ export const listUnionDebtAlerts = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'El afiliado no está activo.')
   }
   const branches = caller.allowedBranchIds || [caller.primaryBranchId].filter(Boolean)
-  const scopedRole = ['afiliado', 'afiliado_admin', 'secretaria', 'encargado_agencia'].includes(caller.role)
+  const scopedRole = !isOperationalAdmin(caller) && ['afiliado', 'afiliado_admin', 'secretaria', 'encargado_agencia'].includes(caller.role)
   if (memberData && scopedRole && !branches.includes(memberData.branchId)) {
     throw new HttpsError('permission-denied', 'El afiliado no pertenece a una sucursal autorizada.')
   }
@@ -9891,7 +9891,7 @@ async function requireAnnualBoardManager(request) {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión para consultar la directiva.')
   const userDoc = await db.collection('users').doc(request.auth.uid).get()
   const caller = userDoc.data()
-  if (!userDoc.exists || caller?.isActive === false || !['directiva_admin', 'tesoreria'].includes(caller?.role)) {
+  if (!userDoc.exists || caller?.isActive === false || !hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
     throw new HttpsError('permission-denied', 'Solo Directiva y Tesorería pueden gestionar la directiva institucional.')
   }
   return { uid: request.auth.uid, ...caller }
@@ -10198,7 +10198,7 @@ export const setUnionSportsAttendance = onCall({ cors: true }, async (request) =
     if (!participantDoc.exists) throw new HttpsError('failed-precondition', 'El afiliado no fue convocado a esta jornada.')
     const event = eventDoc.data()
     const participant = participantDoc.data()
-    if (participant.attendance === 'exempt' && attendance !== 'exempt' && caller.role !== 'directiva_admin') {
+    if (participant.attendance === 'exempt' && attendance !== 'exempt' && !isOperationalAdmin(caller)) {
       throw new HttpsError('permission-denied', 'Solo el Directorio puede corregir una exención que ya autorizó.')
     }
     const transition = await applyUnionSportsAttendance(transaction, { eventRef, participantRef, event, participant, attendance, reason: reason.trim(), caller, nowIso })
@@ -10411,7 +10411,7 @@ export const listUnionFines = onCall({ cors: true }, async (request) => {
   const snapshot = await query.get()
   const visibleFineDocs = isSecretary
     ? snapshot.docs.filter((fineDoc) => callerBranches.includes(fineDoc.data()?.branchId))
-    : caller.role === 'afiliado_admin'
+    : caller.role === 'afiliado_admin' && !isOperationalAdmin(caller)
     ? (await Promise.all(snapshot.docs.map(async (fineDoc) => {
       const memberDoc = await db.collection('union_members').doc(fineDoc.data()?.memberId).get()
       return memberDoc.exists && (caller.allowedBranchIds || [caller.primaryBranchId]).includes(memberDoc.data()?.branchId) ? fineDoc : null
@@ -10468,7 +10468,7 @@ export const collectUnionFinePayment = onCall({ cors: true }, async (request) =>
     if (shift.status !== 'open') throw new HttpsError('failed-precondition', 'El turno de Caja no está abierto.')
     if (shift.branchId !== effectiveBranchId) throw new HttpsError('permission-denied', 'El turno de Caja pertenece a otra sucursal.')
     const shiftOperator = shift.cashierUid || shift.operatorUid
-    if (shiftOperator && shiftOperator !== caller.uid && caller.role !== 'directiva_admin') throw new HttpsError('permission-denied', 'El turno de Caja no pertenece al operador.')
+    if (shiftOperator && shiftOperator !== caller.uid && !isOperationalAdmin(caller)) throw new HttpsError('permission-denied', 'El turno de Caja no pertenece al operador.')
     if (fine.financialReviewRequired) throw new HttpsError('failed-precondition', 'La multa requiere una decisión financiera autorizada antes de continuar el cobro.')
     const balanceCents = Number.isSafeInteger(fine.balanceCents) ? fine.balanceCents : fine.amountCents
     if (fine.status === 'paid' || balanceCents <= 0) throw new HttpsError('failed-precondition', 'Esta multa ya está pagada.')
@@ -10551,7 +10551,7 @@ function ticketFingerprint(value) {
 }
 
 function ticketBranchAllowed(user, branchId) {
-  return user.role === 'directiva_admin' || user.role === 'tesoreria' ||
+  return isOperationalAdmin(user) || user.role === 'tesoreria' ||
     user.primaryBranchId === branchId || (Array.isArray(user.allowedBranchIds) && user.allowedBranchIds.includes(branchId))
 }
 
@@ -10588,7 +10588,7 @@ async function getTicketCaller(transaction, uid, roles) {
   const userSnap = await transaction.get(db.collection('users').doc(uid))
   if (!userSnap.exists) throw new HttpsError('permission-denied', 'No existe un perfil autorizado para esta operación.')
   const caller = { uid, ...(userSnap.data() || {}) }
-  if (caller.isActive !== true || !roles.includes(caller.role)) {
+  if (caller.isActive !== true || !hasOperationalRole(caller, roles)) {
     throw new HttpsError('permission-denied', 'Su usuario no tiene permiso para esta operación de pasajes.')
   }
   return caller

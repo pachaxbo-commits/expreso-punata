@@ -10,7 +10,7 @@ if (getApps().length === 0) initializeApp({ projectId: 'demo-expreso-punata-unio
 const db = getFirestore()
 
 async function user(uid, role, primaryBranchId = 'punata') {
-  await db.collection('users').doc(uid).set({ uid, role, primaryBranchId, allowedBranchIds: ['punata'], fullName: `Test ${role}`, isActive: true })
+  await db.collection('users').doc(uid).set({ uid, role, primaryBranchId, allowedBranchIds: role === 'afiliado_admin' ? ['punata', 'cochabamba'] : ['punata'], fullName: `Test ${role}`, isActive: true })
 }
 
 test('Multas: ciclo Bs 200, Caja, parcialidades, historial, idempotencia, concurrencia, autorización y reportes', async () => {
@@ -19,7 +19,7 @@ test('Multas: ciclo Bs 200, Caja, parcialidades, historial, idempotencia, concur
   const cashierUid = `fine-cashier-${suffix}`
   const deniedUid = `fine-denied-${suffix}`
   const memberId = `fine-member-${suffix}`
-  await user(managerUid, 'tesoreria')
+  await user(managerUid, 'afiliado_admin')
   await user(cashierUid, 'secretaria')
   await user(deniedUid, 'conductor')
   await manageUnionMember.run({ auth: { uid: managerUid }, data: { id: memberId, memberNumber: `MUL-${suffix}`, fullName: 'Afiliada Multa', joinedAt: '2020-01-01', status: 'active', monthlyFeeBob: 50, branchId: 'punata' } })

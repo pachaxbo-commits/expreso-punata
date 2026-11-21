@@ -62,7 +62,7 @@ before(async () => {
 
 beforeEach(async () => {
   await clearCollections()
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
   await createTestUser('secretaria-punata', 'secretaria', 'punata')
   await createTestUser('secretaria-cbb', 'secretaria', 'cochabamba')
 })

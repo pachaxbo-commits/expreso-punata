@@ -278,7 +278,7 @@ test('7. CI ES OPCIONAL: Guarda null cuando no se proporciona y no inventa datos
       fullName: 'Nelson Sin CI',
       phone: '75999279',
       // ci omitido intencionalmente
-      role: 'directiva_admin',
+      role: 'afiliado_admin',
       primaryBranchId: 'punata',
       allowedBranchIds: ['punata', 'cochabamba'],
       isActive: true,
@@ -288,6 +288,7 @@ test('7. CI ES OPCIONAL: Guarda null cuando no se proporciona y no inventa datos
   const res = await adminProvisionUser.run(req)
   assert.equal(res.success, true)
   assert.equal(res.profile.ci, null)
+  assert.equal(res.profile.unionMemberId, null)
 
   const docSnap = await db.collection('users').doc('operador-sin-ci').get()
   assert.equal(docSnap.data().ci, null)
@@ -584,7 +585,7 @@ test('13. CONCURRENCIA: Protección del último administrador bajo dos peticione
   await db.collection('users').doc('admin-1').set({
     uid: 'admin-1',
     email: 'admin1@expresopunata.com',
-    role: 'directiva_admin',
+    role: 'afiliado_admin',
     primaryBranchId: 'punata',
     allowedBranchIds: ['punata', 'cochabamba'],
     isActive: true,
@@ -593,7 +594,7 @@ test('13. CONCURRENCIA: Protección del último administrador bajo dos peticione
   await db.collection('users').doc('admin-2').set({
     uid: 'admin-2',
     email: 'admin2@expresopunata.com',
-    role: 'directiva_admin',
+    role: 'afiliado_admin',
     primaryBranchId: 'cochabamba',
     allowedBranchIds: ['punata', 'cochabamba'],
     isActive: true,
@@ -606,8 +607,9 @@ test('13. CONCURRENCIA: Protección del último administrador bajo dos peticione
       targetUid: 'admin-1',
       fullName: 'Admin 1 Modificado',
       phone: '71711111',
-      role: 'directiva_admin',
+      role: 'afiliado_admin',
       primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'],
       isActive: false, // Desactivar
     }
   }
@@ -618,8 +620,9 @@ test('13. CONCURRENCIA: Protección del último administrador bajo dos peticione
       targetUid: 'admin-2',
       fullName: 'Admin 2 Modificado',
       phone: '72222222',
-      role: 'directiva_admin',
+      role: 'afiliado_admin',
       primaryBranchId: 'cochabamba',
+      allowedBranchIds: ['punata', 'cochabamba'],
       isActive: false, // Desactivar
     }
   }
@@ -638,9 +641,47 @@ test('13. CONCURRENCIA: Protección del último administrador bajo dos peticione
 
   // Verificar que en Firestore QUEDA AL MENOS UN administrador activo
   const activeAdminsSnap = await db.collection('users')
-    .where('role', '==', 'directiva_admin')
+    .where('role', '==', 'afiliado_admin')
     .where('isActive', '==', true)
     .get()
 
+  for (const admin of activeAdminsSnap.docs) assert.equal((await auth.getUser(admin.id)).disabled, false)
   assert.ok(activeAdminsSnap.docs.length >= 1, 'Debe quedar al menos 1 administrador activo en el sistema tras operaciones concurrentes')
+})
+
+test('afiliado_admin gestiona altas, alcance y estados sin conceder soporte', async () => {
+  const suffix = Date.now()
+  const branches = ['punata', 'cochabamba']
+  const admin = await auth.createUser({ email: `operational-${suffix}@example.test` })
+  await db.collection('users').doc(admin.uid).set({ role: 'afiliado_admin', primaryBranchId: 'punata', allowedBranchIds: branches, isActive: true })
+  const provision = (data, uid = admin.uid) => adminProvisionUser.run({
+    auth: { uid, token: {} },
+    data: { fullName: 'Cuenta sintética', phone: '70000000', primaryBranchId: 'punata', ...data },
+  })
+  const secretary = (await provision({ email: `secretary-${suffix}@example.test`, role: 'secretaria', allowedBranchIds: branches })).profile
+  assert.deepEqual(secretary.allowedBranchIds, ['punata'])
+  const move = await provision({ targetUid: secretary.uid, role: 'secretaria', primaryBranchId: 'cochabamba', fullName: 'Secretaría editada' })
+  assert.deepEqual(move.profile.allowedBranchIds, ['cochabamba'])
+  assert.equal(move.profile.fullName, 'Secretaría editada')
+  await provision({ targetUid: secretary.uid, role: 'secretaria', isActive: false })
+  assert.equal((await auth.getUser(secretary.uid)).disabled, true)
+  await provision({ targetUid: secretary.uid, role: 'secretaria', isActive: true })
+  assert.equal((await auth.getUser(secretary.uid)).disabled, false)
+  const member = await db.collection('union_members').add({ branchId: 'punata', status: 'active' })
+  const affiliate = (await provision({ email: `affiliate-${suffix}@example.test`, role: 'afiliado', unionMemberId: member.id })).profile
+  assert.equal(affiliate.unionMemberId, member.id)
+  const limited = (await provision({ email: `limited-${suffix}@example.test`, role: 'afiliado_admin', allowedBranchIds: ['punata'] })).profile
+  assert.equal(limited.unionMemberId, null)
+  for (const uid of [affiliate.uid, limited.uid, secretary.uid]) {
+    await assert.rejects(provision({ targetUid: secretary.uid, role: 'afiliado_admin', allowedBranchIds: branches }, uid), { code: 'permission-denied' })
+  }
+  await assert.rejects(provision({ targetUid: secretary.uid, role: 'soporte_pachax' }), { code: 'invalid-argument' })
+  await assert.rejects(provision({ targetUid: secretary.uid, role: 'directiva_admin' }), { code: 'invalid-argument' })
+  await assert.rejects(provision({ targetUid: admin.uid, role: 'afiliado_admin', allowedBranchIds: ['punata'] }), { code: 'failed-precondition' })
+  const replacement = (await provision({ email: `replacement-${suffix}@example.test`, role: 'afiliado_admin', allowedBranchIds: branches })).profile
+  assert.deepEqual(replacement.allowedBranchIds, branches)
+  assert.deepEqual((await auth.getUser(replacement.uid)).customClaims.allowedBranches, branches)
+  await provision({ targetUid: admin.uid, role: 'afiliado_admin', allowedBranchIds: branches, isActive: false }, replacement.uid)
+  await assert.rejects(provision({ targetUid: replacement.uid, role: 'secretaria' }, replacement.uid), { code: 'failed-precondition' })
+  assert.equal((await auth.getUser(replacement.uid)).disabled, false)
 })

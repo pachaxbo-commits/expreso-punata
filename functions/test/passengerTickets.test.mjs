@@ -24,13 +24,13 @@ const otherDriverUid = `tickets-other-driver-${suffix}`
 const deniedUid = `tickets-denied-${suffix}`
 
 const makeUser = (uid, role) => db.collection('users').doc(uid).set({
-  uid, role, fullName: `Prueba ${role}`, primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true,
+  uid, role, fullName: `Prueba ${role}`, primaryBranchId: 'punata', allowedBranchIds: role === 'afiliado_admin' ? ['punata', 'cochabamba'] : ['punata'], isActive: true,
 })
 
 test('Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos, reportes e idempotencia', async () => {
   process.env.FUNCTIONS_EMULATOR = 'true'
   await Promise.all([
-    makeUser(officeUid, 'secretaria'),
+    makeUser(officeUid, 'afiliado_admin'),
     makeUser(driverUid, 'conductor'),
     makeUser(otherDriverUid, 'conductor'),
     makeUser(deniedUid, 'tesoreria'),
@@ -116,7 +116,7 @@ test('Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos,
   assert.equal(today.collections - dayBefore.collections, 1)
   const firstValidation = (await db.collection('passenger_ticket_validations').doc(firstUse.validationId).get()).data()
   assert.equal(firstValidation.validatedByUid, officeUid)
-  assert.equal(firstValidation.validatedByRole, 'secretaria')
+  assert.equal(firstValidation.validatedByRole, 'afiliado_admin')
   assert.equal(firstValidation.driverUid, driverUid)
 
   const beforeDelivery = (await db.collection('cash_shifts').doc(shift.shift.id).get()).data().expectedCashCents
@@ -145,7 +145,7 @@ test('Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos,
   assert.equal((await db.collection('audit_logs').where('entityId', '==', code).get()).size >= 4, true)
 
   const adminUid = 'ticket-admin-' + suffix
-  await makeUser(adminUid, 'directiva_admin')
+  await makeUser(adminUid, 'afiliado_admin')
   const report = await getSystemReport.run({ auth: { uid: adminUid }, data: {
     reportType: 'cash_financial', branchId: 'punata', startDate: '2026-01-01', endDate: '2027-01-01',
     operatorUid: officeUid,

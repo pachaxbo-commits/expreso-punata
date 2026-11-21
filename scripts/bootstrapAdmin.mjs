@@ -13,6 +13,20 @@ import { getAuth } from 'firebase-admin/auth'
  * node scripts/bootstrapAdmin.mjs --uid <FIREBASE_AUTH_UID> [--email <CORREO>] --fullName <NOMBRE> --phone <TELEFONO> [--ci <CI>] [--force]
  */
 
+function isOperationalAdmin(profile) {
+  return profile.role === 'directiva_admin' || (profile.role === 'afiliado_admin' &&
+    ['punata', 'cochabamba'].includes(profile.primaryBranchId) &&
+    ['punata', 'cochabamba'].every(branchId => profile.allowedBranchIds?.includes(branchId)))
+}
+
+function decodeProfile(fields) {
+  return {
+    role: fields?.role?.stringValue,
+    primaryBranchId: fields?.primaryBranchId?.stringValue,
+    allowedBranchIds: fields?.allowedBranchIds?.arrayValue?.values?.map(value => value.stringValue),
+  }
+}
+
 function parseArgs() {
   const args = process.argv.slice(2)
   const params = {}
@@ -101,13 +115,13 @@ async function runBootstrap() {
     if (!force) {
       const existingAdmins = await db
         .collection('users')
-        .where('role', '==', 'directiva_admin')
+        .where('role', 'in', ['directiva_admin', 'afiliado_admin'])
         .where('isActive', '==', true)
-        .limit(1)
         .get()
 
-      if (!existingAdmins.empty) {
-        console.error(`[BOOTSTRAP ERROR] Ya existe un Administrador activo en el emulador (UID: ${existingAdmins.docs[0].id}).`)
+      const operationalAdmin = existingAdmins.docs.find(doc => isOperationalAdmin(doc.data()))
+      if (operationalAdmin) {
+        console.error(`[BOOTSTRAP ERROR] Ya existe un Administrador activo en el emulador (UID: ${operationalAdmin.id}).`)
         process.exit(1)
       }
     }
@@ -130,7 +144,7 @@ async function runBootstrap() {
       fullName: safeFullName,
       ci: safeCi,
       phone: safePhone,
-      role: 'directiva_admin',
+      role: 'afiliado_admin',
       primaryBranchId: 'punata',
       allowedBranchIds: ['punata', 'cochabamba'],
       assignedVehiclePlate: null,
@@ -144,7 +158,7 @@ async function runBootstrap() {
 
     await targetUserRef.set(profileData, { merge: true })
     await auth.setCustomUserClaims(safeUid, {
-      role: 'directiva_admin',
+      role: 'afiliado_admin',
       branchId: 'punata',
       allowedBranches: ['punata', 'cochabamba'],
       isActive: true,
@@ -210,8 +224,8 @@ async function runBootstrap() {
                   {
                     fieldFilter: {
                       field: { fieldPath: 'role' },
-                      op: 'EQUAL',
-                      value: { stringValue: 'directiva_admin' },
+                      op: 'IN',
+                      value: { arrayValue: { values: ['directiva_admin', 'afiliado_admin'].map(stringValue => ({ stringValue })) } },
                     },
                   },
                   {
@@ -224,14 +238,16 @@ async function runBootstrap() {
                 ],
               },
             },
-            limit: 1,
           },
         }),
       }
     )
 
     const queryData = await queryRes.json()
-    const matches = Array.isArray(queryData) ? queryData.filter(item => item.document) : []
+    if (!queryRes.ok || !Array.isArray(queryData) || queryData.some(item => item.error)) {
+      throw new Error('No se pudo verificar si existe un administrador activo.')
+    }
+    const matches = queryData.filter(item => item.document && isOperationalAdmin(decodeProfile(item.document.fields)))
     if (matches.length > 0) {
       const docPath = matches[0].document.name
       const existingId = docPath.split('/').pop()
@@ -252,8 +268,8 @@ async function runBootstrap() {
   if (oldDocRes.status === 200) {
     const oldDoc = await oldDocRes.json()
     console.warn(`[ADVERTENCIA] El UID anterior '${oldUid}' existe en Firestore con rol '${oldDoc.fields?.role?.stringValue}'.`)
-    if (oldDoc.fields?.role?.stringValue === 'directiva_admin') {
-      console.error('[BOOTSTRAP ERROR] El UID anterior posee rol directiva_admin. Debe rebajarse antes de continuar.')
+    if (isOperationalAdmin(decodeProfile(oldDoc.fields))) {
+      console.error('[BOOTSTRAP ERROR] El UID anterior posee permisos de administración. Debe rebajarse antes de continuar.')
       process.exit(1)
     }
   } else {
@@ -262,7 +278,7 @@ async function runBootstrap() {
 
   // 4. Asignar Custom Claims en Firebase Authentication
   const customClaims = {
-    role: 'directiva_admin',
+    role: 'afiliado_admin',
     branchId: 'punata',
     allowedBranches: ['punata', 'cochabamba'],
     isActive: true,
@@ -289,7 +305,7 @@ async function runBootstrap() {
     process.exit(1)
   }
 
-  console.log('[CLAIMS ASIGNADOS] role=directiva_admin, branchId=punata, allowedBranches=[punata, cochabamba], isActive=true')
+  console.log('[CLAIMS ASIGNADOS] role=afiliado_admin, branchId=punata, allowedBranches=[punata, cochabamba], isActive=true')
 
   // 5. Escribir documento en Firestore users/{uid}
   const nowIso = new Date().toISOString()
@@ -298,7 +314,7 @@ async function runBootstrap() {
     email: { stringValue: userEmail },
     fullName: { stringValue: safeFullName },
     phone: { stringValue: safePhone },
-    role: { stringValue: 'directiva_admin' },
+    role: { stringValue: 'afiliado_admin' },
     primaryBranchId: { stringValue: 'punata' },
     allowedBranchIds: {
       arrayValue: {
@@ -352,7 +368,7 @@ async function runBootstrap() {
           email: { stringValue: userEmail },
           fullName: { stringValue: safeFullName },
           phone: { stringValue: safePhone },
-          role: { stringValue: 'directiva_admin' },
+          role: { stringValue: 'afiliado_admin' },
           primaryBranchId: { stringValue: 'punata' },
           ciProvided: { booleanValue: safeCi !== null },
         },
@@ -381,9 +397,9 @@ async function runBootstrap() {
   console.log(`- Correo:           ${userEmail}`)
   console.log(`- Teléfono:         ${safePhone}`)
   console.log(`- CI:               ${safeCi || 'null (opcional)'}`)
-  console.log(`- Rol:              directiva_admin`)
+  console.log(`- Rol:              afiliado_admin`)
   console.log(`- Sucursales:       Punata y Cochabamba (Acceso Central)`)
-  console.log(`- Claims:           role=directiva_admin, branchId=punata, isActive=true`)
+  console.log(`- Claims:           role=afiliado_admin, branchId=punata, isActive=true`)
   console.log('====================================================================')
 }
 

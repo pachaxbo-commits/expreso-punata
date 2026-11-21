@@ -154,7 +154,7 @@ test('2. SEGURIDAD DE PADRÓN: Rol no autorizado (secretaria o conductor) NO pue
 })
 
 test('3. PADRÓN DE SOCIOS: Previene duplicados de memberNumber entre distintos socios', async () => {
-  await createTestUser('admin-1', 'directiva_admin', 'punata')
+  await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   await manageUnionMember.run({
     auth: { uid: 'admin-1' },
@@ -220,7 +220,7 @@ test('4. EMISIÓN DE CUOTAS MENSUALES: Generación atómica e idempotente para s
 
 test('5. RECAUDACIÓN DE CUOTA EN CAJA: Cobro en ventanilla ingresa a turno activo de caja y genera recibo', async () => {
   await createTestUser('sec-punata', 'secretaria', 'punata')
-  await createTestUser('admin-1', 'directiva_admin', 'punata')
+  await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   // Crear socio y cuota
   await manageUnionMember.run({
@@ -295,7 +295,7 @@ test('5. RECAUDACIÓN DE CUOTA EN CAJA: Cobro en ventanilla ingresa a turno acti
 
 test('6. RECAUDACIÓN: Idempotencia estricta previene duplicar cobros ante reintentos', async () => {
   await createTestUser('sec-punata', 'secretaria', 'punata')
-  await createTestUser('admin-1', 'directiva_admin', 'punata')
+  await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   await manageUnionMember.run({
     auth: { uid: 'admin-1' },
@@ -424,7 +424,7 @@ test('9. generateMonthlyDues: Bloqueo atómico previene emisiones concurrentes s
 
 test('10. collectMemberDue: Rechaza reintentos con payload fingerprint alterado y exige turno válido en ventanilla', async () => {
   await createTestUser('sec-punata', 'secretaria', 'punata')
-  await createTestUser('admin-1', 'directiva_admin', 'punata')
+  await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   await manageUnionMember.run({
     auth: { uid: 'admin-1' },
@@ -469,7 +469,7 @@ test('10. collectMemberDue: Rechaza reintentos con payload fingerprint alterado 
 test('11. getMemberAccountStatement: Secretaria accede a su sucursal y conductor permanece bloqueado', async () => {
   await createTestUser('sec-1', 'secretaria', 'punata')
   await createTestUser('driver-1', 'conductor', 'punata')
-  await createTestUser('admin-1', 'directiva_admin', 'punata')
+  await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   await manageUnionMember.run({
     auth: { uid: 'admin-1' },

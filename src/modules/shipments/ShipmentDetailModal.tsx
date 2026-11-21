@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../auth/operationalRoles'
 import React, { useEffect, useState } from 'react'
 import {
   X,
@@ -148,18 +149,18 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
 
   const isOriginBranch = currentUser.allowedBranchIds?.includes(shipment.originBranchId) ||
     currentUser.primaryBranchId === shipment.originBranchId ||
-    currentUser.role === 'directiva_admin'
+    isOperationalAdmin(currentUser)
 
   const isDestBranch = currentUser.allowedBranchIds?.includes(shipment.destinationBranchId) ||
     currentUser.primaryBranchId === shipment.destinationBranchId ||
-    currentUser.role === 'directiva_admin'
+    isOperationalAdmin(currentUser)
 
   const isPaid = shipment.paymentStatus === 'paid'
   const isPostDispatch = ['dispatched', 'in_transit', 'received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery', 'delivered'].includes(shipment.status)
   const isDelivered = shipment.status === 'delivered'
-  const canEdit = currentUser.role === 'directiva_admin' || currentUser.role === 'encargado_agencia' || (!isDelivered && currentUser.role === 'secretaria' && (isOriginBranch || isDestBranch))
-  const canDeliver = !isDelivered && ['received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery'].includes(shipment.status) && (currentBranchId === shipment.destinationBranchId || currentUser.role === 'directiva_admin')
-  const canCancel = !isPaid && ['received', 'pending_dispatch'].includes(shipment.status) && (currentUser.role === 'directiva_admin' || isOriginBranch)
+  const canEdit = isOperationalAdmin(currentUser) || currentUser.role === 'encargado_agencia' || (!isDelivered && currentUser.role === 'secretaria' && (isOriginBranch || isDestBranch))
+  const canDeliver = !isDelivered && ['received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery'].includes(shipment.status) && (currentBranchId === shipment.destinationBranchId || isOperationalAdmin(currentUser))
+  const canCancel = !isPaid && ['received', 'pending_dispatch'].includes(shipment.status) && (isOperationalAdmin(currentUser) || isOriginBranch)
 
   const dateFormatted = shipment.createdAtIso
     ? new Date(shipment.createdAtIso).toLocaleString('es-BO', {

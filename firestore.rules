@@ -30,7 +30,13 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return getUserRole() == 'directiva_admin';
+      return (
+        getUserRole() == 'directiva_admin' ||
+        (getUserRole() == 'afiliado_admin' &&
+          getUserData().get('primaryBranchId', '') in ['punata', 'cochabamba'] &&
+          getUserData().get('allowedBranchIds', []) is list &&
+          getUserData().get('allowedBranchIds', []).hasAll(['punata', 'cochabamba']))
+      );
     }
 
     function isTreasury() {
@@ -42,7 +48,7 @@ service cloud.firestore {
     }
 
     function isCashier() {
-      return getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin'];
+      return isAdmin() || getUserRole() in ['secretaria', 'encargado_agencia'];
     }
 
     function isAffiliateAdmin() {

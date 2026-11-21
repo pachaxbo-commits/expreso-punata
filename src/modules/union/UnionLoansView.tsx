@@ -1,3 +1,4 @@
+import { isOperationalAdmin, hasOperationalRole } from '../auth/operationalRoles'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, CircleDollarSign, FileText, Plus, Printer, RefreshCw, Search } from 'lucide-react'
 import type { Branch, CashShift, UnionMember, UserProfile } from '../../types/index.ts'
@@ -46,9 +47,9 @@ export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, current
   const [paymentNotes, setPaymentNotes] = useState('')
   const [completedPayment, setCompletedPayment] = useState<{ result: any; loan: UnionLoan } | null>(null)
 
-  const isManagement = currentUser.role === 'directiva_admin' || currentUser.role === 'tesoreria'
+  const isManagement = isOperationalAdmin(currentUser) || currentUser.role === 'tesoreria'
   const canCreateLoan = isManagement || currentUser.role === 'secretaria'
-  const canCollect = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'].includes(currentUser.role)
+  const canCollect = hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'])
   const canDisburse = currentUser.role === 'tesoreria' || currentUser.role === 'secretaria'
 
   const loadLoans = useCallback(async () => {

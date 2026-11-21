@@ -24,7 +24,7 @@ async function createOperator(label, role, branch, branches = [branch]) {
 const origin = await createOperator('punata', 'secretaria', 'punata')
 const dest = await createOperator('cochabamba', 'secretaria', 'cochabamba')
 const driver = { uid: 'directory-only-' + nonce }
-const admin = await createOperator('admin', 'directiva_admin', 'punata', ['punata', 'cochabamba'])
+const admin = await createOperator('admin', 'afiliado_admin', 'punata', ['punata', 'cochabamba'])
 await db.collection('vehicles').doc('browser-' + nonce).set({ status: 'active', branchId: 'punata', mobileNumber: '88', plate: 'DEMO' })
 await db.collection('driver_directory').doc(driver.uid).set({ uid: driver.uid, fullName: 'conductor', isActive: true })
 const base = 'http://127.0.0.1:4187'
@@ -60,38 +60,47 @@ try {
     await page.locator('[data-tutorial-target="shipment-search-input"]').fill(guide)
     await page.getByText(guide, { exact: true }).last().click()
   }
+  const shiftResponse = await fetch('http://127.0.0.1:5001/' + project + '/us-central1/openCashShift', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + admin.idToken },
+    body: JSON.stringify({ data: { branchId: 'punata', initialCashCents: 1000 } }),
+  })
+  assert((await shiftResponse.json()).result?.shift?.id)
+  let commissionSource
   for (const [mode, timing] of [[/^Pagado en origen/i, 'origin_paid'], [/^Por pagar/i, 'destination_cod']]) {
-    await originPage.locator('[data-tutorial-target="btn-new-shipment"]').click()
-    await btn(originPage, 'Siguiente').click()
+    const senderPage = timing === 'origin_paid' ? adminPage : originPage
+    const senderUid = timing === 'origin_paid' ? admin.uid : origin.uid
+    await senderPage.locator('[data-tutorial-target="btn-new-shipment"]').click()
+    await btn(senderPage, 'Siguiente').click()
     for (const [placeholder, value] of [['Ej. Juan Pérez','Remitente Demo'], ['Ej. 71712345','70000001'], ['Ej. María López','Destinataria Demo'], ['Ej. 72234567','70000002']]) {
-      await originPage.getByPlaceholder(placeholder, { exact: true }).fill(value)
+      await senderPage.getByPlaceholder(placeholder, { exact: true }).fill(value)
     }
-    await btn(originPage, 'Siguiente').click()
-    await originPage.getByPlaceholder(/Ropa, repuestos/).first().fill('Paquete de prueba')
-    await originPage.getByLabel(/Precio del Envío/).fill('25')
-    await btn(originPage, 'Siguiente').click()
-    await btn(originPage, mode).click()
-    const response = originPage.waitForResponse(r => r.url().endsWith('/createShipment') && r.request().method() === 'POST')
-    await btn(originPage, /Confirmar y Emitir Guía/i).click()
+    await btn(senderPage, 'Siguiente').click()
+    await senderPage.getByPlaceholder(/Ropa, repuestos/).first().fill('Paquete de prueba')
+    await senderPage.getByLabel(/Precio del Envío/).fill('25')
+    await btn(senderPage, 'Siguiente').click()
+    await btn(senderPage, mode).click()
+    const response = senderPage.waitForResponse(r => r.url().endsWith('/createShipment') && r.request().method() === 'POST')
+    await btn(senderPage, /Confirmar y Emitir Guía/i).click()
     const payload = await (await response).json()
     assert(payload.result?.trackingCode, JSON.stringify(payload.error))
     const guide = payload.result.trackingCode
     if (timing === 'destination_cod') await db.collection('shipments').doc(guide).update({ createdAtIso: '2025-06-10T14:00:00.000Z' })
-    await originPage.reload()
-    await openGuide(originPage, guide)
-    await originPage.getByLabel('Vehículo').selectOption('browser-' + nonce)
-    await originPage.getByRole('combobox', { name: /Conductor/i }).selectOption(driver.uid)
-    await originPage.getByLabel('Constancia de entrega física al conductor').fill('Constancia sintética: carga recibida en el móvil.')
-    const departure = originPage.waitForResponse(r => r.url().endsWith('/confirmShipmentDeparture') && r.request().method() === 'POST')
-    await btn(originPage, 'Confirmar salida').click()
+    await senderPage.reload()
+    await openGuide(senderPage, guide)
+    await senderPage.getByLabel('Vehículo').selectOption('browser-' + nonce)
+    await senderPage.getByRole('combobox', { name: /Conductor/i }).selectOption(driver.uid)
+    await senderPage.getByLabel('Constancia de entrega física al conductor').fill('Constancia sintética: carga recibida en el móvil.')
+    const departure = senderPage.waitForResponse(r => r.url().endsWith('/confirmShipmentDeparture') && r.request().method() === 'POST')
+    await btn(senderPage, 'Confirmar salida').click()
     const dispatch = (await (await departure).json()).result
     assert(dispatch?.manifestId)
+    if (timing === 'origin_paid') commissionSource = { shipmentId: guide, manifestId: dispatch.manifestId }
     const manifest = (await db.collection('manifests').doc(dispatch.manifestId).get()).data()
     assert.equal(manifest.driverCustodyStatus, 'accepted')
-    assert.equal(manifest.custodyHandoff.recordedByUid, origin.uid)
+    assert.equal(manifest.custodyHandoff.recordedByUid, senderUid)
     assert.equal(manifest.custodyHandoff.driverUid, driver.uid)
     assert.deepEqual(manifest.custodyHandoff.shipmentIds, [guide])
-    await originPage.getByTitle('Cerrar Ficha').click()
+    await senderPage.getByTitle('Cerrar Ficha').click()
     if (timing === 'destination_cod') {
       await destPage.locator('[data-tutorial-target="shipment-search-input"]').fill('')
       await destPage.getByLabel('Desde').fill('2025-06-01')
@@ -173,9 +182,52 @@ try {
   assert.equal((await retry.json()).error?.status, 'FAILED_PRECONDITION')
   await btn(destPage, 'Abrir turno de ventanilla').waitFor()
   console.log('Arqueo integrado: Bs 75, diferencia cero, segundo cierre rechazado.')
+  for (const label of ['Pasajes', 'Módulos de Almacén', 'Afiliados & Aportes', 'Personal & Gastos', 'Inventario / Bienes Fijos', 'Comisiones de conductores']) {
+    await btn(adminPage, label).waitFor()
+  }
+  assert.equal(await btn(originPage, 'Configuración').count(), 0)
+  await btn(adminPage, 'Configuración').click()
+  await btn(adminPage, 'Usuarios y Permisos').click()
+  await btn(adminPage, 'Registrar Nuevo Operador').click()
+  await adminPage.getByPlaceholder('Ej. María Flores Rocha').fill('Secretaría Sintética')
+  await adminPage.getByPlaceholder('usuario@expresopunata.com').fill('new-secretary-' + nonce + '@example.test')
+  await adminPage.getByPlaceholder('Ej. 75999279').fill('70000001')
+  await adminPage.locator('select').filter({ has: adminPage.locator('option[value="afiliado_admin"]') }).last().selectOption('secretaria')
+  adminPage.on('dialog', dialog => dialog.accept())
+  const provisionResponse = adminPage.waitForResponse(r => r.url().endsWith('/adminProvisionUser') && r.request().method() === 'POST')
+  await btn(adminPage, 'Crear Operador').click()
+  const provisioned = await (await provisionResponse).json()
+  assert.equal(provisioned.result?.profile?.role, 'secretaria', JSON.stringify(provisioned.error))
+  await adminPage.getByText('Secretaría Sintética', { exact: true }).waitFor()
+  await btn(adminPage, 'General').click()
+  for (const subtab of ['Empresa / Identidad', 'Sucursales / Agencias', 'Tarifario Sugerido', 'Comisiones Conductor', 'Impresión y Tickets']) {
+    await btn(adminPage, subtab).click()
+  }
   const reportResponse = adminPage.waitForResponse(r => r.url().endsWith('/getSystemReport') && r.request().method() === 'POST' && r.ok())
   await btn(adminPage, /Reportes & Estadísticas/).click()
   assert((await (await reportResponse).json()).result)
+  console.log('Administrador afiliado autenticado: aprovisionamiento de secretaría, configuración y reporte general.')
+  await db.collection('system_config').doc('expreso_punata').set({
+    status: 'configured', isOfficial: true, commissions: { defaultType: 'fixed_per_shipment', defaultValue: 2 },
+  }, { merge: true })
+  await adminPage.locator('[data-tutorial-target="nav-tabs-bar"]').getByRole('button', { name: 'Comisiones de conductores', exact: true }).click()
+  await btn(adminPage, 'Devengar').click()
+  await adminPage.getByPlaceholder('ID del documento de encomienda').fill(commissionSource.shipmentId)
+  await adminPage.getByPlaceholder('ID del manifiesto', { exact: true }).fill(commissionSource.manifestId)
+  const accrualResponse = adminPage.waitForResponse(r => r.url().endsWith('/accrueDriverCommission') && r.request().method() === 'POST')
+  await adminPage.getByRole('button', { name: 'Devengar', exact: true }).last().click()
+  const accrual = await (await accrualResponse).json()
+  assert.equal(accrual.result?.commissionAmountCents, 200, JSON.stringify(accrual.error))
+  await adminPage.getByText(commissionSource.shipmentId, { exact: true }).waitFor()
+  await btn(adminPage, 'Liquidar Comisión').click()
+  const settlementResponse = adminPage.waitForResponse(r => r.url().endsWith('/settleDriverCommission') && r.request().method() === 'POST')
+  await btn(adminPage, 'Confirmar y Pagar').click()
+  const settlement = await (await settlementResponse).json()
+  assert.equal(settlement.result?.voucher?.remainingPendingCents, 0, JSON.stringify(settlement.error))
+  assert.equal(settlement.result.voucher.settledAmountCents, 200)
+  await adminPage.getByText('Vale: ' + settlement.result.voucher.voucherNumber, { exact: true }).waitFor()
+  console.log('Administrador afiliado autenticado: cuenta, asiento y liquidación de Bs 2 para un conductor de directorio.')
+
 
 } finally {
   await browser.close()

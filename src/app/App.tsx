@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../modules/auth/operationalRoles'
 import { AffiliatePassengerTicketsView } from '../modules/tickets/AffiliatePassengerTicketsView'
 import { BranchCommissionView } from '../modules/dispatch/BranchCommissionView'
 import { AffiliateShipmentsView } from '../modules/shipments/AffiliateShipmentsView'
@@ -72,7 +73,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const { signOut, currentBranchId, switchBranch, hasRole } = useAuth()
   const simpleTransferEnabled = import.meta.env.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
   const advancedContingency = import.meta.env.VITE_ADVANCED_DISPATCH === 'true'
-  const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && userProfile.role === 'directiva_admin')
+  const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && isOperationalAdmin(userProfile))
   const [counterDispatchOpen, setCounterDispatchOpen] = useState(false)
   const [requestedTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
@@ -159,7 +160,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const currentBranch = INITIAL_BRANCHES.find(b => b.id === currentBranchId) || INITIAL_BRANCHES[0]
 
   const selectableBranches = INITIAL_BRANCHES.filter(b => {
-    if (userProfile?.role === 'directiva_admin') return true
+    if (isOperationalAdmin(userProfile)) return true
     if (Array.isArray(userProfile?.allowedBranchIds) && userProfile.allowedBranchIds.includes(b.id)) return true
     return b.id === userProfile?.primaryBranchId
   })
@@ -171,7 +172,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'shipments', label: 'Encomiendas', icon: Package, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'storage', label: 'Módulos de Almacén', icon: Boxes, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: advancedDispatchVisible && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
-    { id: 'branch-commissions', label: 'Devengos de la agencia', icon: Coins, visible: userProfile.role === 'afiliado_admin' && userProfile.commissionAdministrationApproved === true },
+    { id: 'branch-commissions', label: 'Devengos de la agencia', icon: Coins, visible: userProfile.role === 'afiliado_admin' && !isOperationalAdmin(userProfile) && userProfile.commissionAdministrationApproved === true },
     { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['directiva_admin']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
     { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['secretaria', 'tesoreria', 'directiva_admin']) },

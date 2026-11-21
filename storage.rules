@@ -28,7 +28,13 @@ service firebase.storage {
     }
     
     function isAdmin() {
-      return isAuthoritativeActiveUser() && getUserRole() == 'directiva_admin';
+      return isAuthoritativeActiveUser() && (
+        getUserRole() == 'directiva_admin' ||
+        (getUserRole() == 'afiliado_admin' &&
+          getUserDoc().get('primaryBranchId', '') in ['punata', 'cochabamba'] &&
+          getUserDoc().get('allowedBranchIds', []) is list &&
+          getUserDoc().get('allowedBranchIds', []).hasAll(['punata', 'cochabamba']))
+      );
     }
 
     function isTreasury() {
@@ -41,7 +47,7 @@ service firebase.storage {
 
     function canAccessShipment(shipmentId) {
       return isAuthoritativeActiveUser() &&
-        getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria', 'conductor'] &&
+        (isAdmin() || getUserRole() in ['secretaria', 'encargado_agencia', 'tesoreria', 'conductor']) &&
         firestore.exists(/databases/(default)/documents/shipments/$(shipmentId)) && (
         isAdmin() ||
         isTreasury() ||
@@ -62,7 +68,7 @@ service firebase.storage {
     match /shipments/{shipmentId}/{allPaths=**} {
       allow read: if canAccessShipment(shipmentId);
       allow create: if canAccessShipment(shipmentId) && (
-        getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'] ||
+        (isAdmin() || getUserRole() in ['secretaria', 'encargado_agencia', 'tesoreria']) ||
         (getUserRole() == 'conductor')
       ) && request.resource.size < 2 * 1024 * 1024
         && request.resource.contentType.matches('image/.*')
@@ -72,8 +78,8 @@ service firebase.storage {
 
     // Fotos de inventario de bienes fijos
     match /assets/{assetId}/{fileName} {
-      allow read: if isAuthoritativeActiveUser() && (getUserRole() in ['encargado_agencia', 'directiva_admin', 'tesoreria', 'secretaria']);
-      allow write: if isAuthoritativeActiveUser() && (getUserRole() in ['encargado_agencia', 'directiva_admin', 'tesoreria']);
+      allow read: if isAuthoritativeActiveUser() && (isAdmin() || getUserRole() in ['encargado_agencia', 'tesoreria', 'secretaria']);
+      allow write: if isAuthoritativeActiveUser() && (isAdmin() || getUserRole() in ['encargado_agencia', 'tesoreria']);
     }
 
     // Por defecto: denegar todo

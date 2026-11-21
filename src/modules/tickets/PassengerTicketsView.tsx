@@ -1,3 +1,4 @@
+import { hasOperationalRole } from '../auth/operationalRoles'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Banknote, CheckCircle2, Printer,
@@ -19,7 +20,6 @@ import { buildPassengerTicketPairHtml, printPassengerTicketPair, type PassengerT
 interface Props { currentUser: UserProfile; currentBranch: Branch; tutorialFormContextOpen?: boolean }
 
 const staffRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
-const canManage = (role: UserProfile['role']) => staffRoles.includes(role)
 const formatDate = (value: string) => {
   if (!value) return '—'
   const date = new Date(`${value}T12:00:00`)
@@ -32,8 +32,8 @@ const statusCopy: Record<PassengerTicketOperation['paymentStatus'], string> = {
 
 export const PassengerTicketsView: React.FC<Props> = ({ currentUser, currentBranch, tutorialFormContextOpen = false }) => {
   const isDriver = currentUser.role === 'conductor'
-  const canRegister = canManage(currentUser.role)
-  const canReadAll = ['directiva_admin', 'tesoreria'].includes(currentUser.role)
+  const canRegister = hasOperationalRole(currentUser, staffRoles)
+  const canReadAll = hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria'])
   const [operations, setOperations] = useState<PassengerTicketOperation[]>([])
   const [drivers, setDrivers] = useState<DriverDirectoryEntry[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])

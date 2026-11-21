@@ -1,3 +1,4 @@
+import { hasOperationalRole } from '../auth/operationalRoles'
 import { ShipmentTransfer } from './ShipmentTransfer'
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import {
@@ -253,7 +254,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
 
   const liveSelectedShipment = combinedShipments.find(shipment => shipment.id === selectedShipment?.id) ?? selectedShipment
   const transferAction = liveSelectedShipment && simpleTransferEnabled && !renderLocalTransfer &&
-    ['secretaria', 'directiva_admin', 'encargado_agencia'].includes(currentUser.role)
+    hasOperationalRole(currentUser, ['secretaria', 'directiva_admin', 'encargado_agencia'])
     ? (liveSelectedShipment.originBranchId === currentBranch.id &&
        ['received', 'pending_dispatch'].includes(liveSelectedShipment.status) && !liveSelectedShipment.manifestId
       ? 'depart'

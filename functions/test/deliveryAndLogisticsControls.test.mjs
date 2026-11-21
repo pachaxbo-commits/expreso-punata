@@ -250,7 +250,7 @@ test('3. A4: listActiveDrivers sincroniza /driver_directory protegiendo la priva
 
 test('4. A5: manageShelf auto-inicializa estantes dinámicos y permite personalización', async () => {
   await createTestUser('sec-cbba', 'secretaria', 'cochabamba')
-  await createTestUser('enc-cbba', 'encargado_agencia', 'cochabamba')
+  await createTestUser('enc-cbba', 'afiliado_admin', 'cochabamba', ['punata', 'cochabamba'])
 
   const seedRes = await manageShelf.run({
     auth: { uid: 'sec-cbba' },

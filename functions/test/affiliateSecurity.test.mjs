@@ -2,7 +2,7 @@ import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getMyUnionAccount, adminProvisionUser, listAffiliateShipments, createShipment, listAffiliatePassengerTickets, validatePassengerTicket } from '../index.js'
+import { getMyUnionAccount, adminProvisionUser, adminSendPasswordReset, listAffiliateShipments, createShipment, listAffiliatePassengerTickets, validatePassengerTicket } from '../index.js'
 
 const db = getFirestore()
 const auth = getAuth()
@@ -67,7 +67,7 @@ test('Mi cuenta handles missing links and legacy branch lists without an interna
 test('company administrator cannot grant technical support or change a technical account', async () => {
   const id = suffix()
   const uid = 'admin-support-test-' + id
-  await db.collection('users').doc(uid).set({ uid, role: 'directiva_admin', isActive: true })
+  await db.collection('users').doc(uid).set({ uid, role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
   const email = 'support-' + id + '@example.test'
   const target = await auth.createUser({ email, password: 'Synthetic-Local!789' })
   try {
@@ -76,6 +76,7 @@ test('company administrator cannot grant technical support or change a technical
     await db.collection('users').doc(target.uid).set({ role: 'soporte_pachax', isActive: true })
     for (const selector of [{ targetUid: target.uid }, {}]) {
       await assert.rejects(adminProvisionUser.run({ ...request, data: { ...request.data, ...selector, role: 'secretaria', isActive: false } }), { code: 'permission-denied' })
+      await assert.rejects(adminSendPasswordReset.run({ ...request, data: { email, ...selector } }), { code: 'permission-denied' })
     }
     assert.equal((await auth.getUser(target.uid)).disabled, false)
     assert.equal((await db.collection('users').doc(target.uid).get()).data().role, 'soporte_pachax')

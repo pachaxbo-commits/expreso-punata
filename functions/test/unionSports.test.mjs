@@ -15,7 +15,7 @@ if (getApps().length === 0) initializeApp({ projectId: 'demo-expreso-punata-unio
 const db = getFirestore()
 
 async function user(uid, role, primaryBranchId = 'punata') {
-  await db.collection('users').doc(uid).set({ uid, role, primaryBranchId, allowedBranchIds: ['punata'], fullName: `Test ${role}`, isActive: true })
+  await db.collection('users').doc(uid).set({ uid, role, primaryBranchId, allowedBranchIds: role === 'afiliado_admin' ? ['punata', 'cochabamba'] : ['punata'], fullName: `Test ${role}`, isActive: true })
 }
 
 test('Deportes: convocatoria, asistencia, multas idempotentes, justificaciones, exención y Caja', async () => {
@@ -24,7 +24,7 @@ test('Deportes: convocatoria, asistencia, multas idempotentes, justificaciones, 
   const treasurerUid = `sports-treasury-${suffix}`
   const cashierUid = `sports-cashier-${suffix}`
   const deniedUid = `sports-driver-${suffix}`
-  await user(directorUid, 'directiva_admin')
+  await user(directorUid, 'afiliado_admin')
   await user(treasurerUid, 'tesoreria')
   await user(cashierUid, 'secretaria')
   await user(deniedUid, 'conductor')

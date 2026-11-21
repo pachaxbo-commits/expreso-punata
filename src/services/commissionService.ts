@@ -49,10 +49,10 @@ export async function accrueDriverCommission(params: {
   shipmentId: string
   manifestId: string
   driverUid?: string
-}): Promise<{ success: boolean; recordId: string; commissionAmountCents: number }> {
+}): Promise<{ success: boolean; recordId: string; driverUid: string; commissionAmountCents: number }> {
   const fn = httpsCallable(functions, 'accrueDriverCommission')
   const res = await fn(params)
-  return res.data as { success: boolean; recordId: string; commissionAmountCents: number }
+  return res.data as { success: boolean; recordId: string; driverUid: string; commissionAmountCents: number }
 }
 
 export async function settleDriverCommission(params: {

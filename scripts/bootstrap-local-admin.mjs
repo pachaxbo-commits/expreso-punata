@@ -17,14 +17,14 @@ const auth = getAuth()
 let user
 try { user = await auth.getUserByEmail(email) } catch (error) {
   if (error.code !== 'auth/user-not-found') throw error
-  user = await auth.createUser({ email, password, displayName: 'Directiva Admin Local', emailVerified: true })
+  user = await auth.createUser({ email, password, displayName: 'Administrador Expreso Punata Local', emailVerified: true })
 }
 const db = getFirestore()
 await db.collection('users').doc(user.uid).set({
-  uid: user.uid, email, fullName: 'Directiva Admin Local', role: 'directiva_admin',
+  uid: user.uid, email, fullName: 'Administrador Expreso Punata Local', role: 'afiliado_admin',
   primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true,
   updatedAt: new Date().toISOString(), localOnly: true,
 }, { merge: true })
 await mkdir('.firebase-local-profile', { recursive: true })
 await writeFile('.firebase-local-profile/directiva-admin-credentials.txt', `Correo: ${email}\nContraseña: ${password}\nProyecto: ${projectId}\nSucursal: punata\n`, { encoding: 'utf8', mode: 0o600 })
-console.log(JSON.stringify({ email, uid: user.uid, profile: { role: 'directiva_admin', primaryBranchId: 'punata' }, credentialsFile: '.firebase-local-profile/directiva-admin-credentials.txt' }, null, 2))
+console.log(JSON.stringify({ email, uid: user.uid, profile: { role: 'afiliado_admin', primaryBranchId: 'punata' }, credentialsFile: '.firebase-local-profile/directiva-admin-credentials.txt' }, null, 2))
