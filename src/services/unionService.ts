@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../modules/auth/operationalRoles'
 import { httpsCallable } from 'firebase/functions'
 import {
   collection,
@@ -583,7 +584,7 @@ export function subscribeUnionMembers(
   void (async () => {
     const profile = auth.currentUser ? (await getDoc(doc(db, 'users', auth.currentUser.uid))).data() : null
     const base = collection(db, 'union_members')
-    const q = profile?.role === 'afiliado_admin'
+    const q = profile?.role === 'afiliado_admin' && !isOperationalAdmin({ role: profile.role, primaryBranchId: profile.primaryBranchId, allowedBranchIds: profile.allowedBranchIds })
       ? query(base, where('branchId', 'in', profile.allowedBranchIds || [profile.primaryBranchId]), orderBy('memberNumber', 'asc'))
       : query(base, orderBy('memberNumber', 'asc'))
     unsubscribe = onSnapshot(q, (snapshot) => {
@@ -605,7 +606,7 @@ export function subscribeUnionDues(
   void (async () => {
     const profile = auth.currentUser ? (await getDoc(doc(db, 'users', auth.currentUser.uid))).data() : null
     const base = collection(db, 'union_dues')
-    const q = profile?.role === 'afiliado_admin'
+    const q = profile?.role === 'afiliado_admin' && !isOperationalAdmin({ role: profile.role, primaryBranchId: profile.primaryBranchId, allowedBranchIds: profile.allowedBranchIds })
       ? query(base, where('period', '==', period), where('branchId', 'in', profile.allowedBranchIds || [profile.primaryBranchId]), orderBy('memberNumber', 'asc'))
       : query(base, where('period', '==', period), orderBy('memberNumber', 'asc'))
     unsubscribe = onSnapshot(q, (snapshot) => {

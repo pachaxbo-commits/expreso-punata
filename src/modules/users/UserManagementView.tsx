@@ -601,9 +601,6 @@ export const UserManagementView: React.FC = () => {
                 <option value="afiliado_admin">Administrador de Expreso Punata</option>
                 <option value="afiliado">Afiliado (solo su cuenta)</option>
                 <option value="secretaria">Secretaria / Ventanilla (Emisión de guías, cobros en caja)</option>
-                <option value="encargado_agencia">Encargado de Agencia (Almacén, inventario, caja)</option>
-                <option value="conductor">Chofer / Conductor (Manifiestos y entregas en ruta)</option>
-                <option value="tesoreria">Tesorería (Socios, mensualidades, reportes)</option>
 
               </select>
             </div>

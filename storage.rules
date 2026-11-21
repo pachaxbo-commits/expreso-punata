@@ -79,7 +79,7 @@ service firebase.storage {
 
     // Fotos de inventario de bienes fijos
     match /assets/{assetId}/{fileName} {
-      allow read: if isAuthoritativeActiveUser() && (isAdmin() || getUserRole() in ['encargado_agencia', 'tesoreria', 'secretaria']);
+      allow read: if isAuthoritativeActiveUser() && (isAdmin() || getUserRole() in ['encargado_agencia', 'tesoreria']);
       allow write: if isAuthoritativeActiveUser() && (isAdmin() || getUserRole() in ['encargado_agencia', 'tesoreria']);
     }
 

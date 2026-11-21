@@ -87,7 +87,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   useEffect(() => {
     if (sportsFineCollectionOnly || !tutorialSubTab) return
     const allowedTabs = ['members', 'dues', 'loans', 'fines', 'debts']
-    if (tutorialSubTab === 'sports' && currentUser.role === 'afiliado_admin') return
+    if (tutorialSubTab === 'sports' && currentUser.role === 'afiliado_admin' && !isManagement) return
     if (tutorialSubTab === 'annual-board' && !isManagement) return
     if (allowedTabs.includes(tutorialSubTab) || tutorialSubTab === 'sports' || tutorialSubTab === 'annual-board') {
       setActiveTab(tutorialSubTab as typeof activeTab)
@@ -492,7 +492,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
         <button type="button" data-tutorial-target="union-tab-fines" onClick={() => setActiveTab('fines')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'fines' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
           <AlertTriangle className="w-4 h-4" /><span>Multas</span>
         </button>
-        {currentUser.role !== 'afiliado_admin' && <button type="button" data-tutorial-target="union-tab-sports" onClick={() => setActiveTab('sports')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'sports' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+        {(isManagement || currentUser.role !== 'afiliado_admin') && <button type="button" data-tutorial-target="union-tab-sports" onClick={() => setActiveTab('sports')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'sports' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
           <Calendar className="w-4 h-4" /><span>Deportes</span>
         </button>}
         {isManagement && <button type="button" data-tutorial-target="union-tab-annual-board" onClick={() => setActiveTab('annual-board')} className={`px-4 py-2.5 font-bold text-xs border-b-2 transition flex items-center gap-2 ${activeTab === 'annual-board' ? 'border-[#064e3b] text-[#064e3b]' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>

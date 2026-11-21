@@ -14,8 +14,8 @@ test('collectMemberDue writes one central audit event for a payment and idempote
 
   await Promise.all([
     db.collection('users').doc(uid).set({
-      uid, role: 'directiva_admin', isActive: true, primaryBranchId: 'punata',
-      allowedBranchIds: ['punata'], fullName: 'Fixture Secretaria Audit',
+      uid, role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata',
+      allowedBranchIds: ['punata', 'cochabamba'], fullName: 'Fixture Secretaria Audit',
     }),
     db.collection('union_members').doc(memberId).set({
       id: memberId, branchId: 'punata', status: 'active',
@@ -60,7 +60,7 @@ test('collectMemberDue writes one central audit event for a payment and idempote
   assert.equal(audit.branchId, 'punata')
   assert.equal(audit.shiftId, opened.shift.id)
   assert.equal(audit.performedByUid, uid)
-  assert.equal(audit.performedByRole, 'secretaria')
+  assert.equal(audit.performedByRole, 'afiliado_admin')
   assert.equal(typeof audit.timestampIso, 'string')
   assert.equal(movement.receiptNumber, audit.receiptNumber)
   assert.equal(payment.receiptNumber, audit.receiptNumber)

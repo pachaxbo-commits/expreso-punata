@@ -42,7 +42,14 @@ test('mutaciones administrativas rechazan afiliado, secretaría y soporte aunque
   for (const role of ['afiliado', 'secretaria', 'soporte_pachax']) {
     const uid = prefix + '-' + role
     await db.collection('users').doc(uid).set({ role, isActive: true, primaryBranchId: 'punata' })
-    const request = { auth: { uid, token: { role: 'directiva_admin' } }, data: { branchId: 'punata', idempotencyKey: 'denied-role-phase-one' } }
+    const request = {
+      auth: { uid, token: { role: 'directiva_admin' } },
+      data: {
+        branchId: 'punata', idempotencyKey: 'denied-role-phase-one',
+        originBranchId: 'punata', destinationBranchId: 'cochabamba',
+        travelDate: '2026-12-01', driverUid: 'synthetic-driver', quantity: 1, unitAmountCents: 1000,
+      },
+    }
     for (const action of administrativeActions) {
       await assert.rejects(operations[action].run(request), { code: 'permission-denied' }, role + ' / ' + action)
     }

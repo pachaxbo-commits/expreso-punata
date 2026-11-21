@@ -27,6 +27,8 @@ test('Deportes: convocatoria, asistencia, multas idempotentes, justificaciones, 
   await user(directorUid, 'afiliado_admin')
   await user(treasurerUid, 'afiliado_admin')
   await user(cashierUid, 'afiliado_admin')
+  const legacyTreasurerUid = `sports-legacy-treasury-${suffix}`
+  await user(legacyTreasurerUid, 'tesoreria')
   await user(deniedUid, 'conductor')
 
   const memberIds = Array.from({ length: 5 }, (_, index) => `sports-member-${suffix}-${index + 1}`)
@@ -91,7 +93,7 @@ test('Deportes: convocatoria, asistencia, multas idempotentes, justificaciones, 
   const deniedJustification = await requestUnionSportsJustification.run({ auth: { uid: treasurerUid }, data: {
     eventId: created.eventId, memberId: memberIds[2], reason: 'Imprevisto familiar justificado', requestDate: '2026-11-10', idempotencyKey: `sports-just-denied-${suffix}`,
   } })
-  await assert.rejects(() => decideUnionSportsJustification.run({ auth: { uid: treasurerUid }, data: {
+  await assert.rejects(() => decideUnionSportsJustification.run({ auth: { uid: legacyTreasurerUid }, data: {
     eventId: created.eventId, memberId: memberIds[2], justificationId: deniedJustification.justificationId, decision: 'approved', idempotencyKey: `sports-wrong-decider-${suffix}`,
   } }), (error) => error.code === 'permission-denied')
   await decideUnionSportsJustification.run({ auth: { uid: directorUid }, data: {
@@ -113,7 +115,7 @@ test('Deportes: convocatoria, asistencia, multas idempotentes, justificaciones, 
   assert.equal((await exemptFineRef.get()).data().status, 'voided')
   assert.equal((await exemptFineRef.get()).data().balanceCents, 0)
   assert.equal((await db.collection('financial_movements').where('fineId', '==', exemptFineRef.id).get()).size, 0)
-  await assert.rejects(() => setUnionSportsAttendance.run({ auth: { uid: treasurerUid }, data: {
+  await assert.rejects(() => setUnionSportsAttendance.run({ auth: { uid: legacyTreasurerUid }, data: {
     eventId: created.eventId, memberId: memberIds[3], attendance: 'absent', idempotencyKey: `sports-remove-exemption-${suffix}`,
   } }), (error) => error.code === 'permission-denied')
 

@@ -115,7 +115,7 @@ service cloud.firestore {
       allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        ((isCashier() || isAgencyManager()) && isBranchAllowed(resource.data.branchId))
+        (isAgencyManager() && isBranchAllowed(resource.data.branchId))
       );
       allow write: if false; // Solo backend en transacciones atómicas
     }
