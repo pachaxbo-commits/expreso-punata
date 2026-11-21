@@ -234,9 +234,12 @@ try {
       body: JSON.stringify({ data: { shiftId: originLock.shiftId, actualCashCents: 7500 } }),
     })
     assert.equal((await doubleClose.json()).error?.status, 'FAILED_PRECONDITION')
-    const originDailyResponse = originPage.waitForResponse(response => response.url().endsWith('/getDailyOperationsReport') && response.request().method() === 'POST')
-    await btn(originPage, 'Reporte del día').click()
-    const originDaily = (await (await originDailyResponse).json()).result
+    await originPage.reload()
+    const [originDailyResponse] = await Promise.all([
+      originPage.waitForResponse(response => response.url().endsWith('/getDailyOperationsReport') && response.request().method() === 'POST'),
+      btn(originPage, 'Reporte del día').click(),
+    ])
+    const originDaily = (await originDailyResponse.json()).result
     assert.equal(originDaily.income.tickets, 1200)
     console.log('Secretaría: encomienda Bs 25 efectivo y pasaje Bs 12 QR en el mismo turno, arqueo cuadrado y segundo cierre rechazado.')
   })
@@ -298,7 +301,7 @@ try {
     const affiliatePage = await login(affiliate)
     await btn(affiliatePage, 'Consultas').click()
     await affiliatePage.evaluate(() => {
-      window.print = () => { document.documentElement.dataset.printRequested = 'true' }
+      globalThis.print = () => { globalThis.document.documentElement.dataset.printRequested = 'true' }
     })
     for (const label of ['Encomiendas', 'Pasajes', 'Almacén', 'Caja', 'Comisiones', 'Afiliados', 'Aportes', 'Préstamos', 'Multas', 'Deportes', 'Inventario', 'Personal', 'Gastos', 'Reportes', 'Historial']) {
       await btn(affiliatePage, label).click()
@@ -308,7 +311,7 @@ try {
       await btn(affiliatePage, 'Ver detalle').first().click()
       assert.equal(await affiliatePage.getByRole('heading', { name: 'Detalle del registro' }).count(), 1)
       assert.equal(await affiliatePage.getByText('CANARIO-PRIVADO').count(), 0)
-      await affiliatePage.evaluate(() => { delete document.documentElement.dataset.printRequested })
+      await affiliatePage.evaluate(() => { delete globalThis.document.documentElement.dataset.printRequested })
       await btn(affiliatePage, 'Imprimir resultados de esta página').click()
       assert.equal(await affiliatePage.locator('html').getAttribute('data-print-requested'), 'true')
       console.log('Afiliado en Chrome: ' + label + ', filtro y detalle autorizados.')
@@ -321,6 +324,7 @@ try {
   await verifyScenario('Edición de afiliado, préstamos y multas', async () => {
     await db.collection('union_members').doc(prefix).update({ fullName: 'Afiliación sintética', status: 'active' })
     await adminPage.locator('nav[aria-label="Secciones del sistema"]').getByRole('button', { name: 'Afiliados & Aportes' }).click()
+    await btn(adminPage, 'Deportes').waitFor()
     await adminPage.getByTitle('Editar datos del afiliado').first().click()
     await adminPage.getByPlaceholder('Apellidos y Nombres').fill('Afiliación sintética editada')
     await adminPage.getByLabel('Ingreso', { exact: true }).fill(today)
@@ -346,15 +350,16 @@ try {
     await btn(adminPage, 'Confirmar desembolso').click()
     const disbursement = await (await disburseResponse).json()
     assert.equal(disbursement.result?.disbursement?.amountCents, 500, JSON.stringify(disbursement.error))
+    console.log('Afiliado administrador en Chrome: registro y desembolso de préstamo.')
     await btn(adminPage, 'Multas').click()
-    await adminPage.getByLabel('Afiliado', { exact: true }).selectOption(prefix)
+    await adminPage.locator('[data-tutorial-target="union-fines-panel"] form select').first().selectOption(prefix)
     await adminPage.getByLabel('Motivo', { exact: true }).fill('Incidencia sintética')
     await adminPage.getByLabel('Importe (Bs)', { exact: true }).fill('3')
     const fineResponse = adminPage.waitForResponse(response => response.url().endsWith('/createUnionFine') && response.request().method() === 'POST')
     await btn(adminPage, 'Registrar multa').click()
     const fine = await (await fineResponse).json()
     assert.equal(fine.result?.fine?.amountCents, 300, JSON.stringify(fine.error))
-    console.log('Afiliado administrador en Chrome: registro y desembolso de préstamo y registro de multa.')
+    console.log('Afiliado administrador en Chrome: registro de multa.')
   })
 
   if (failedScenarios.length) throw new AggregateError(failedScenarios, 'Fallaron uno o más escenarios de Fase 1.')

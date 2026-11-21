@@ -1,0 +1,41 @@
+Expreso Punata | Fase 1 | 2026-11-21
+Proyecto demo-expreso-punata-transfer. Emuladores locales y Chrome.
+
+TypeScript y build aprobados. ESLint: 267 errores heredados y 14 avisos, sin hallazgos nuevos frente a 268/14.
+Unitarias: 73 aprobadas.
+Firestore Rules: 28 aprobadas.
+Functions: 159 casos. La regresión completa aprobó 157; los dos casos con aserciones del rol anterior se ajustaron y aprobaron en la repetición dirigida.
+Repetición dirigida (4/4): dos casos corregidos y dos pruebas de fiscalización y seguridad.
+✔ proyección de los 15 módulos, filtros, búsqueda, agencia y campos privados (8404.9846ms)
+✔ mutaciones administrativas rechazan afiliado, secretaría y soporte aunque el token declare administración (1732.909ms)
+✔ collectMemberDue writes one central audit event for a payment and idempotent retry (2890.4993ms)
+✔ Deportes: convocatoria, asistencia, multas idempotentes, justificaciones, exención y Caja (3871.4286ms)
+
+Chrome y Playwright:
+Secretaría: encomienda Bs 25 efectivo y pasaje Bs 12 QR en el mismo turno, arqueo cuadrado y segundo cierre rechazado.
+Administrador afiliado autenticado: aprovisionamiento de secretaría, configuración y reporte general.
+Administrador afiliado autenticado: cuenta, asiento y liquidación de Bs 2 para un conductor de directorio.
+Afiliado administrador en Chrome: edición de afiliación.
+Afiliado administrador en Chrome: registro y desembolso de préstamo.
+Afiliado administrador en Chrome: registro de multa.
+Afiliado en Chrome: Encomiendas, filtro y detalle autorizados.
+Afiliado en Chrome: Pasajes, filtro y detalle autorizados.
+Afiliado en Chrome: Almacén, filtro y detalle autorizados.
+Afiliado en Chrome: Caja, filtro y detalle autorizados.
+Afiliado en Chrome: Comisiones, filtro y detalle autorizados.
+Afiliado en Chrome: Afiliados, filtro y detalle autorizados.
+Afiliado en Chrome: Aportes, filtro y detalle autorizados.
+Afiliado en Chrome: Préstamos, filtro y detalle autorizados.
+Afiliado en Chrome: Multas, filtro y detalle autorizados.
+Afiliado en Chrome: Deportes, filtro y detalle autorizados.
+Afiliado en Chrome: Inventario, filtro y detalle autorizados.
+Afiliado en Chrome: Personal, filtro y detalle autorizados.
+Afiliado en Chrome: Gastos, filtro y detalle autorizados.
+Afiliado en Chrome: Reportes, filtro y detalle autorizados.
+Afiliado en Chrome: Historial, filtro y detalle autorizados.
+Administración en Chrome: suspensión y reactivación en Auth
+Administración en Chrome: guardado de configuración institucional
+Administración en Chrome: registro de gasto operativo
+Administración en Chrome: registro de bien fijo
+Recorrido principal: aprobado
+Recorrido administrativo adicional: aprobado

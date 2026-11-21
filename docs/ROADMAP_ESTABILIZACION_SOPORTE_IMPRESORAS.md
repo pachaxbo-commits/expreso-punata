@@ -2,7 +2,7 @@
 
 | Fase | Verificadas | Pendientes | Avance |
 |---|---:|---:|---:|
-| 1 | 1 | 11 | 8.3% |
+| 1 | 2 | 10 | 16.7% |
 | 2 | 0 | 4 | 0% |
 | 3 | 0 | 6 | 0% |
 
@@ -134,6 +134,73 @@ El commit de implementación es `17a776a`. La regresión local pasó 73 pruebas 
 - El cambio de rol conserva el UID y registra el rol anterior y el nuevo en la bitácora de provisión. Un cambio que retire la administración institucional por rol, alcance o suspensión comprueba que exista otro administrador activo. La reserva de Firestore se realiza antes de modificar Firebase Auth. La liquidación de comisiones lee turno, saldo y asientos dentro de la misma transacción que escribe el pago.
 - Retirar la compatibilidad de los autorizadores, las reglas, la edición de perfiles, los roles de simulación y los tutoriales tras migrar todos los UID aprobados, conciliar perfiles y claims y comprobar en el entorno de revisión que queda administración activa con el nuevo rol. Conservar los valores históricos de auditoría. La retirada de los accesos heredados de Tesorería, Encargado y Conductor requiere verificar sus operaciones específicas.
 - Ninguna cuenta real fue modificada. La delimitación de agencias y la base comercial de comisión porcentual cuando hay precio manual siguen sometidas a las decisiones operativas de la Fase 1.
+
+## Fase 1 · Fiscalización de afiliados y transición de cuentas
+
+### Matriz de consultas del afiliado
+
+La pantalla Consultas usa `listAffiliateOperations`. Filtra por agencia desde el perfil autoritativo y permite búsqueda, fechas, paginación, detalle e impresión de la página consultada. Las filas antiguas sin agencia verificable quedan excluidas. Para préstamos históricos, se comprueba la agencia del afiliado vinculado en el padrón. Mi cuenta tiene una proyección separada con el nombre propio y las obligaciones del titular. Firestore y Storage bloquean el acceso del afiliado a los documentos operativos originales.
+
+| Módulo | Acción de consulta en su agencia | Campos protegidos | Prueba |
+|---|---|---|---|
+| Encomiendas | Guía, destino, estado, bultos e importe | Remitente, destinatario, teléfonos, firmas y fotos | Functions y caso Chrome en el recorrido |
+| Pasajes | Operación, fecha, cantidad, importe, pago y entrega | Pasajero, código de abordaje, QR y referencia bancaria | Functions y caso Chrome en el recorrido |
+| Almacén | Estantes, códigos y cantidad de módulos | Notas y datos de guías almacenadas | Functions y caso Chrome en el recorrido |
+| Caja | Turno, efectivo inicial, esperado, contado y diferencia | Identidades, notas de arqueo y evidencia | Functions y caso Chrome en el recorrido |
+| Comisiones | Guía, devengado, liquidado y estado | Identidad y datos del conductor | Functions y caso Chrome en el recorrido |
+| Afiliados | Número de afiliado, fecha de ingreso, categoría y estado | Nombre de terceros, CI, teléfonos, domicilio y dependientes | Functions y caso Chrome en el recorrido |
+| Aportes | Período, importe, pagado, saldo y estado | Identidad de terceros, referencias y canales privados | Functions y caso Chrome en el recorrido |
+| Préstamos | Número, principal, saldo, cuotas y desembolso | Beneficiario, observaciones y medios privados | Functions y caso Chrome en el recorrido |
+| Multas | Categoría, fecha, importe, saldo y estado | Persona sancionada, motivo libre, evidencias y datos de menores | Functions y caso Chrome en el recorrido |
+| Deportes | Jornada, fecha, total de participantes y estado | Listado de menores, asistencia individual y justificaciones | Functions y caso Chrome en el recorrido |
+| Inventario | Código, bien, categoría, valor y estado | Fotos, ubicación personal, responsables y notas | Functions y caso Chrome en el recorrido |
+| Personal | Código laboral, cargo, modalidad y estado | Nombre, CI, teléfono y salario individual | Functions y caso Chrome en el recorrido |
+| Gastos | Comprobante, categoría, importe, medio y estado | Proveedor, factura privada, observaciones y operador | Functions y caso Chrome en el recorrido |
+| Reportes | Libro de movimientos de la agencia, con fecha, categoría, medio e importe | Contrapartes, operadores, cuentas bancarias y referencias privadas | Functions y caso Chrome en el recorrido |
+| Historial | Historial de incidencias por guía, tipo y estado | Bitácora interna, actores, notas y evidencias | Functions y caso Chrome en el recorrido |
+
+Para cada consulta de la matriz, la prueba de Functions ejecuta lectura y filtros en Punata y rechazo en Cochabamba con el mismo perfil. Usuarios, configuración y soporte no forman parte del catálogo. Los movimientos, páginas impresas y documentos de Mi cuenta toman sus importes de los asientos existentes.
+
+| Rol | Módulo y acción | Agencia | Resultado esperado y evidencia |
+|---|---|---|---|
+| Afiliado | Consultas de la tabla, filtros e impresión de página | Autorizada | Respuesta proyectada y sin mutaciones. `affiliateOperations.test.mjs` y recorrido Chrome. |
+| Afiliado | Consulta fuera de agencia, acceso a colecciones crudas y mutaciones administrativas | Ajena o cualquiera para mutaciones | Denegación en Functions y Firestore Rules. |
+| Secretaría | Encomiendas, Pasajes, Almacén y reporte del día | Agencia asignada | Emisión, cobro, turno y arqueo usan las Functions existentes. |
+| Secretaría | Préstamos, multas, cuotas, gastos, nómina, gestión de inventario, comisiones, configuración y usuarios | Cualquiera | Mutaciones denegadas directamente. La aprobación de entrega de pasajes no habilita el egreso administrativo genérico. |
+| Afiliado administrador institucional | Desembolso, cobros, inventario, gastos y comisiones | Agencias autorizadas | Permiso institucional con los requisitos de cada operación, incluidos turno, saldo e idempotencia. |
+| Soporte PACHAX | Operación financiera, configuración, provisión y auditoría directa | Cualquiera | Sin permiso implícito. El propio perfil sigue siendo legible. |
+| Tesorería, Encargado, Conductor y Directiva | Compatibilidad temporal de cuentas existentes | Alcance de la cuenta | Se conservan accesos necesarios de lectura y operación previa que no se reclasificaron como reservados. Las altas de roles heredados se bloquean. |
+
+### Resultado local de verificación
+
+- [x] Fiscalización del afiliado en los 15 módulos. Functions comprobó búsqueda, fechas, campos privados y rechazo fuera de agencia en cada módulo. Chrome comprobó su lista, filtro y detalle.
+- [x] Bloqueo de mutaciones administrativas para Secretaría, Afiliado y Soporte con perfil autoritativo. También se verificó el bloqueo de Caja, configuración y documentos operativos originales donde correspondía.
+- [x] Chrome con afiliado administrador. Validó suspensión y reactivación en Auth, guardado de configuración institucional, registro de gasto y alta de bien fijo.
+- [x] Turno único de Secretaría con encomienda de Bs 25 en efectivo y pasaje de Bs 12 por QR. Arqueo sin diferencia y rechazo del segundo cierre. El Reporte del día concilió el pasaje.
+- [x] Chrome con afiliado administrador. Edición de la afiliación.
+- [x] Chrome con afiliado administrador. Registro y desembolso de préstamo.
+- [x] Chrome con afiliado administrador. Registro de multa.
+
+TypeScript, build, 73 unitarias y 28 pruebas de Firestore Rules aprobados. Functions ejecutó 159 casos. Los dos casos rechazados por aserciones de los perfiles anteriores aprobaron al repetirlos con sus actores y expectativas revisados. ESLint registró 267 errores y 14 avisos heredados, sin hallazgos nuevos.
+
+La evidencia se guardó en [el registro de fiscalización](../evidence/phase1-affiliate-oversight.log).
+
+### Preparación del inventario y publicación
+
+No se consultaron cuentas reales. Falta confirmar el proyecto de producción y una identidad autorizada de solo lectura. Nelson es candidato a `afiliado_admin`, con UID pendiente de confirmación por el propietario.
+
+1. Obtener aprobación del propietario y respaldar los perfiles y claims, con acceso restringido y fecha del respaldo.
+2. Exportar de Firestore los campos UID, nombre, rol, estado y agencias. Conciliar estado activo con Auth por UID. El inventario solo añade rol propuesto y clasificación real o prueba. No copiar correos, CI, contraseñas, enlaces de restablecimiento ni tokens.
+3. Revisar las correspondencias una a una. Mantener las agencias necesarias y revisar qué accesos debe conservar cada operador. Mantener los identificadores de conductores en documentos históricos y en el directorio operativo.
+4. Confirmar con el propietario el UID real de Nelson, su función y sus agencias. Distinguirlo de cuentas homónimas y de prueba.
+5. Confirmar un administrador institucional de continuidad con Auth habilitado y perfil activo. Verificar los rechazos de suspensión simultánea en emuladores.
+6. Preparar una revisión con frontend, Functions, Firestore Rules, Storage Rules e índices compatibles. Validar en emuladores los cuatro roles.
+7. Tras la autorización de publicación, preparar índices y esperar su disponibilidad. Publicar Functions, reglas y frontend en una ventana coordinada. Antes de aplicar las restricciones, asignar la cobertura de desembolsos, cobros y liquidaciones a un administrador institucional confirmado para evitar interrupciones durante el cambio.
+8. Migrar por lotes aprobados. Para cada UID, comprobar perfil, claims, agencias, inicio de sesión y bitácora. Revocar sesiones al cambiar privilegios cuando corresponda.
+9. Repetir pruebas de acceso positivo y negativo por rol y agencia, y confirmar que siguen disponibles los recorridos críticos en producción autorizada.
+10. Ante una incidencia, pausar. Restaurar perfiles y claims del lote afectado desde el respaldo y revertir los componentes coordinados si hace falta. Volver a comprobar al administrador activo antes de continuar.
+
+Retirar la compatibilidad solo después de conciliar las cuentas reales y obtener autorización. El incidente original `internal 0` requiere evidencia de producción. La comisión porcentual con precio manual sigue pendiente de definición comercial. La redirección de la demo retirada requiere verificación después de una publicación autorizada.
 
 ## Matriz objetivo y migración
 Actualmente el sistema contiene más roles de los necesarios.
@@ -595,14 +662,9 @@ Comprueba especialmente que Secretaría pueda encontrar y entregar una encomiend
 
 ### EP-07 · REVISIÓN DE PASAJES
 
-- [ ] Pendiente
-- Prioridad: Alta.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- [x] Verificado en emuladores.
+- Registro, confirmación QR, comprobantes y Reporte del día probados en Chrome dentro del turno conjunto.
+- Verificación, historial, anulación y permisos aprobados en Functions y Firestore Rules con los roles vigentes.
 
 Prueba registro, cobro, comprobante, búsqueda, verificación, historial, anulación autorizada, reportes y permisos.
 
