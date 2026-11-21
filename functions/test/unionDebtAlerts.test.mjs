@@ -19,7 +19,7 @@ test('Alertas de deudas: cuotas, préstamo desembolsado, multas, sucursal, saldo
   const affiliateAdminUid = `alert-admin-${suffix}`
   const deniedUid = `alert-denied-${suffix}`
   await Promise.all([
-    db.collection('users').doc(managerUid).set({ role: 'tesoreria', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] }),
+    db.collection('users').doc(managerUid).set({ role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] }),
     db.collection('users').doc(secretaryUid).set({ role: 'secretaria', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] }),
     db.collection('users').doc(affiliateUid).set({ role: 'afiliado', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'], unionMemberId: memberId }),
     db.collection('users').doc(affiliateAdminUid).set({ role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] }),
@@ -53,8 +53,7 @@ test('Alertas de deudas: cuotas, préstamo desembolsado, multas, sucursal, saldo
   assert.equal(manager.alerts.find((item) => item.type === 'loan').overdueAmountCents, 3000)
   assert.equal(manager.alerts.find((item) => item.type === 'fine' && item.category === 'deportes').amountCents, 6000)
   assert.equal(manager.alerts.some((item) => item.label === 'PRE-PENDING' || item.label === 'PRE-LEGACY'), false)
-  const secretary = await listUnionDebtAlerts.run({ auth: { uid: secretaryUid }, data: { memberId } })
-  assert.equal(secretary.alerts.some((item) => item.type === 'fine' && item.category !== 'deportes'), false)
+  await assert.rejects(listUnionDebtAlerts.run({ auth: { uid: secretaryUid }, data: { memberId } }), { code: 'permission-denied' })
   const affiliate = await listUnionDebtAlerts.run({ auth: { uid: affiliateUid }, data: {} })
   assert.equal(affiliate.alerts.every((item) => item.memberId === memberId), true)
   await assert.rejects(() => listUnionDebtAlerts.run({ auth: { uid: affiliateUid }, data: { memberId: otherId } }), (error) => error.code === 'permission-denied')
@@ -68,12 +67,12 @@ test('Alertas de deudas: cuotas, préstamo desembolsado, multas, sucursal, saldo
   assert.ok(afterCreateAlerts.alerts.some((item) => item.id === fine.fine.id && item.amountCents === 100))
   assert.equal((await db.collection('financial_movements').get()).size, beforeMovements, 'la consulta/creación de multa sin cobro no genera movimiento de Caja')
   assert.deepEqual((await db.collection('union_fines').doc(`alert-sports-fine-${suffix}`).get()).data(), beforeFine, 'consultar alertas no cambia la multa')
-  const shift = await openCashShift.run({ auth: { uid: secretaryUid }, data: { branchId: 'punata', initialCashCents: 10000, idempotencyKey: `alert-shift-${suffix}` } })
-  await collectUnionFinePayment.run({ auth: { uid: secretaryUid }, data: { fineId: fine.fine.id, amountCents: 40, shiftId: shift.shift.id, branchId: 'punata', idempotencyKey: `alert-fine-partial-${suffix}` } })
+  const shift = await openCashShift.run({ auth: { uid: managerUid }, data: { branchId: 'punata', initialCashCents: 10000, idempotencyKey: `alert-shift-${suffix}` } })
+  await collectUnionFinePayment.run({ auth: { uid: managerUid }, data: { fineId: fine.fine.id, amountCents: 40, shiftId: shift.shift.id, branchId: 'punata', idempotencyKey: `alert-fine-partial-${suffix}` } })
   const partialAlerts = await listUnionDebtAlerts.run({ auth: { uid: managerUid }, data: { memberId } })
   assert.equal(partialAlerts.alerts.find((item) => item.id === fine.fine.id)?.amountCents, 60, 'la consulta refleja el saldo real tras un pago parcial')
   const movementCountAfterPayment = (await db.collection('financial_movements').get()).size
-  await collectUnionFinePayment.run({ auth: { uid: secretaryUid }, data: { fineId: fine.fine.id, amountCents: 60, shiftId: shift.shift.id, branchId: 'punata', idempotencyKey: `alert-fine-final-${suffix}` } })
+  await collectUnionFinePayment.run({ auth: { uid: managerUid }, data: { fineId: fine.fine.id, amountCents: 60, shiftId: shift.shift.id, branchId: 'punata', idempotencyKey: `alert-fine-final-${suffix}` } })
   const movementCountAfterSettlement = (await db.collection('financial_movements').get()).size
   const settledAlerts = await listUnionDebtAlerts.run({ auth: { uid: managerUid }, data: { memberId } })
   assert.equal(settledAlerts.alerts.some((item) => item.id === fine.fine.id), false, 'la deuda desaparece al liquidar el saldo')

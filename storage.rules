@@ -15,6 +15,7 @@ service firebase.storage {
       return isAuthenticated() &&
         firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
         getUserDoc().role != 'soporte_pachax' &&
+        getUserDoc().role != 'afiliado' &&
         getUserDoc().isActive == true &&
         ('isActive' in request.auth.token ? request.auth.token.isActive == true : true);
     }

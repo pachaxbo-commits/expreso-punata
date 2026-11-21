@@ -59,7 +59,7 @@ beforeEach(async () => {
 })
 
 test('1. PADRÓN DE SOCIOS: Tesorería registra nuevo socio afiliado con cuota mensual', async () => {
-  await createTestUser('tesorero-1', 'tesoreria', 'punata')
+  await createTestUser('tesorero-1', 'afiliado_admin', 'punata')
 
   const res = await manageUnionMember.run({
     auth: { uid: 'tesorero-1' },
@@ -97,7 +97,7 @@ test('1. PADRÓN DE SOCIOS: Tesorería registra nuevo socio afiliado con cuota m
 })
 
 test('1A. Afiliado: persiste campos de expediente en Firestore Emulator', async () => {
-  await createTestUser('tesorero-campos', 'tesoreria', 'punata')
+  await createTestUser('tesorero-campos', 'afiliado_admin', 'punata')
   const fields = {
     id: 'member-expediente-campos',
     memberNumber: 'SOC-EXP-001',
@@ -181,7 +181,7 @@ test('3. PADRÓN DE SOCIOS: Previene duplicados de memberNumber entre distintos 
 })
 
 test('4. EMISIÓN DE CUOTAS MENSUALES: Generación atómica e idempotente para socios activos', async () => {
-  await createTestUser('tesorero-1', 'tesoreria', 'punata')
+  await createTestUser('tesorero-1', 'afiliado_admin', 'punata')
 
   // Crear 2 socios activos y 1 inactivo
   await manageUnionMember.run({
@@ -219,7 +219,7 @@ test('4. EMISIÓN DE CUOTAS MENSUALES: Generación atómica e idempotente para s
 })
 
 test('5. RECAUDACIÓN DE CUOTA EN CAJA: Cobro en ventanilla ingresa a turno activo de caja y genera recibo', async () => {
-  await createTestUser('sec-punata', 'secretaria', 'punata')
+  await createTestUser('sec-punata', 'afiliado_admin', 'punata')
   await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   // Crear socio y cuota
@@ -294,7 +294,7 @@ test('5. RECAUDACIÓN DE CUOTA EN CAJA: Cobro en ventanilla ingresa a turno acti
 })
 
 test('6. RECAUDACIÓN: Idempotencia estricta previene duplicar cobros ante reintentos', async () => {
-  await createTestUser('sec-punata', 'secretaria', 'punata')
+  await createTestUser('sec-punata', 'afiliado_admin', 'punata')
   await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   await manageUnionMember.run({
@@ -335,7 +335,7 @@ test('6. RECAUDACIÓN: Idempotencia estricta previene duplicar cobros ante reint
 })
 
 test('7. EXTRACTO DE CUENTA: getMemberAccountStatement calcula saldo, pagos e histórico de aportes', async () => {
-  await createTestUser('tesorero-1', 'tesoreria', 'punata')
+  await createTestUser('tesorero-1', 'afiliado_admin', 'punata')
 
   await manageUnionMember.run({
     auth: { uid: 'tesorero-1' },
@@ -372,7 +372,7 @@ test('7. EXTRACTO DE CUENTA: getMemberAccountStatement calcula saldo, pagos e hi
 })
 
 test('8. generateMonthlyDues: Omite socios sin cuota configurada (sin fallback ficticio) y emite warnings', async () => {
-  await createTestUser('tesorero-1', 'tesoreria', 'punata')
+  await createTestUser('tesorero-1', 'afiliado_admin', 'punata')
 
   // Socio 1: con cuota válida de Bs 40
   await manageUnionMember.run({
@@ -404,7 +404,7 @@ test('8. generateMonthlyDues: Omite socios sin cuota configurada (sin fallback f
 })
 
 test('9. generateMonthlyDues: Bloqueo atómico previene emisiones concurrentes simultáneas del mismo período', async () => {
-  await createTestUser('tesorero-1', 'tesoreria', 'punata')
+  await createTestUser('tesorero-1', 'afiliado_admin', 'punata')
 
   // Simular lock activo en progreso para 2027-01
   await db.collection('system_locks').doc('generate_dues_2027-01').set({
@@ -423,7 +423,7 @@ test('9. generateMonthlyDues: Bloqueo atómico previene emisiones concurrentes s
 })
 
 test('10. collectMemberDue: Rechaza reintentos con payload fingerprint alterado y exige turno válido en ventanilla', async () => {
-  await createTestUser('sec-punata', 'secretaria', 'punata')
+  await createTestUser('sec-punata', 'afiliado_admin', 'punata')
   await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   await manageUnionMember.run({
@@ -466,7 +466,7 @@ test('10. collectMemberDue: Rechaza reintentos con payload fingerprint alterado 
   }, (err) => err.code === 'failed-precondition')
 })
 
-test('11. getMemberAccountStatement: Secretaria accede a su sucursal y conductor permanece bloqueado', async () => {
+test('11. getMemberAccountStatement: Secretaría y conductor permanecen bloqueados', async () => {
   await createTestUser('sec-1', 'secretaria', 'punata')
   await createTestUser('driver-1', 'conductor', 'punata')
   await createTestUser('admin-1', 'afiliado_admin', 'punata')
@@ -476,11 +476,10 @@ test('11. getMemberAccountStatement: Secretaria accede a su sucursal y conductor
     data: { id: 'm-sec-view', memberNumber: 'SOC-300', fullName: 'Socio Vista', monthlyFeeBob: 50, status: 'active', branchId: 'punata' },
   })
 
-  const secretaryStatement = await getMemberAccountStatement.run({
+  await assert.rejects(getMemberAccountStatement.run({
     auth: { uid: 'sec-1' },
     data: { memberId: 'm-sec-view' },
-  })
-  assert.equal(secretaryStatement.member.id, 'm-sec-view')
+  }), { code: 'permission-denied' })
 
   await assert.rejects(async () => {
     await getMemberAccountStatement.run({
@@ -491,7 +490,7 @@ test('11. getMemberAccountStatement: Secretaria accede a su sucursal y conductor
 })
 
 test('12. Afiliado antiguo: actualizar expediente conserva datos y cuota vinculada', async () => {
-  await createTestUser('tesorero-old', 'tesoreria', 'punata')
+  await createTestUser('tesorero-old', 'afiliado_admin', 'punata')
   const memberRef = db.collection('union_members').doc('m-legacy')
   await memberRef.set({
     id: 'm-legacy', memberNumber: 'SOC-LEG-001', fullName: 'Afiliado Histórico', ci: '1234567',
@@ -534,7 +533,7 @@ test('12. Afiliado antiguo: actualizar expediente conserva datos y cuota vincula
 })
 
 test('13. Afiliado: rechaza fecha de retiro anterior al ingreso sin persistir', async () => {
-  await createTestUser('tesorero-fechas', 'tesoreria', 'punata')
+  await createTestUser('tesorero-fechas', 'afiliado_admin', 'punata')
   const memberId = 'member-fechas-invalidas'
 
   await assert.rejects(async () => {
@@ -557,7 +556,7 @@ test('13. Afiliado: rechaza fecha de retiro anterior al ingreso sin persistir', 
 })
 
 test('14. Afiliado: quitar fecha de retiro limpia el campo y permite verificar estado', async () => {
-  await createTestUser('tesorero-retirar-fecha', 'tesoreria', 'punata')
+  await createTestUser('tesorero-retirar-fecha', 'afiliado_admin', 'punata')
   const memberId = 'member-quitar-retiro'
   const auth = { uid: 'tesorero-retirar-fecha' }
 
@@ -587,7 +586,7 @@ test('14. Afiliado: quitar fecha de retiro limpia el campo y permite verificar e
 
 test('15. Hijos: crear, consultar y editar conserva campos omitidos y rechaza rol no autorizado', async () => {
   const runId = Date.now().toString(36)
-  await createTestUser('tesorero-hijos-crud', 'tesoreria', 'punata')
+  await createTestUser('tesorero-hijos-crud', 'afiliado_admin', 'punata')
   await createTestUser('secretaria-hijos-crud', 'secretaria', 'punata')
   const auth = { uid: 'tesorero-hijos-crud' }
   const memberId = `member-hijos-crud-${runId}`
@@ -642,7 +641,7 @@ test('15. Hijos: crear, consultar y editar conserva campos omitidos y rechaza ro
 
 test('16. Vínculos: afiliado e hijo usan conductores existentes sin alterar viajes ni cuotas', async () => {
   const runId = Date.now().toString(36)
-  await createTestUser('tesorero-vinculos', 'tesoreria', 'punata')
+  await createTestUser('tesorero-vinculos', 'afiliado_admin', 'punata')
   await createTestUser('secretaria-vinculos', 'secretaria', 'punata')
   await createTestUser(`driver-vinculo-a-${runId}`, 'conductor', 'punata')
   await createTestUser(`driver-vinculo-b-${runId}`, 'conductor', 'punata')
@@ -710,7 +709,7 @@ test('16. Vínculos: afiliado e hijo usan conductores existentes sin alterar via
 
 test('17. Padrón imprimible: devuelve afiliados, hijos y vínculos con los roles de lectura existentes', async () => {
   const runId = Date.now().toString(36)
-  await createTestUser(`tesorero-roster-${runId}`, 'tesoreria', 'punata')
+  await createTestUser(`tesorero-roster-${runId}`, 'afiliado_admin', 'punata')
   await createTestUser(`secretaria-roster-${runId}`, 'secretaria', 'punata')
   await createTestUser(`driver-roster-${runId}`, 'conductor', 'punata')
   const auth = { uid: `tesorero-roster-${runId}` }
@@ -757,7 +756,7 @@ test('18. Simulación integral: afiliados, hijos, conductores y padrón conserva
   const deniedUid = `secretaria-integral-${runId}`
   const driverA = `driver-a-integral-${runId}`
   const driverB = `driver-b-integral-${runId}`
-  await createTestUser(adminUid, 'tesoreria')
+  await createTestUser(adminUid, 'afiliado_admin')
   await createTestUser(deniedUid, 'secretaria')
   for (const [uid, fullName] of [[driverA, 'Chofer A Integración'], [driverB, 'Chofer B Integración']]) {
     await createTestUser(uid, 'conductor')

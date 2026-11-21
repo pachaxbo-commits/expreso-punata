@@ -25,8 +25,8 @@ test('Deportes: convocatoria, asistencia, multas idempotentes, justificaciones, 
   const cashierUid = `sports-cashier-${suffix}`
   const deniedUid = `sports-driver-${suffix}`
   await user(directorUid, 'afiliado_admin')
-  await user(treasurerUid, 'tesoreria')
-  await user(cashierUid, 'secretaria')
+  await user(treasurerUid, 'afiliado_admin')
+  await user(cashierUid, 'afiliado_admin')
   await user(deniedUid, 'conductor')
 
   const memberIds = Array.from({ length: 5 }, (_, index) => `sports-member-${suffix}-${index + 1}`)

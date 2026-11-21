@@ -907,9 +907,6 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
                 <option value="afiliado_admin">Administrador de Expreso Punata</option>
                 <option value="afiliado">Afiliado (solo su cuenta)</option>
                 <option value="secretaria">Secretaria / Ventanilla</option>
-                <option value="encargado_agencia">Encargado de Agencia</option>
-                <option value="conductor">Chofer / Conductor</option>
-                <option value="tesoreria">Tesorería</option>
 
               </select>
             </div>

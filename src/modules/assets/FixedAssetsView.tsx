@@ -1,4 +1,4 @@
-import { hasOperationalRole } from '../auth/operationalRoles'
+import { hasOperationalRole, isOperationalAdmin } from '../auth/operationalRoles'
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Building2,
@@ -118,7 +118,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
   const [disposeReason, setDisposeReason] = useState('')
 
   // Permisos
-  const canManage = hasOperationalRole(userProfile, ['directiva_admin', 'encargado_agencia', 'tesoreria'])
+  const canManage = isOperationalAdmin(userProfile)
   const canReadAllBranches = hasOperationalRole(userProfile, ['directiva_admin', 'tesoreria'])
   const assetBranchScope = canReadAllBranches ? undefined : (currentBranchId === 'cochabamba' ? 'cochabamba' : 'punata')
 

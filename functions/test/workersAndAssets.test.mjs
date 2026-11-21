@@ -285,7 +285,7 @@ test('6. registerGeneralExpense: Registro de gasto operativo con comprobante EGR
 })
 
 test('7. manageFixedAsset: Registro de activo con código autogenerado ACT-PUN-0001 y auditoría', async () => {
-  await createTestUser('manager-1', 'encargado_agencia', 'punata')
+  await createTestUser('manager-1', 'afiliado_admin', 'punata')
 
   const res = await manageFixedAsset.run({
     auth: { uid: 'manager-1' },

@@ -19,7 +19,7 @@ async function loan(prefix, managerUid, memberId, grantDate = new Date().toISOSt
 test('disburseUnionLoan: efectivo, Caja, idempotencia y concurrencia', async () => {
   const suffix = Date.now().toString(36)
   const manager = `loan-manager-${suffix}`; const cashier = `loan-cashier-${suffix}`
-  await user(manager, 'afiliado_admin'); await user(cashier, 'secretaria')
+  await user(manager, 'afiliado_admin'); await user(cashier, 'afiliado_admin')
   const { result, ref } = await loan(suffix, manager, `member-${suffix}`)
   const shift = await openCashShift.run({ auth: { uid: cashier }, data: { branchId: 'punata', initialCashCents: 5000, idempotencyKey: `shift-${suffix}` } })
   const input = { loanId: result.loan.id, paymentMethod: 'cash', shiftId: shift.shift.id, branchId: 'punata', idempotencyKey: `disburse-${suffix}` }
@@ -36,11 +36,11 @@ test('disburseUnionLoan: efectivo, Caja, idempotencia y concurrencia', async () 
 
 test('disburseUnionLoan: QR y transferencia no reducen efectivo; roles y legacy_unknown se bloquean', async () => {
   const suffix = `${Date.now().toString(36)}-noncash`; const manager = `manager-${suffix}`; const cashier = `secretary-${suffix}`; const denied = `denied-${suffix}`
-  await user(manager, 'afiliado_admin'); await user(cashier, 'secretaria'); await user(denied, 'conductor')
+  await user(manager, 'afiliado_admin'); await user(cashier, 'afiliado_admin'); await user(denied, 'conductor')
   const qr = await loan(`${suffix}-qr`, manager, `member-${suffix}-qr`); const transfer = await loan(`${suffix}-tr`, manager, `member-${suffix}-tr`); const deniedLoan = await loan(`${suffix}-deny`, manager, `member-${suffix}-deny`)
   const qrResult = await disburseUnionLoan.run({ auth: { uid: cashier }, data: { loanId: qr.result.loan.id, paymentMethod: 'qr', branchId: 'punata', idempotencyKey: `qr-${suffix}` } })
   const treasurer = `treasurer-${suffix}`
-  await user(treasurer, 'tesoreria')
+  await user(treasurer, 'afiliado_admin')
   const transferResult = await disburseUnionLoan.run({ auth: { uid: treasurer }, data: { loanId: transfer.result.loan.id, paymentMethod: 'transfer', branchId: 'punata', idempotencyKey: `tr-${suffix}` } })
   assert.equal(qrResult.success, true); assert.equal(transferResult.success, true)
   await assert.rejects(() => disburseUnionLoan.run({ auth: { uid: denied }, data: { loanId: deniedLoan.result.loan.id, paymentMethod: 'transfer', branchId: 'punata', idempotencyKey: `deny-${suffix}` } }), (error) => error.code === 'permission-denied')
@@ -51,7 +51,7 @@ test('disburseUnionLoan: QR y transferencia no reducen efectivo; roles y legacy_
 
 test('disburseUnionLoan: cobro de cuota posterior conserva la operación', async () => {
   const suffix = `${Date.now().toString(36)}-collect`; const manager = `manager-${suffix}`; const cashier = `cashier-${suffix}`
-  await user(manager, 'afiliado_admin'); await user(cashier, 'secretaria')
+  await user(manager, 'afiliado_admin'); await user(cashier, 'afiliado_admin')
   const created = await loan(suffix, manager, `member-${suffix}`)
   const disbursed = await disburseUnionLoan.run({ auth: { uid: cashier }, data: { loanId: created.result.loan.id, paymentMethod: 'transfer', branchId: 'punata', idempotencyKey: `disburse-${suffix}` } })
   assert.equal(disbursed.success, true)

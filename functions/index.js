@@ -1,3 +1,4 @@
+import { readAffiliateOperations } from './affiliateOperations.js'
 import crypto from 'node:crypto'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore'
@@ -1106,7 +1107,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
       throw new HttpsError('permission-denied', 'La cuenta ya no tiene autorización para administrar usuarios.')
     }
     const existingDoc = await transaction.get(targetUserRef)
-    if (role === 'directiva_admin' && existingDoc.data()?.role !== 'directiva_admin') {
+    if (['directiva_admin', 'tesoreria', 'encargado_agencia', 'conductor'].includes(role) && existingDoc.data()?.role !== role) {
       throw new HttpsError('invalid-argument', 'Use afiliado_admin para asignar la administración de Expreso Punata.')
     }
     const existingProfile = existingDoc.data()
@@ -1543,6 +1544,10 @@ export const closeCashShift = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
   }
 
+  if (!hasOperationalRole(callerData, ['secretaria', 'encargado_agencia', 'directiva_admin'])) {
+    throw new HttpsError('permission-denied', 'No tiene permiso para cerrar Caja.')
+  }
+
   const payload = request.data || {}
   const shiftId = payload.shiftId && typeof payload.shiftId === 'string' ? payload.shiftId.trim() : ''
   if (!shiftId) {
@@ -1742,7 +1747,7 @@ export const createExpenseAuthorization = onCall({ cors: true }, async (request)
     throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
   }
 
-  const allowedRoles = ['encargado_agencia', 'directiva_admin']
+  const allowedRoles = ['directiva_admin']
   if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'Solo Encargados de Agencia o Directiva pueden autorizar egresos extraordinarios.')
   }
@@ -1835,7 +1840,7 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
   }
 
-  const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
+  const allowedRoles = ['directiva_admin']
   if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para registrar gastos de caja.')
   }
@@ -4154,7 +4159,7 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario inactivo.')
   }
 
-  const allowedRoles = ['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']
+  const allowedRoles = ['directiva_admin']
   if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permiso para liquidar custodia financiera de conductores.')
   }
@@ -4700,7 +4705,7 @@ export const manageUnionMember = onCall({ cors: true }, async (request) => {
   }
   const caller = callerDoc.data()
   const isAffiliateAdmin = caller.role === 'afiliado_admin' && !isOperationalAdmin(caller)
-  if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria', 'afiliado_admin'])) {
+  if (!hasOperationalRole(caller, ['directiva_admin', 'afiliado_admin'])) {
     throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden administrar socios.')
   }
 
@@ -4998,7 +5003,7 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
+  if (!hasOperationalRole(caller, ['directiva_admin'])) {
     throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden emitir cuotas mensuales.')
   }
 
@@ -5205,7 +5210,7 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  const allowedRoles = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia']
+  const allowedRoles = ['directiva_admin']
   if (!hasOperationalRole(caller, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para cobrar cuotas de socios.')
   }
@@ -5499,7 +5504,7 @@ export const getMemberAccountStatement = onCall({ cors: true }, async (request) 
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  const allowedRoles = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia']
+  const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia']
   if (!hasOperationalRole(caller, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para consultar estados de cuenta de socios.')
   }
@@ -5666,7 +5671,7 @@ export const manageWorker = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
+  if (!hasOperationalRole(caller, ['directiva_admin'])) {
     throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden administrar trabajadores.')
   }
 
@@ -5831,7 +5836,7 @@ export const registerWorkerPayment = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
+  if (!hasOperationalRole(caller, ['directiva_admin'])) {
     throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden autorizar y registrar pagos de sueldos o anticipos.')
   }
 
@@ -6052,7 +6057,7 @@ export const registerGeneralExpense = onCall({ cors: true }, async (request) => 
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'secretaria']
+  const allowedRoles = ['directiva_admin']
   if (!hasOperationalRole(caller, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para registrar egresos operativos.')
   }
@@ -6279,7 +6284,7 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  if (!hasOperationalRole(caller, ['directiva_admin', 'encargado_agencia', 'tesoreria'])) {
+  if (!hasOperationalRole(caller, ['directiva_admin'])) {
     throw new HttpsError('permission-denied', 'No tiene permisos para administrar el inventario de bienes fijos.')
   }
 
@@ -6693,7 +6698,7 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
 })
 
 const PATRIMONIAL_READ_ROLES = ['directiva_admin', 'encargado_agencia', 'tesoreria', 'secretaria']
-const PATRIMONIAL_MANAGE_ROLES = ['directiva_admin', 'encargado_agencia', 'tesoreria']
+const PATRIMONIAL_MANAGE_ROLES = ['directiva_admin']
 
 async function requirePatrimonialUser(request, allowedRoles, message) {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Debe iniciar sesión.')
@@ -6819,6 +6824,11 @@ function financialMovementDateKey(movement) {
   if (typeof value?.toDate === 'function') return value.toDate().toISOString()
   return ''
 }
+
+export const listAffiliateOperations = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  return readAffiliateOperations(db, caller, request.data || {})
+})
 
 /** Read-only operational projection. Never return sender, recipient or delivery evidence. */
 export const listAffiliateShipments = onCall({ cors: true }, async (request) => {
@@ -8441,7 +8451,7 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
   if (!caller || !caller.isActive) {
     throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
   }
-  if (!hasOperationalRole(caller, ['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin'])) {
+  if (!hasOperationalRole(caller, ['directiva_admin'])) {
     throw new HttpsError('permission-denied', 'No tiene permisos para liquidar comisiones de conductores.')
   }
 
@@ -8659,6 +8669,8 @@ export const manageConsumable = onCall({ cors: true }, async (request) => {
   if (!caller || !caller.isActive) {
     throw new HttpsError('unauthenticated', 'Usuario no autenticado o inactivo.')
   }
+
+  if (!isOperationalAdmin(caller)) throw new HttpsError('permission-denied', 'Solo administración puede gestionar insumos.')
 
   const {
     action,
@@ -9258,6 +9270,10 @@ export const registerShipmentContact = onCall({ cors: true }, async (request) =>
 })
 
 export const getSystemConfig = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (caller.isActive !== true || ['afiliado', 'soporte_pachax'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'La configuración no está disponible para este perfil.')
+  }
   const configDoc = await db.collection('system_config').doc('expreso_punata').get()
   if (!configDoc.exists) {
     return {
@@ -9292,7 +9308,14 @@ export const getSystemConfig = onCall({ cors: true }, async (request) => {
     isDemo: Boolean(data.isDemo),
     config: {
       id: configDoc.id,
-      ...data,
+      ...(isOperationalAdmin(caller) ? data : {
+        branches: Object.fromEntries(Object.entries(data.branches || {}).map(([id, branch]) => [id, {
+          phone: branch.phone,
+          address: branch.address,
+          name: branch.name,
+        }])),
+        tariffs: data.tariffs,
+      }),
       isOfficial: true,
       status: 'configured',
     },
@@ -9433,9 +9456,9 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
 // =========================================================================
 // PRÉSTAMOS INTERNOS DE AFILIADOS
 // =========================================================================
-const LOAN_MANAGEMENT_ROLES = ['directiva_admin', 'tesoreria']
-const LOAN_COLLECTION_ROLES = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia']
-const LOAN_READ_ROLES = ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia', 'afiliado_admin']
+const LOAN_MANAGEMENT_ROLES = ['directiva_admin']
+const LOAN_COLLECTION_ROLES = LOAN_MANAGEMENT_ROLES
+const LOAN_READ_ROLES = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'afiliado_admin']
 
 function loanDateIsValid(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
@@ -9483,34 +9506,35 @@ export const getMyUnionAccount = onCall({ cors: true }, async (request) => {
     db.collection('union_fines').where('memberId', '==', memberId).get(),
   ])
 
+  const project = (doc, keys) => ({ id: doc.id, ...Object.fromEntries(keys.map(key => [key, doc.get(key) ?? null])) })
+  const history = (doc) => project(doc, ['receiptNumber', 'amountCents', 'paidAtIso', 'paymentMethod'])
   const loans = await Promise.all(loansSnapshot.docs.map(async (loanDoc) => {
     const [installments, payments] = await Promise.all([
       loanDoc.ref.collection('installments').orderBy('sequence', 'asc').get(),
       loanDoc.ref.collection('payments').orderBy('paidAtIso', 'asc').get(),
     ])
     return {
-      id: loanDoc.id,
-      ...loanDoc.data(),
-      installments: installments.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-      payments: payments.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      ...project(loanDoc, ['loanNumber', 'principalCents', 'balanceCents', 'grantDate', 'status', 'disbursementStatus']),
+      installments: installments.docs.map(doc => project(doc, ['sequence', 'dueDate', 'amountCents', 'balanceCents', 'status'])),
+      payments: payments.docs.map(history),
     }
   }))
   const fines = await Promise.all(finesSnapshot.docs.map(async (fineDoc) => {
     const payments = await fineDoc.ref.collection('payments').orderBy('paidAtIso', 'asc').get()
-    return { id: fineDoc.id, ...fineDoc.data(), payments: payments.docs.map((doc) => ({ id: doc.id, ...doc.data() })) }
+    return { ...project(fineDoc, ['category', 'reason', 'date', 'amountCents', 'balanceCents', 'status']), payments: payments.docs.map(history) }
   }))
 
   return {
     success: true,
-    member: { id: memberDoc.id, ...member },
-    dues: duesSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+    member: project(memberDoc, ['fullName', 'memberNumber', 'branchId', 'status']),
+    dues: duesSnapshot.docs.map(doc => project(doc, ['period', 'dueDate', 'amountCents', 'balanceCents', 'status'])),
     loans,
     fines,
   }
 })
 
 export const createUnionLoan = onCall({ cors: true }, async (request) => {
-  const caller = await requireUnionLoanCaller(request, [...LOAN_MANAGEMENT_ROLES, 'secretaria'], 'registrar préstamos internos.')
+  const caller = await requireUnionLoanCaller(request, LOAN_MANAGEMENT_ROLES, 'registrar préstamos internos.')
   const { memberId, principalCents, installmentCount, firstDueDate, grantDate, notes = '' } = request.data || {}
   if (typeof memberId !== 'string' || !memberId.trim()) throw new HttpsError('invalid-argument', 'Seleccione un afiliado.')
   if (!Number.isSafeInteger(principalCents) || principalCents <= 0) throw new HttpsError('invalid-argument', 'El monto debe ser un entero positivo en centavos.')
@@ -9526,9 +9550,6 @@ export const createUnionLoan = onCall({ cors: true }, async (request) => {
   return db.runTransaction(async (transaction) => {
     const [memberDoc, counterDoc] = await Promise.all([transaction.get(memberRef), transaction.get(counterRef)])
     if (!memberDoc.exists) throw new HttpsError('not-found', 'El afiliado seleccionado no existe.')
-    if (caller.role === 'secretaria' && !((caller.allowedBranchIds || [caller.primaryBranchId]).includes(memberDoc.data()?.branchId))) {
-      throw new HttpsError('permission-denied', 'Secretaría solo puede crear préstamos para afiliados de su sucursal autorizada.')
-    }
     const sequence = (counterDoc.exists ? Number(counterDoc.data()?.currentSequence) || 0 : 0) + 1
     const loanNumber = `PRE-${year}-${String(sequence).padStart(5, '0')}`
     const baseCents = Math.floor(principalCents / installmentCount)
@@ -9571,7 +9592,7 @@ export const createUnionLoan = onCall({ cors: true }, async (request) => {
 
 // Desembolso único y completo del préstamo. Las escrituras financieras permanecen en backend.
 export const disburseUnionLoan = onCall({ cors: true }, async (request) => {
-  const caller = await requireUnionLoanCaller(request, ['tesoreria', 'secretaria'], 'desembolsar préstamos internos.')
+  const caller = await requireUnionLoanCaller(request, ['directiva_admin'], 'desembolsar préstamos internos.')
   const { loanId, paymentMethod = 'cash', shiftId, branchId, notes = '', idempotencyKey } = request.data || {}
   if (typeof loanId !== 'string' || !loanId.trim()) throw new HttpsError('invalid-argument', 'El préstamo es obligatorio.')
   if (!['cash', 'qr', 'transfer'].includes(paymentMethod)) throw new HttpsError('invalid-argument', 'Método de desembolso no válido.')
@@ -9988,7 +10009,7 @@ export const saveAnnualBoard = onCall({ cors: true }, async (request) => {
 // Multas: alta independiente, sin crear movimientos ni afectar Caja.
 const FINE_CATEGORIES = ['transporte', 'conflictos', 'deportes', 'otros']
 export const createUnionFine = onCall({ cors: true }, async (request) => {
-  const caller = await requireUnionLoanCaller(request, [...LOAN_MANAGEMENT_ROLES, 'secretaria'], 'registrar multas de afiliados.')
+  const caller = await requireUnionLoanCaller(request, LOAN_MANAGEMENT_ROLES, 'registrar multas de afiliados.')
   const { memberId, category, reason, description = '', date, amountCents, notes = '' } = request.data || {}
   if (typeof memberId !== 'string' || !memberId.trim()) throw new HttpsError('invalid-argument', 'Seleccione un afiliado.')
   if (!FINE_CATEGORIES.includes(category)) throw new HttpsError('invalid-argument', 'La categoría de multa no es válida.')
@@ -10395,7 +10416,7 @@ export const listUnionFines = onCall({ cors: true }, async (request) => {
   // sucursal; no se agrega al conjunto general de lectura de préstamos.
   const caller = await requireUnionLoanCaller(
     request,
-    [...LOAN_READ_ROLES, 'secretaria'],
+    LOAN_READ_ROLES,
     'consultar multas de afiliados.'
   )
   const { memberId, category, status } = request.data || {}

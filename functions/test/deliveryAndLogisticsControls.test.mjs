@@ -432,7 +432,7 @@ test('7. COBRO EN RUTA POR CONDUCTOR (B2): Conductor entrega encomienda COD en r
 })
 
 test('8. RENDICIÓN DE CONDUCTOR (C1): Transferencia interna de custodia en caja con validación estricta, rendición parcial y completa', async () => {
-  await createTestUser('sec-cbba', 'secretaria', 'cochabamba')
+  await createTestUser('sec-cbba', 'afiliado_admin', 'cochabamba', ['punata', 'cochabamba'])
   await createTestUser('chofer-2', 'conductor', 'punata', ['punata', 'cochabamba'])
 
   // Configurar custodia previa de Bs 30.00 en la cuenta del conductor

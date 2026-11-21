@@ -20,7 +20,7 @@ test('Multas: ciclo Bs 200, Caja, parcialidades, historial, idempotencia, concur
   const deniedUid = `fine-denied-${suffix}`
   const memberId = `fine-member-${suffix}`
   await user(managerUid, 'afiliado_admin')
-  await user(cashierUid, 'secretaria')
+  await user(cashierUid, 'afiliado_admin')
   await user(deniedUid, 'conductor')
   await manageUnionMember.run({ auth: { uid: managerUid }, data: { id: memberId, memberNumber: `MUL-${suffix}`, fullName: 'Afiliada Multa', joinedAt: '2020-01-01', status: 'active', monthlyFeeBob: 50, branchId: 'punata' } })
   const memberRef = db.collection('union_members').doc(memberId)
@@ -51,7 +51,7 @@ test('Multas: ciclo Bs 200, Caja, parcialidades, historial, idempotencia, concur
   assert.equal((await db.collection('financial_movements').where('shiftId', '==', shiftId).get()).size, movementsBeforeCreation, 'crear la multa no genera movimientos de Caja')
   assert.equal((await shiftRef.get()).data().expectedCashCents, 10000, 'crear la multa no cambia el turno')
   const transportPayment = await collectUnionFinePayment.run({ auth: { uid: cashierUid }, data: { fineId: transportFine.fine.id, amountCents: 1000, shiftId, branchId: 'punata', idempotencyKey: `fine-transport-${suffix}` } })
-  assert.equal(transportPayment.balanceCents, 0, 'Secretaría puede cobrar multas de transporte de su sucursal')
+  assert.equal(transportPayment.balanceCents, 0, 'Administración puede cobrar multas de transporte de su sucursal')
   await assert.rejects(() => collectUnionFinePayment.run({ auth: { uid: cashierUid }, data: { fineId, amountCents: 5000, shiftId: '', idempotencyKey: `fine-no-shift-${suffix}` } }), (error) => error.code === 'failed-precondition')
   await assert.rejects(() => collectUnionFinePayment.run({ auth: { uid: deniedUid }, data: { fineId, amountCents: 5000, shiftId, idempotencyKey: `fine-denied-${suffix}` } }), (error) => error.code === 'permission-denied')
   await assert.rejects(() => collectUnionFinePayment.run({ auth: { uid: cashierUid }, data: { fineId, amountCents: -1, shiftId, idempotencyKey: `fine-invalid-${suffix}` } }), (error) => error.code === 'invalid-argument')

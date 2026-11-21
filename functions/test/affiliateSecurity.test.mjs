@@ -27,7 +27,8 @@ test('afiliado consulta únicamente su cuenta vinculada', async () => {
   const result = await getMyUnionAccount.run({ auth: { uid }, data: {} })
   assert.equal(result.member.memberNumber, `PUN-${id}`)
   assert.equal(result.dues.length, 1)
-  assert.equal(result.dues[0].memberId, `member-${id}`)
+  assert.equal(result.dues[0].amountCents, 1000)
+  assert.equal(result.dues[0].memberId, undefined)
 })
 
 test('adminProvisionUser valida vínculo activo, sucursal y duplicación', async () => {

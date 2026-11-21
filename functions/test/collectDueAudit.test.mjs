@@ -14,7 +14,7 @@ test('collectMemberDue writes one central audit event for a payment and idempote
 
   await Promise.all([
     db.collection('users').doc(uid).set({
-      uid, role: 'secretaria', isActive: true, primaryBranchId: 'punata',
+      uid, role: 'directiva_admin', isActive: true, primaryBranchId: 'punata',
       allowedBranchIds: ['punata'], fullName: 'Fixture Secretaria Audit',
     }),
     db.collection('union_members').doc(memberId).set({

@@ -1,7 +1,6 @@
+import { AffiliateOperationsView } from '../modules/union/AffiliateOperationsView'
 import { isOperationalAdmin } from '../modules/auth/operationalRoles'
-import { AffiliatePassengerTicketsView } from '../modules/tickets/AffiliatePassengerTicketsView'
 import { BranchCommissionView } from '../modules/dispatch/BranchCommissionView'
-import { AffiliateShipmentsView } from '../modules/shipments/AffiliateShipmentsView'
 import { DailyOperationsView } from '../modules/reports/DailyOperationsView'
 import { isPublicDemo } from '../firebase/config'
 import React, { lazy, Suspense, useState, useEffect } from 'react'
@@ -177,8 +176,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
     { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['secretaria', 'tesoreria', 'directiva_admin']) },
     { id: 'sports-fines', label: 'Multas', icon: AlertTriangle, visible: hasRole(['secretaria']) },
-    { id: 'affiliate-tickets', label: 'Consulta de pasajes', icon: Ticket, visible: userProfile.role === 'afiliado' },
-    { id: 'affiliate-shipments', label: 'Consulta de encomiendas', icon: Package, visible: userProfile.role === 'afiliado' },
+    { id: 'affiliate-operations', label: 'Consultas', icon: BarChart3, visible: userProfile.role === 'afiliado' },
     { id: 'my-account', label: 'Mi cuenta', icon: UserCircle, visible: hasRole(['afiliado']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
@@ -551,8 +549,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           />
         )}
 
-        {activeTab === 'affiliate-tickets' && <AffiliatePassengerTicketsView key={currentBranch.id} branchId={currentBranch.id} />}
-        {activeTab === 'affiliate-shipments' && <AffiliateShipmentsView key={currentBranch.id} branchId={currentBranch.id} />}
+        {activeTab === 'affiliate-operations' && <AffiliateOperationsView key={currentBranch.id} branchId={currentBranch.id} branchName={currentBranch.name} />}
         {activeTab === 'my-account' && <AffiliateAccountView currentUser={userProfile} />}
 
         {/* PESTAÑA: PERSONAL & GASTOS OPERATIVOS */}

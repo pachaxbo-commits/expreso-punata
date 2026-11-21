@@ -107,7 +107,7 @@ test('1. accrueDriverCommission usa la regla oficial y es idempotente', async ()
 test('2. FASE 5A: settleDriverCommission liquida comisiones con egreso de caja y vale oficial', async () => {
   // 1. Abrir turno de caja
   await openCashShift.run({
-    auth: { uid: 'cashier-1' },
+    auth: { uid: 'admin-1' },
     data: { branchId: 'punata', initialCashCents: 50000 },
   })
 
@@ -120,7 +120,7 @@ test('2. FASE 5A: settleDriverCommission liquida comisiones con egreso de caja y
 
   // 3. Liquidar Bs 6.00 (pago parcial)
   const settleReq = {
-    auth: { uid: 'cashier-1' },
+    auth: { uid: 'admin-1' },
     data: {
       driverUid: 'driver-1',
       amountCents: 600,
@@ -144,7 +144,7 @@ test('2. FASE 5A: settleDriverCommission liquida comisiones con egreso de caja y
   await assert.rejects(
     async () => {
       await settleDriverCommission.run({
-        auth: { uid: 'cashier-1' },
+        auth: { uid: 'admin-1' },
         data: {
           driverUid: 'driver-1',
           amountCents: 500, // Supera los 400 restantes
@@ -159,7 +159,7 @@ test('2. FASE 5A: settleDriverCommission liquida comisiones con egreso de caja y
 test('3. FASE 5B: manageConsumable gestiona catálogo, entradas, consumos y alertas de stock', async () => {
   // 1. Crear insumo
   const createRes = await manageConsumable.run({
-    auth: { uid: 'manager-1' },
+    auth: { uid: 'admin-1' },
     data: {
       action: 'create_item',
       code: 'ROL-80MM',
@@ -177,7 +177,7 @@ test('3. FASE 5B: manageConsumable gestiona catálogo, entradas, consumos y aler
 
   // 2. Registrar consumo de 6 rollos (queda en 4 <= minStockAlert 5 -> activa alerta)
   const consRes = await manageConsumable.run({
-    auth: { uid: 'cashier-1' },
+    auth: { uid: 'admin-1' },
     data: {
       action: 'record_consumption',
       id: itemId,
@@ -194,7 +194,7 @@ test('3. FASE 5B: manageConsumable gestiona catálogo, entradas, consumos y aler
 
   // 3. Registrar entrada de 20 rollos (queda en 24 -> desactiva alerta)
   const entryRes = await manageConsumable.run({
-    auth: { uid: 'manager-1' },
+    auth: { uid: 'admin-1' },
     data: {
       action: 'record_entry',
       id: itemId,
@@ -213,7 +213,7 @@ test('3. FASE 5B: manageConsumable gestiona catálogo, entradas, consumos y aler
   await assert.rejects(
     async () => {
       await manageConsumable.run({
-        auth: { uid: 'cashier-1' },
+        auth: { uid: 'admin-1' },
         data: {
           action: 'record_consumption',
           id: itemId,
@@ -318,7 +318,7 @@ test('4. FASE 5C: registerShipmentIncident reporta novedad, actualiza encomienda
 
 test('5. FASE 7: updateSystemConfig y getSystemConfig gestionan configuración oficial', async () => {
   // 1. Obtener inicial (defaults)
-  const initial = await getSystemConfig.run({})
+  const initial = await getSystemConfig.run({ auth: { uid: 'admin-1' } })
   assert.strictEqual(initial.success, true)
   assert.strictEqual(initial.status, 'unconfigured')
   assert.strictEqual(initial.config, null)
@@ -362,7 +362,7 @@ test('5. FASE 7: updateSystemConfig y getSystemConfig gestionan configuración o
   assert.strictEqual(updateRes.config.commissions.defaultValue, 12)
 
   // 4. Consultar de nuevo
-  const verified = await getSystemConfig.run({})
+  const verified = await getSystemConfig.run({ auth: { uid: 'admin-1' } })
   assert.strictEqual(verified.isDefault, false)
   assert.strictEqual(verified.config.company.tradeName, 'EXPRESO PUNATA OFICIAL')
 })

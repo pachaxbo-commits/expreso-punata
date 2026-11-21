@@ -1,3 +1,4 @@
+import { prefix, sample } from '../fixtures/affiliateOperations.mjs'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { chromium } from 'playwright-core'
@@ -67,8 +68,8 @@ try {
   assert((await shiftResponse.json()).result?.shift?.id)
   let commissionSource
   for (const [mode, timing] of [[/^Pagado en origen/i, 'origin_paid'], [/^Por pagar/i, 'destination_cod']]) {
-    const senderPage = timing === 'origin_paid' ? adminPage : originPage
-    const senderUid = timing === 'origin_paid' ? admin.uid : origin.uid
+    const senderPage = originPage
+    const senderUid = origin.uid
     await senderPage.locator('[data-tutorial-target="btn-new-shipment"]').click()
     await btn(senderPage, 'Siguiente').click()
     for (const [placeholder, value] of [['Ej. Juan Pérez','Remitente Demo'], ['Ej. 71712345','70000001'], ['Ej. María López','Destinataria Demo'], ['Ej. 72234567','70000002']]) {
@@ -182,6 +183,51 @@ try {
   assert.equal((await retry.json()).error?.status, 'FAILED_PRECONDITION')
   await btn(destPage, 'Abrir turno de ventanilla').waitFor()
   console.log('Arqueo integrado: Bs 75, diferencia cero, segundo cierre rechazado.')
+  const nav = originPage.locator('[data-tutorial-target="nav-tabs-bar"]')
+  const navLabels = await nav.locator('nav button[aria-label]').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))
+  assert.deepEqual(navLabels, ['Pasajes', 'Encomiendas', 'Módulos de Almacén', 'Reporte del día'])
+  await btn(originPage, 'Pasajes').click()
+  await btn(originPage, 'Nuevo pasaje').click()
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
+  await originPage.getByLabel('Fecha del viaje').fill(today)
+  await originPage.getByLabel('Chofer', { exact: true }).selectOption(driver.uid)
+  await originPage.getByLabel('Cantidad de pasajes').fill('1')
+  await originPage.getByPlaceholder('Escribir importe').fill('12')
+  const ticketResponse = originPage.waitForResponse(response => response.url().endsWith('/createPassengerTicket') && response.request().method() === 'POST')
+  await btn(originPage, 'Registrar operación').click()
+  const ticket = (await (await ticketResponse).json()).result?.operation
+  assert(ticket?.id)
+  await btn(originPage, 'Confirmar QR recibido').click()
+  await originPage.getByPlaceholder('Ingresar importe recibido').fill('12')
+  await originPage.getByRole('checkbox', { name: /Ya comprobé/ }).check()
+  const qrResponse = originPage.waitForResponse(response => response.url().endsWith('/verifyPassengerTicketPayment') && response.request().method() === 'POST')
+  await btn(originPage, 'Confirmar pago recibido').click()
+  assert((await (await qrResponse).json()).result)
+  const originLock = (await db.collection('cash_shift_active_locks').doc(origin.uid + '_punata').get()).data()
+  const originShift = (await db.collection('cash_shifts').doc(originLock.shiftId).get()).data()
+  assert.equal(originShift.expectedCashCents, 7500)
+  assert.equal(originShift.breakdown.qrIncomeCents, 1200)
+  const ledger = await db.collection('financial_movements').where('shiftId', '==', originLock.shiftId).get()
+  assert.equal(ledger.docs.filter(doc => doc.get('type') === 'passenger_ticket_income').length, 1)
+  assert(ledger.docs.some(doc => doc.get('paymentMethod') === 'cash' && doc.get('amountCents') === 2500))
+  await btn(originPage, 'Encomiendas').click()
+  await btn(originPage, 'Cerrar turno de ventanilla').click()
+  await btn(originPage, 'Ingreso Manual Total').click()
+  await originPage.locator('input[type=number]').fill('75')
+  await btn(originPage, 'Revisar y Cerrar').click()
+  const originCloseResponse = originPage.waitForResponse(response => response.url().endsWith('/closeCashShift') && response.request().method() === 'POST')
+  await btn(originPage, 'Confirmar Cierre Definitivo').click()
+  assert.equal((await (await originCloseResponse).json()).result?.shift?.differenceCents, 0)
+  const doubleClose = await fetch('http://127.0.0.1:5001/' + project + '/us-central1/closeCashShift', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + origin.idToken },
+    body: JSON.stringify({ data: { shiftId: originLock.shiftId, actualCashCents: 7500 } }),
+  })
+  assert.equal((await doubleClose.json()).error?.status, 'FAILED_PRECONDITION')
+  const originDailyResponse = originPage.waitForResponse(response => response.url().endsWith('/getDailyOperationsReport') && response.request().method() === 'POST')
+  await btn(originPage, 'Reporte del día').click()
+  const originDaily = (await (await originDailyResponse).json()).result
+  assert.equal(originDaily.income.tickets, 1200)
+  console.log('Secretaría: encomienda Bs 25 efectivo y pasaje Bs 12 QR en el mismo turno, arqueo cuadrado y segundo cierre rechazado.')
   for (const label of ['Pasajes', 'Módulos de Almacén', 'Afiliados & Aportes', 'Personal & Gastos', 'Inventario / Bienes Fijos', 'Comisiones de conductores']) {
     await btn(adminPage, label).waitFor()
   }
@@ -228,6 +274,56 @@ try {
   await adminPage.getByText('Vale: ' + settlement.result.voucher.voucherNumber, { exact: true }).waitFor()
   console.log('Administrador afiliado autenticado: cuenta, asiento y liquidación de Bs 2 para un conductor de directorio.')
 
+
+  const affiliate = await createOperator('affiliate', 'afiliado', 'punata')
+  for (const [, collection, fields] of sample) {
+    await db.collection(collection).doc(prefix).set({ ...fields, branchId: 'punata', createdAtIso: '2026-11-18T18:00:00Z', phone: 'CANARIO-PRIVADO' })
+  }
+  const affiliatePage = await login(affiliate)
+  await btn(affiliatePage, 'Consultas').click()
+  for (const label of ['Encomiendas', 'Pasajes', 'Almacén', 'Caja', 'Comisiones', 'Afiliados', 'Aportes', 'Préstamos', 'Multas', 'Deportes', 'Inventario', 'Personal', 'Gastos', 'Reportes', 'Historial']) {
+    await btn(affiliatePage, label).click()
+    await affiliatePage.getByLabel('Desde', { exact: true }).fill('2026-11-18')
+    await affiliatePage.getByLabel('Hasta', { exact: true }).fill('2026-11-18')
+    await btn(affiliatePage, 'Aplicar filtros').click()
+    await btn(affiliatePage, 'Ver detalle').first().click()
+    assert.equal(await affiliatePage.getByRole('heading', { name: 'Detalle del registro' }).count(), 1)
+    assert.equal(await affiliatePage.getByText('CANARIO-PRIVADO').count(), 0)
+    assert.equal(await btn(affiliatePage, 'Imprimir resultados de esta página').isEnabled(), true)
+    console.log('Afiliado en Chrome: ' + label + ', filtro y detalle autorizados.')
+  }
+  for (const label of ['Configuración', 'Usuarios y Permisos', 'Soporte PACHAX']) {
+    assert.equal(await btn(affiliatePage, label).count(), 0)
+  }
+
+  await db.collection('union_members').doc(prefix).update({ fullName: 'Afiliación sintética', status: 'active' })
+  await adminPage.locator('nav[aria-label="Secciones del sistema"]').getByRole('button', { name: 'Afiliados & Aportes' }).click()
+  await btn(adminPage, 'Préstamos internos').click()
+  await btn(adminPage, 'Crear préstamo').click()
+  await adminPage.getByLabel('Afiliado beneficiario').selectOption(prefix)
+  await adminPage.getByLabel('Monto original (Bs)').fill('5')
+  await adminPage.getByLabel('Número de cuotas').fill('1')
+  await adminPage.getByLabel('Fecha de otorgamiento').fill(today)
+  await adminPage.getByLabel('Primer vencimiento').fill(today)
+  const loanResponse = adminPage.waitForResponse(response => response.url().endsWith('/createUnionLoan') && response.request().method() === 'POST')
+  await btn(adminPage, 'Guardar préstamo').click()
+  const createdLoan = await (await loanResponse).json()
+  assert(createdLoan.result?.loan?.id, JSON.stringify(createdLoan.error))
+  await btn(adminPage, 'Desembolsar préstamo').click()
+  await adminPage.getByLabel('Método de desembolso').selectOption('transfer')
+  const disburseResponse = adminPage.waitForResponse(response => response.url().endsWith('/disburseUnionLoan') && response.request().method() === 'POST')
+  await btn(adminPage, 'Confirmar desembolso').click()
+  const disbursement = await (await disburseResponse).json()
+  assert.equal(disbursement.result?.disbursement?.amountCents, 500, JSON.stringify(disbursement.error))
+  await btn(adminPage, 'Multas').click()
+  await adminPage.getByLabel('Afiliado', { exact: true }).selectOption(prefix)
+  await adminPage.getByLabel('Motivo', { exact: true }).fill('Incidencia sintética')
+  await adminPage.getByLabel('Importe (Bs)', { exact: true }).fill('3')
+  const fineResponse = adminPage.waitForResponse(response => response.url().endsWith('/createUnionFine') && response.request().method() === 'POST')
+  await btn(adminPage, 'Registrar multa').click()
+  const fine = await (await fineResponse).json()
+  assert.equal(fine.result?.fine?.amountCents, 300, JSON.stringify(fine.error))
+  console.log('Afiliado administrador en Chrome: registro y desembolso de préstamo y registro de multa.')
 
 } finally {
   await browser.close()

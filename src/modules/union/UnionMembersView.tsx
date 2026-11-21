@@ -83,7 +83,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   }, [canReadCashShift, currentUser?.uid, currentBranch?.id])
   const effectiveShift = activeShift || localShift
   const [activeTab, setActiveTab] = useState<'members' | 'dues' | 'loans' | 'fines' | 'sports' | 'debts' | 'annual-board'>(sportsFineCollectionOnly ? 'fines' : 'members')
-  const isManagement = isOperationalAdmin(currentUser) || currentUser.role === 'tesoreria'
+  const isManagement = isOperationalAdmin(currentUser)
   useEffect(() => {
     if (sportsFineCollectionOnly || !tutorialSubTab) return
     const allowedTabs = ['members', 'dues', 'loans', 'fines', 'debts']
@@ -143,7 +143,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
   const canManageMembers = isManagement || currentUser.role === 'afiliado_admin'
   const canGenerateDues = isManagement
   const canPrintRoster = hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'encargado_agencia', 'afiliado_admin'])
-  const isCashier = hasOperationalRole(currentUser, ['secretaria', 'encargado_agencia', 'directiva_admin', 'tesoreria'])
+  const isCashier = isOperationalAdmin(currentUser)
 
   // 1. Suscripción a socios
   useEffect(() => {
@@ -836,7 +836,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
         />
         </div>
       )}
-      {activeTab === 'fines' && <div data-tutorial-target="union-fines-panel"><UnionFinesView members={members} canCreate={isManagement || currentUser.role === 'secretaria'} canCollect={hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'secretaria', 'encargado_agencia'])} activeShift={effectiveShift} branchId={currentBranch.id} /></div>}
+      {activeTab === 'fines' && <div data-tutorial-target="union-fines-panel"><UnionFinesView members={members} canCreate={isOperationalAdmin(currentUser)} canCollect={isOperationalAdmin(currentUser)} activeShift={effectiveShift} branchId={currentBranch.id} /></div>}
       {activeTab === 'sports' && <div data-tutorial-target="union-sports-panel"><UnionSportsView members={members} canManage={isManagement} canDecide={isOperationalAdmin(currentUser)} /></div>}
       {activeTab === 'debts' && <div data-tutorial-target="union-debts-panel"><UnionDebtAlertsView onOpenMember={(memberId) => { const member = members.find((item) => item.id === memberId); if (member) void handleOpenStatement(member) }} /></div>}
       {activeTab === 'annual-board' && isManagement && <div data-tutorial-target="union-annual-board-panel"><AnnualBoardView members={members} /></div>}

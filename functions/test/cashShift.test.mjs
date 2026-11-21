@@ -476,7 +476,7 @@ test('10. TURNO CERRADO BLOQUEA MOVIMIENTOS POSTERIORES: No permite cobrar con u
 })
 
 test('11. REGISTRO DE EGRESO AUTORIZADO: Descuenta efectivo disponible y registra movimiento', async () => {
-  await createTestUser('sec-egreso', 'secretaria', 'punata')
+  await createTestUser('sec-egreso', 'afiliado_admin', 'punata', ['punata', 'cochabamba'])
 
   const openRes = await openCashShift.run({
     auth: { uid: 'sec-egreso', token: { email: 'sec-egreso@expresopunata.com' } },
@@ -727,7 +727,7 @@ test('16. COBRO EXITOSO DE COD EN DESTINO: Permite cobrar destination_cod cuando
 })
 
 test('17. IDEMPOTENCIA OBLIGATORIA Y VINCULADA AL CONTENIDO EN EGRESOS: Clave repetida con datos idénticos devuelve caché; con datos distintos es rechazada', async () => {
-  await createTestUser('sec-idem-exp', 'secretaria', 'punata')
+  await createTestUser('sec-idem-exp', 'afiliado_admin', 'punata', ['punata', 'cochabamba'])
 
   const openRes = await openCashShift.run({
     auth: { uid: 'sec-idem-exp', token: { email: 'sec-idem-exp@expresopunata.com' } },
@@ -793,115 +793,17 @@ test('17. IDEMPOTENCIA OBLIGATORIA Y VINCULADA AL CONTENIDO EN EGRESOS: Clave re
   assert.equal(shiftDoc.data().breakdown.expensesCents, 2000)
 })
 
-test('18. AUTORIZACIÓN VERDADERA DE EGRESOS > Bs 150: Requiere código emitido por Encargado o Admin; valida operador, monto y un solo uso', async () => {
-  await createTestUser('sec-limite-exp', 'secretaria', 'punata')
-  await createTestUser('encargado-punata', 'encargado_agencia', 'punata')
-  await createTestUser('sec-otra-operadora', 'secretaria', 'punata')
-
-  await openCashShift.run({
-    auth: { uid: 'sec-limite-exp', token: { email: 'sec-limite-exp@expresopunata.com' } },
-    data: { branchId: 'punata', initialCashCents: 50000 }, // Bs 500
+test('18. Secretaría no registra egresos aunque tenga autorización de entrega', async () => {
+  await createTestUser('secretaria-egreso', 'secretaria', 'punata')
+  await createTestUser('admin-egreso', 'afiliado_admin', 'punata', ['punata', 'cochabamba'])
+  const authorization = await createExpenseAuthorization.run({
+    auth: { uid: 'admin-egreso' },
+    data: { branchId: 'punata', maxAmountCents: 20000, authorizedOperatorUid: 'secretaria-egreso', concept: 'Entrega de pasajes', category: 'transporte' },
   })
-
-  // 1. Intento sin código de autorización para egreso de Bs 200 -> RECHAZADO
-  await assert.rejects(
-    async () => {
-      await registerCashExpense.run({
-        auth: { uid: 'sec-limite-exp', token: { email: 'sec-limite-exp@expresopunata.com' } },
-        data: {
-          branchId: 'punata',
-          amountCents: 20000,
-          concept: 'Mantenimiento de fotocopiadora',
-          category: 'mantenimiento',
-          idempotencyKey: 'idem-sin-auth-code-1',
-        },
-      })
-    },
-    (err) => {
-      assert.equal(err.code, 'permission-denied')
-      assert.match(err.message, /requieren un código de autorización verificable/i)
-      return true
-    }
-  )
-
-  // 2. Encargado de Punata emite autorización formal de hasta Bs 250 para sec-limite-exp
-  const authRes = await createExpenseAuthorization.run({
-    auth: { uid: 'encargado-punata', token: { email: 'encargado-punata@expresopunata.com' } },
-    data: {
-      branchId: 'punata',
-      maxAmountCents: 25000,
-      concept: 'Mantenimiento de fotocopiadora',
-      category: 'mantenimiento',
-      authorizedOperatorUid: 'sec-limite-exp',
-    },
-  })
-  assert.equal(authRes.success, true)
-  const authCode = authRes.authCode
-  assert.match(authCode, /^AUT-EXP-/)
-
-  // 3. Otra operadora intenta usar el código de autorización emitido para otra persona -> RECHAZADA
-  await openCashShift.run({
-    auth: { uid: 'sec-otra-operadora', token: { email: 'sec-otra-operadora@expresopunata.com' } },
-    data: { branchId: 'punata', initialCashCents: 50000 },
-  })
-  await assert.rejects(
-    async () => {
-      await registerCashExpense.run({
-        auth: { uid: 'sec-otra-operadora', token: { email: 'sec-otra-operadora@expresopunata.com' } },
-        data: {
-          branchId: 'punata',
-          amountCents: 20000,
-          concept: 'Mantenimiento de fotocopiadora',
-          category: 'mantenimiento',
-          authorizationCode: authCode,
-          idempotencyKey: 'idem-usurpar-auth-code-123',
-        },
-      })
-    },
-    (err) => {
-      assert.equal(err.code, 'permission-denied')
-      assert.match(err.message, /Este código de autorización fue emitido para otro operador/i)
-      return true
-    }
-  )
-
-  // 4. Operadora legítima registra el egreso de Bs 200 con el código emitido -> ÉXITO
-  const resOk = await registerCashExpense.run({
-    auth: { uid: 'sec-limite-exp', token: { email: 'sec-limite-exp@expresopunata.com' } },
-    data: {
-      branchId: 'punata',
-      amountCents: 20000,
-      concept: 'Mantenimiento de fotocopiadora',
-      category: 'mantenimiento',
-      authorizationCode: authCode,
-      voucherNumber: 'FAC-8812',
-      idempotencyKey: 'idem-con-auth-code-ok-123',
-    },
-  })
-  assert.equal(resOk.success, true)
-  assert.equal(resOk.amountCents, 20000)
-
-  // 5. Intento de reutilizar el mismo código de autorización por segunda vez -> RECHAZADO (ya consumido)
-  await assert.rejects(
-    async () => {
-      await registerCashExpense.run({
-        auth: { uid: 'sec-limite-exp', token: { email: 'sec-limite-exp@expresopunata.com' } },
-        data: {
-          branchId: 'punata',
-          amountCents: 18000,
-          concept: 'Gasto adicional que excede Bs 150 con el mismo código',
-          category: 'mantenimiento',
-          authorizationCode: authCode,
-          idempotencyKey: 'idem-reuso-auth-code-456',
-        },
-      })
-    },
-    (err) => {
-      assert.equal(err.code, 'failed-precondition')
-      assert.match(err.message, /no está vigente/i)
-      return true
-    }
-  )
+  await assert.rejects(registerCashExpense.run({
+    auth: { uid: 'secretaria-egreso' },
+    data: { branchId: 'punata', amountCents: 20000, category: 'transporte', concept: 'Entrega de pasajes', authorizationCode: authorization.authCode, idempotencyKey: 'egreso-rechazado' },
+  }), { code: 'permission-denied' })
 })
 
 test('19. VALIDACIÓN ESTRICTA DE ARQUEO: Rechaza denominaciones no autorizadas, cantidades fraccionarias y sumas dispares', async () => {
@@ -1006,7 +908,7 @@ test('19. VALIDACIÓN ESTRICTA DE ARQUEO: Rechaza denominaciones no autorizadas,
 })
 
 test('20. IDEMPOTENCIA OBLIGATORIA: registerCashExpense rechaza llamadas sin clave de idempotencia o menor a 8 caracteres', async () => {
-  await createTestUser('sec-sin-idem', 'secretaria', 'punata')
+  await createTestUser('sec-sin-idem', 'afiliado_admin', 'punata', ['punata', 'cochabamba'])
 
   await openCashShift.run({
     auth: { uid: 'sec-sin-idem', token: { email: 'sec-sin-idem@expresopunata.com' } },

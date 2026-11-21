@@ -28,7 +28,7 @@ test('Préstamos internos: cronograma exacto, caja, idempotencia, pagos parciale
   const cashierUid = `cashier-loan-${suffix}`
   const deniedUid = `denied-loan-${suffix}`
   await user(managerUid, 'afiliado_admin')
-  await user(cashierUid, 'secretaria')
+  await user(cashierUid, 'afiliado_admin')
   await user(deniedUid, 'conductor')
   const memberId = `member-loan-${suffix}`
   await manageUnionMember.run({ auth: { uid: managerUid }, data: { id: memberId, memberNumber: `LOAN-${suffix}`, fullName: 'Afiliado de Prueba', joinedAt: '2020-01-01', status: 'active', monthlyFeeBob: 50 } })
