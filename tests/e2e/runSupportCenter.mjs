@@ -10,11 +10,16 @@ assert.equal(process.env.FIREBASE_AUTH_EMULATOR_HOST, '127.0.0.1:9099')
 const app = initializeApp({ projectId: 'demo-support-phase2' })
 const db = getFirestore(app)
 const auth = getAuth(app)
+for (const collection of ['support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_config_history']) {
+  const existing = await db.collection(collection).get()
+  if (!existing.empty) { const batch = db.batch(); existing.forEach(doc => batch.delete(doc.ref)); await batch.commit() }
+}
 const suffix = Date.now()
 const email = `support-${suffix}@example.test`
 const password = 'LocalSupportOnly!234'
 const user = await auth.createUser({ email, password })
 await db.collection('users').doc(user.uid).set({ uid: user.uid, email, fullName: 'Soporte local', role: 'soporte_pachax', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true })
+await db.collection('system_config').doc('expreso_punata').set({ status: 'configured', isOfficial: true, company: { tradeName: 'Nombre inicial' }, branches: { punata: { phone: '111' }, cochabamba: { phone: '222' } } })
 await db.collection('support_cleanup_fixtures').doc('fixture-guide').set({ category: 'encomiendas', testMarker: 'pachax-emulator-fixture-v1', dependsOn: [], branchId: 'punata' })
 await db.collection('support_cleanup_fixtures').doc('fixture-payment').set({ category: 'cobros', testMarker: 'pachax-emulator-fixture-v1', dependsOn: ['fixture-guide'], branchId: 'punata' })
 const preview = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4189', '--strictPort'], { stdio: 'ignore' })
@@ -29,6 +34,16 @@ try {
   await page.getByRole('button', { name: 'Iniciar Sesión', exact: true }).click()
   await page.getByRole('heading', { name: 'Centro de Soporte PACHAX' }).waitFor()
   await page.getByText('emulador', { exact: true }).waitFor()
+  await page.getByText('Nombre inicial', { exact: true }).waitFor()
+  await page.getByLabel('Nuevo valor').fill('Nombre revisado')
+  await page.getByLabel('Motivo', { exact: true }).fill('Solicitud institucional de prueba')
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: 'Guardar cambio' }).click()
+  await page.getByText('Nombre revisado', { exact: true }).waitFor()
+  await page.getByLabel('Motivo', { exact: true }).fill('Restauración de prueba')
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: 'Restaurar valor anterior' }).first().click()
+  await page.getByText('Nombre inicial', { exact: true }).waitFor()
   await page.getByLabel('encomiendas', { exact: true }).check()
   await page.getByRole('button', { name: 'SIMULAR LIMPIEZA' }).click()
   await page.getByText(/2 registros/).waitFor()
@@ -38,5 +53,5 @@ try {
   await page.getByText(/Limpieza de emulador completada/).waitFor()
   assert.equal((await db.collection('support_cleanup_fixtures').get()).size, 0)
   assert.equal((await db.collection('support_cleanup_backups').get()).size, 1)
-  console.log('Support E2E: panel responsive, simulación, dependencias, ejecución y respaldo aprobados.')
+  console.log('Support E2E: panel responsive, configuración, restauración, simulación, dependencias, ejecución y respaldo aprobados.')
 } finally { await browser.close(); preview.kill() }

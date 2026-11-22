@@ -6,6 +6,11 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https'
 const COLLECTION = 'support_cleanup_fixtures'
 const MARKER = 'pachax-emulator-fixture-v1'
 const CATEGORIES = new Set(['encomiendas', 'manifiestos', 'custodia', 'recepciones', 'entregas', 'pasajes', 'cobros', 'caja', 'comisiones', 'aportes', 'multas', 'prestamos', 'almacen', 'inventario'])
+const CONFIG_FIELDS = { tradeName: 'company.tradeName', punataPhone: 'branches.punata.phone', cochabambaPhone: 'branches.cochabamba.phone' }
+function configValue(config, key) {
+  const value = CONFIG_FIELDS[key].split('.').reduce((obj, part) => obj?.[part], config)
+  return typeof value === 'string' ? value : ''
+}
 const inEmulators = () => process.env.FUNCTIONS_EMULATOR === 'true' && Boolean(process.env.FIRESTORE_EMULATOR_HOST) && (process.env.GCLOUD_PROJECT || '').startsWith('demo-')
 
 async function authorize(db, request, recent = false) {
@@ -69,6 +74,39 @@ export function createSupportFunctions(db) {
     const validRule = ['percentage', 'fixed_per_shipment'].includes(c.defaultType) && Number.isFinite(value) && value > 0 && (c.defaultType !== 'percentage' || value <= 100)
     return { services: { functions: 'disponible', firestore: 'disponible' }, commissionsConfigured: config.data()?.status === 'configured' && config.data()?.isOfficial === true && validRule, cleanupEnvironment: inEmulators() ? 'emulador' : 'no disponible en producción' }
   })
+  const getSupportConfiguration = onCall({ cors: true }, async request => {
+    await authorize(db, request)
+    const [config, history] = await Promise.all([
+      db.collection('system_config').doc('expreso_punata').get(),
+      db.collection('support_config_history').orderBy('createdAtIso', 'desc').limit(20).get(),
+    ])
+    if (!config.exists || config.data()?.status !== 'configured' || config.data()?.isOfficial !== true) throw new HttpsError('failed-precondition', 'La configuración institucional oficial aún no está habilitada.')
+    const data = config.data()
+    return { values: Object.fromEntries(Object.keys(CONFIG_FIELDS).map(key => [key, configValue(data, key)])), history: history.docs.map(doc => ({ id: doc.id, ...doc.data() })) }
+  })
+  const updateSupportConfiguration = onCall({ cors: true }, async request => {
+    await authorize(db, request, true)
+    const { field, value, expectedValue, reason, confirmation } = request.data || {}
+    if (!Object.hasOwn(CONFIG_FIELDS, field) || typeof value !== 'string' || typeof expectedValue !== 'string' || typeof reason !== 'string' || reason.trim().length < 10 || reason.trim().length > 500 || confirmation !== true) throw new HttpsError('invalid-argument', 'Confirme la modificación e indique un motivo válido.')
+    const next = value.trim()
+    if ((field === 'tradeName' && (next.length < 2 || next.length > 100)) || (field !== 'tradeName' && (next.length > 24 || !/^[+0-9 ()-]*$/.test(next)))) throw new HttpsError('invalid-argument', 'El valor no cumple el formato permitido.')
+    const configRef = db.collection('system_config').doc('expreso_punata')
+    const historyRef = db.collection('support_config_history').doc()
+    const auditRef = db.collection('audit_logs').doc()
+    return db.runTransaction(async tx => {
+      const [profile, config] = await Promise.all([tx.get(db.collection('users').doc(request.auth.uid)), tx.get(configRef)])
+      if (profile.data()?.role !== 'soporte_pachax' || profile.data()?.isActive !== true) throw new HttpsError('permission-denied', 'La autorización de soporte ya no está activa.')
+      if (!config.exists || config.data()?.status !== 'configured' || config.data()?.isOfficial !== true) throw new HttpsError('failed-precondition', 'No existe una configuración oficial activa.')
+      const previous = configValue(config.data(), field)
+      if (previous !== expectedValue) throw new HttpsError('aborted', 'El valor cambió; recargue la configuración.')
+      if (previous === next) throw new HttpsError('failed-precondition', 'El valor no cambió.')
+      const entry = { field, previous, value: next, reason: reason.trim(), uid: request.auth.uid, createdAtIso: new Date().toISOString() }
+      tx.update(configRef, { [CONFIG_FIELDS[field]]: next })
+      tx.create(historyRef, entry)
+      tx.create(auditRef, { action: 'SUPPORT_CONFIG_UPDATED', entityType: 'system_config', entityId: 'expreso_punata', ...entry })
+      return { success: true, historyId: historyRef.id }
+    })
+  })
   const simulateSupportCleanup = onCall({ cors: true }, async request => {
     await authorize(db, request)
     if (!inEmulators()) throw new HttpsError('failed-precondition', 'La limpieza todavía está limitada a emuladores.')
@@ -103,5 +141,5 @@ export function createSupportFunctions(db) {
       return result
     })
   })
-  return { getSupportOverview, simulateSupportCleanup, executeSupportCleanup }
+  return { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup }
 }

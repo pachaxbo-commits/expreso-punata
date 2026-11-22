@@ -1,7 +1,7 @@
 import { beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getSupportOverview, simulateSupportCleanup, executeSupportCleanup } from '../index.js'
+import { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup } from '../index.js'
 
 const db = getFirestore()
 const uid = 'support-test'
@@ -9,11 +9,29 @@ const auth = { uid, token: { auth_time: Math.floor(Date.now() / 1000) } }
 const marker = 'pachax-emulator-fixture-v1'
 const request = categories => ({ auth, data: { categories } })
 beforeEach(async () => {
-  for (const name of ['users', 'support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'audit_logs', 'system_config']) {
+  for (const name of ['users', 'support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_config_history', 'audit_logs', 'system_config']) {
     const docs = await db.collection(name).get()
     if (!docs.empty) { const batch = db.batch(); docs.forEach(doc => batch.delete(doc.ref)); await batch.commit() }
   }
   await db.collection('users').doc(uid).set({ role: 'soporte_pachax', isActive: true })
+})
+
+test('configuración institucional valida, audita y restaura sin modificar finanzas', async () => {
+  const ref = db.collection('system_config').doc('expreso_punata')
+  await ref.set({ status: 'configured', isOfficial: true, company: { tradeName: 'Expreso anterior' }, branches: { punata: { phone: '111' } }, commissions: { defaultType: 'percentage', defaultValue: 0 } })
+  const update = (data, user = auth) => updateSupportConfiguration.run({ auth: user, data: { reason: 'Cambio solicitado por cliente', confirmation: true, ...data } })
+  await assert.rejects(() => update({ field: 'commissions.defaultValue', value: '2', expectedValue: '0' }), { code: 'invalid-argument' })
+  await assert.rejects(() => update({ field: 'punataPhone', value: 'texto', expectedValue: '111' }), { code: 'invalid-argument' })
+  await assert.rejects(() => update({ field: 'tradeName', value: 'Nuevo nombre', expectedValue: 'otro' }), { code: 'aborted' })
+  await assert.rejects(() => update({ field: 'tradeName', value: 'Nuevo nombre', expectedValue: 'Expreso anterior' }, { uid, token: { auth_time: 1 } }), { code: 'failed-precondition' })
+  await update({ field: 'tradeName', value: 'Nuevo nombre', expectedValue: 'Expreso anterior' })
+  const snapshot = await getSupportConfiguration.run({ auth, data: {} })
+  assert.equal(snapshot.values.tradeName, 'Nuevo nombre')
+  assert.equal(snapshot.history[0].previous, 'Expreso anterior')
+  await update({ field: 'tradeName', value: snapshot.history[0].previous, expectedValue: 'Nuevo nombre' })
+  assert.equal((await ref.get()).data().company.tradeName, 'Expreso anterior')
+  assert.equal((await ref.get()).data().commissions.defaultValue, 0)
+  assert.equal((await db.collection('audit_logs').get()).size, 2)
 })
 
 test('overview requiere soporte activo y no revela datos de configuración', async () => {
