@@ -19,7 +19,7 @@ function addLoanMonth(dateString, monthOffset) {
 }
 
 async function user(uid, role, primaryBranchId = 'punata') {
-  await db.collection('users').doc(uid).set({ uid, role, primaryBranchId, allowedBranchIds: ['punata'], fullName: `Test ${role}`, isActive: true })
+  await db.collection('users').doc(uid).set({ uid, role, primaryBranchId, allowedBranchIds: role === 'afiliado_admin' ? ['punata', 'cochabamba'] : ['punata'], fullName: `Test ${role}`, isActive: true })
 }
 
 test('Préstamos internos: cronograma exacto, caja, idempotencia, pagos parciales/concurrentes, saldo y seguridad', async () => {
@@ -27,8 +27,8 @@ test('Préstamos internos: cronograma exacto, caja, idempotencia, pagos parciale
   const managerUid = `manager-loan-${suffix}`
   const cashierUid = `cashier-loan-${suffix}`
   const deniedUid = `denied-loan-${suffix}`
-  await user(managerUid, 'tesoreria')
-  await user(cashierUid, 'secretaria')
+  await user(managerUid, 'afiliado_admin')
+  await user(cashierUid, 'afiliado_admin')
   await user(deniedUid, 'conductor')
   const memberId = `member-loan-${suffix}`
   await manageUnionMember.run({ auth: { uid: managerUid }, data: { id: memberId, memberNumber: `LOAN-${suffix}`, fullName: 'Afiliado de Prueba', joinedAt: '2020-01-01', status: 'active', monthlyFeeBob: 50 } })

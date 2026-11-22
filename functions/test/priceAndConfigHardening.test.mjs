@@ -62,7 +62,7 @@ before(async () => {
 
 beforeEach(async () => {
   await clearCollections()
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
   await createTestUser('secretaria-punata', 'secretaria', 'punata')
   await createTestUser('secretaria-cbb', 'secretaria', 'cochabamba')
 })
@@ -280,7 +280,7 @@ test('5. ESTADO HONESTO DE CONFIGURACIÓN: getSystemConfig reporta unconfigured 
   // Asegurar que no existe documento de configuración
   await db.collection('system_config').doc('expreso_punata').delete()
 
-  const res = await getSystemConfig.run({})
+  const res = await getSystemConfig.run({ auth: { uid: 'admin-1' } })
   assert.strictEqual(res.success, true)
   assert.strictEqual(res.status, 'unconfigured')
   assert.strictEqual(res.isOfficial, false)
@@ -308,7 +308,7 @@ test('5. ESTADO HONESTO DE CONFIGURACIÓN: getSystemConfig reporta unconfigured 
   })
 
   // Volver a consultar
-  const resConfigured = await getSystemConfig.run({})
+  const resConfigured = await getSystemConfig.run({ auth: { uid: 'admin-1' } })
   assert.strictEqual(resConfigured.success, true)
   assert.strictEqual(resConfigured.status, 'configured')
   assert.strictEqual(resConfigured.isOfficial, true)

@@ -1,5 +1,28 @@
 {
   "indexes": [
+    { "collectionGroup": "driver_commission_records", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "originBranchId", "order": "ASCENDING" }, { "fieldPath": "createdAtIso", "order": "DESCENDING" }] },
+    { "collectionGroup": "shipments", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "originBranchId", "order": "ASCENDING" }, { "fieldPath": "createdAtIso", "order": "ASCENDING" }] },
+    { "collectionGroup": "shipments", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "deliveryRecord.branchId", "order": "ASCENDING" }, { "fieldPath": "deliveredAtIso", "order": "ASCENDING" }] },
+    { "collectionGroup": "financial_movements", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "branchId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "ASCENDING" }] },
+    { "collectionGroup": "financial_movements", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "branchId", "order": "ASCENDING" }, { "fieldPath": "createdAtIso", "order": "ASCENDING" }] },
+    { "collectionGroup": "financial_movements", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "branchId", "order": "ASCENDING" }, { "fieldPath": "timestamp", "order": "ASCENDING" }] },
+    {
+      "collectionGroup": "driver_commission_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "driverUid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAtIso", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "driver_commission_records",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "driverUid", "order": "ASCENDING" },
+        { "fieldPath": "createdAtIso", "order": "DESCENDING" }
+      ]
+    },
     {
       "collectionGroup": "shipment_notifications",
       "queryScope": "COLLECTION",

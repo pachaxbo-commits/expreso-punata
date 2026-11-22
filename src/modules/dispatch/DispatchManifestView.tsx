@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../auth/operationalRoles'
 import { printEngine } from '../../services/printing/printEngineService.ts'
 import React, { useState, useEffect } from 'react'
 import {
@@ -55,7 +56,7 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
     }
   }
   const isDriver = currentUser.role === 'conductor'
-  const isManagerOrAdmin = currentUser.role === 'directiva_admin' || currentUser.role === 'encargado_agencia'
+  const isManagerOrAdmin = isOperationalAdmin(currentUser) || currentUser.role === 'encargado_agencia'
 
   // Subpestañas disponibles según rol
   const [subTab, setSubTab] = useState<'dispatch' | 'reception' | 'my_trips' | 'fleet' | 'history'>(

@@ -1,3 +1,7 @@
+import { AffiliateOperationsView } from '../modules/union/AffiliateOperationsView'
+import { isOperationalAdmin } from '../modules/auth/operationalRoles'
+import { BranchCommissionView } from '../modules/dispatch/BranchCommissionView'
+import { DailyOperationsView } from '../modules/reports/DailyOperationsView'
 import { isPublicDemo } from '../firebase/config'
 import React, { lazy, Suspense, useState, useEffect } from 'react'
 import {
@@ -45,7 +49,7 @@ import { ShipmentCustody } from '../modules/shipments/ShipmentCustody'
 import { ShipmentsManagementView } from '../modules/shipments/ShipmentsManagementView'
 import { NewShipmentWizardModal } from '../modules/shipments/NewShipmentWizardModal'
 import { ShipmentDeliveryModal } from '../modules/shipments/ShipmentDeliveryModal'
-import { CashManagementView } from '../modules/cash/CashManagementView'
+import { CashManagementView, CounterCashShift } from '../modules/cash/CashManagementView'
 import { DispatchManifestView } from '../modules/dispatch/DispatchManifestView'
 import { StorageManagementView } from '../modules/storage/StorageManagementView'
 import { UserManagementView } from '../modules/users/UserManagementView'
@@ -68,8 +72,9 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const { signOut, currentBranchId, switchBranch, hasRole } = useAuth()
   const simpleTransferEnabled = import.meta.env.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
   const advancedContingency = import.meta.env.VITE_ADVANCED_DISPATCH === 'true'
-  const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && userProfile.role === 'directiva_admin')
-  const [activeTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
+  const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && isOperationalAdmin(userProfile))
+  const [counterDispatchOpen, setCounterDispatchOpen] = useState(false)
+  const [requestedTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     try { return window.localStorage.getItem('expreso-sidebar-collapsed') === 'true' } catch { return false }
   })
@@ -154,7 +159,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const currentBranch = INITIAL_BRANCHES.find(b => b.id === currentBranchId) || INITIAL_BRANCHES[0]
 
   const selectableBranches = INITIAL_BRANCHES.filter(b => {
-    if (userProfile?.role === 'directiva_admin') return true
+    if (isOperationalAdmin(userProfile)) return true
     if (Array.isArray(userProfile?.allowedBranchIds) && userProfile.allowedBranchIds.includes(b.id)) return true
     return b.id === userProfile?.primaryBranchId
   })
@@ -166,22 +171,21 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'shipments', label: 'Encomiendas', icon: Package, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'storage', label: 'Módulos de Almacén', icon: Boxes, visible: hasRole(['secretaria', 'encargado_agencia', 'directiva_admin']) },
     { id: 'manifests', label: 'Despachos y Ruta', icon: Truck, visible: advancedDispatchVisible && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
-    { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['secretaria', 'encargado_agencia', 'directiva_admin', 'conductor']) },
+    { id: 'branch-commissions', label: 'Devengos de la agencia', icon: Coins, visible: userProfile.role === 'afiliado_admin' && !isOperationalAdmin(userProfile) && userProfile.commissionAdministrationApproved === true },
+    { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['directiva_admin']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
     { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['secretaria', 'tesoreria', 'directiva_admin']) },
     { id: 'sports-fines', label: 'Multas', icon: AlertTriangle, visible: hasRole(['secretaria']) },
+    { id: 'affiliate-operations', label: 'Consultas', icon: BarChart3, visible: userProfile.role === 'afiliado' },
     { id: 'my-account', label: 'Mi cuenta', icon: UserCircle, visible: hasRole(['afiliado']) },
     { id: 'workers', label: 'Personal & Gastos', icon: Briefcase, visible: hasRole(['directiva_admin', 'tesoreria', 'encargado_agencia']) },
     { id: 'assets', label: 'Inventario / Bienes Fijos', icon: Building2, visible: hasRole(['encargado_agencia', 'directiva_admin', 'tesoreria']) },
-    { id: 'reports', label: 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
+    { id: 'reports', label: userProfile.role === 'secretaria' ? 'Reporte del día' : 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
     { id: 'config', label: 'Configuración', icon: Settings, visible: hasRole(['directiva_admin']) },
-  ].filter(t => t.visible)
+  ].filter(t => t.visible && (userProfile.role !== 'secretaria' ||
+    ['shipments', 'tickets', 'storage', 'reports'].includes(t.id)))
 
-  useEffect(() => {
-    if (tabs.length > 0 && !tabs.some(t => t.id === activeTab)) {
-      setActiveTab(tabs[0].id)
-    }
-  }, [tabs, activeTab])
+  const activeTab = tabs.some(tab => tab.id === requestedTab) ? requestedTab : tabs[0]?.id
 
   useEffect(() => {
     try { window.localStorage.setItem('expreso-sidebar-collapsed', String(isSidebarCollapsed)) } catch { /* La navegación sigue disponible si el almacenamiento está bloqueado. */ }
@@ -391,6 +395,21 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           </div>
         </div>
 
+        {userProfile.role === 'secretaria' && ['shipments', 'tickets'].includes(activeTab) && (
+          <CounterCashShift key={userProfile.uid + ':' + currentBranch.id} currentUser={userProfile} currentBranch={currentBranch} />
+        )}
+
+        {activeTab === 'shipments' && userProfile.role === 'secretaria' && !simpleTransferEnabled && (
+          <section className="mb-4 rounded-xl border bg-white p-3">
+            <button type="button" aria-expanded={counterDispatchOpen} onClick={() => setCounterDispatchOpen(open => !open)}
+              className="rounded-lg border px-3 py-2 text-sm font-semibold text-emerald-900">
+              {counterDispatchOpen ? 'Ocultar despacho por manifiesto' : 'Despacho por manifiesto'}
+            </button>
+            {counterDispatchOpen && <DispatchManifestView
+              currentUser={userProfile} currentBranch={currentBranch} shipments={displayedShipments} />}
+          </section>
+        )}
+
         {/* PESTAÑA 1: ENCOMIENDAS (VENTANILLA DEFINITIVA REDISEÑADA) */}
         {activeTab === 'shipments' && (
           <ShipmentsManagementView
@@ -456,6 +475,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           <PassengerTicketsView currentUser={userProfile} currentBranch={currentBranch} tutorialFormContextOpen={ticketTutorialContextOpen} />
         )}
 
+        {activeTab === 'branch-commissions' && <BranchCommissionView key={currentBranch.id} branchId={currentBranch.id} />}
         {activeTab === 'commissions' && tabs.some(tab => tab.id === 'commissions') && (
           <DriverCommissionsView currentUser={userProfile} currentBranch={currentBranch} />
         )}
@@ -529,6 +549,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
           />
         )}
 
+        {activeTab === 'affiliate-operations' && <AffiliateOperationsView key={currentBranch.id} branchId={currentBranch.id} branchName={currentBranch.name} />}
         {activeTab === 'my-account' && <AffiliateAccountView currentUser={userProfile} />}
 
         {/* PESTAÑA: PERSONAL & GASTOS OPERATIVOS */}
@@ -594,14 +615,16 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         )}
 
         {/* PESTAÑA: REPORTES Y ESTADÍSTICAS */}
-        {activeTab === 'reports' && (
+        {activeTab === 'reports' && (userProfile.role === 'secretaria' ? (
+          <DailyOperationsView key={currentBranch.id} branchId={currentBranch.id} branchName={currentBranch.name} />
+        ) : (
           <Suspense fallback={<div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Cargando reportes…</div>}>
             <ReportsManagementView
               currentUser={userProfile}
               currentBranch={currentBranch}
             />
           </Suspense>
-        )}
+        ))}
 
         {/* PESTAÑA 7: CONFIGURACIÓN Y ADMINISTRACIÓN */}
         {activeTab === 'config' && (
@@ -743,12 +766,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   )
 }
 
-export const AppContent: React.FC = () => {
-  if (isPublicDemo) {
-    return <DemoView />
-  }
-
-  const { userProfile, isInitializing } = useAuth()
+const AuthenticatedAppContent: React.FC = () => {
+  const { userProfile, isInitializing, signOut } = useAuth()
 
   if (isInitializing) {
     return (
@@ -763,6 +782,16 @@ export const AppContent: React.FC = () => {
     return <LoginView />
   }
 
+  if (userProfile.role === 'soporte_pachax') {
+    return (
+      <main className="mx-auto max-w-lg p-6">
+        <h1 className="text-xl font-bold">Soporte PACHAX</h1>
+        <p>Sesión técnica activa. Las herramientas de soporte aún no están habilitadas.</p>
+        <button type="button" onClick={() => void signOut()}>Cerrar sesión</button>
+      </main>
+    )
+  }
+
   return <MainDashboard userProfile={userProfile} />
 }
 
@@ -774,3 +803,5 @@ export const App: React.FC = () => {
   )
 }
 export default App
+
+export const AppContent: React.FC = () => isPublicDemo ? <DemoView /> : <AuthenticatedAppContent />

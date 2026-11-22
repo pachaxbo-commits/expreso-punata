@@ -1,3 +1,4 @@
+import { hasOperationalRole } from '../auth/operationalRoles'
 import React, { useState, useEffect } from 'react'
 import {
   Boxes,
@@ -44,7 +45,7 @@ export const ConsumablesManagementView: React.FC<ConsumablesManagementViewProps>
   currentUser,
   currentBranch,
 }) => {
-  const canReadAllBranches = ['directiva_admin', 'tesoreria'].includes(currentUser.role)
+  const canReadAllBranches = hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria'])
   const [selectedBranchId, setSelectedBranchId] = useState<string>(canReadAllBranches ? 'all' : currentBranch.id)
   const [items, setItems] = useState<ConsumableItem[]>([])
   const [movements, setMovements] = useState<ConsumableMovement[]>([])

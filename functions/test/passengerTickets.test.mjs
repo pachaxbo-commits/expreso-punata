@@ -10,6 +10,7 @@ import {
   deliverPassengerTicketToDriver,
   openCashShift,
   getSystemReport,
+  getDailyOperationsReport,
 } from '../index.js'
 
 process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
@@ -23,13 +24,13 @@ const otherDriverUid = `tickets-other-driver-${suffix}`
 const deniedUid = `tickets-denied-${suffix}`
 
 const makeUser = (uid, role) => db.collection('users').doc(uid).set({
-  uid, role, fullName: `Prueba ${role}`, primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true,
+  uid, role, fullName: `Prueba ${role}`, primaryBranchId: 'punata', allowedBranchIds: role === 'afiliado_admin' ? ['punata', 'cochabamba'] : ['punata'], isActive: true,
 })
 
 test('Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos, reportes e idempotencia', async () => {
   process.env.FUNCTIONS_EMULATOR = 'true'
   await Promise.all([
-    makeUser(officeUid, 'secretaria'),
+    makeUser(officeUid, 'afiliado_admin'),
     makeUser(driverUid, 'conductor'),
     makeUser(otherDriverUid, 'conductor'),
     makeUser(deniedUid, 'tesoreria'),
@@ -51,6 +52,7 @@ test('Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos,
     (error) => error.code === 'permission-denied',
   )
 
+  const dayBefore = await getDailyOperationsReport.run({ auth, data: { branchId: 'punata' } })
   const created = await createPassengerTicket.run({ auth, data: createPayload })
   const replay = await createPassengerTicket.run({ auth, data: createPayload })
   assert.equal(created.operation.totalAmountCents, 2500)
@@ -96,8 +98,8 @@ test('Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos,
     () => validatePassengerTicket.run({ auth: { uid: otherDriverUid }, data: { ticketCode: code, idempotencyKey: `ticket-wrong-driver-${suffix}` } }),
     (error) => error.code === 'permission-denied',
   )
-  const firstUse = await validatePassengerTicket.run({ auth: { uid: driverUid }, data: { ticketCode: code, idempotencyKey: `ticket-use-1-${suffix}` } })
-  const duplicateUse = await validatePassengerTicket.run({ auth: { uid: driverUid }, data: { ticketCode: code, idempotencyKey: `ticket-use-1-${suffix}` } })
+  const firstUse = await validatePassengerTicket.run({ auth, data: { ticketCode: code, idempotencyKey: `ticket-use-1-${suffix}` } })
+  const duplicateUse = await validatePassengerTicket.run({ auth, data: { ticketCode: code, idempotencyKey: `ticket-use-1-${suffix}` } })
   const secondUse = await validatePassengerTicket.run({ auth: { uid: driverUid }, data: { ticketCode: code, idempotencyKey: `ticket-use-2-${suffix}` } })
   assert.equal(firstUse.remainingCount, 1)
   assert.equal(duplicateUse.duplicate, true)
@@ -107,6 +109,15 @@ test('Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos,
     (error) => error.code === 'failed-precondition',
   )
   assert.equal((await db.collection('passenger_ticket_validations').where('operationId', '==', code).get()).size, 2)
+
+  const today = await getDailyOperationsReport.run({ auth, data: { branchId: 'punata' } })
+  assert.equal(today.tickets - dayBefore.tickets, 2)
+  assert.equal(today.income.tickets - dayBefore.income.tickets, 2500)
+  assert.equal(today.collections - dayBefore.collections, 1)
+  const firstValidation = (await db.collection('passenger_ticket_validations').doc(firstUse.validationId).get()).data()
+  assert.equal(firstValidation.validatedByUid, officeUid)
+  assert.equal(firstValidation.validatedByRole, 'afiliado_admin')
+  assert.equal(firstValidation.driverUid, driverUid)
 
   const beforeDelivery = (await db.collection('cash_shifts').doc(shift.shift.id).get()).data().expectedCashCents
   await assert.rejects(
@@ -133,7 +144,9 @@ test('Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos,
   assert.deepEqual(new Set(movementSnapshot.docs.map((doc) => doc.data().type)), new Set(['passenger_ticket_income', 'passenger_ticket_payout']))
   assert.equal((await db.collection('audit_logs').where('entityId', '==', code).get()).size >= 4, true)
 
-  const report = await getSystemReport.run({ auth, data: {
+  const adminUid = 'ticket-admin-' + suffix
+  await makeUser(adminUid, 'afiliado_admin')
+  const report = await getSystemReport.run({ auth: { uid: adminUid }, data: {
     reportType: 'cash_financial', branchId: 'punata', startDate: '2026-01-01', endDate: '2027-01-01',
     operatorUid: officeUid,
   } })
@@ -141,4 +154,11 @@ test('Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos,
   assert.equal(report.summary.passengerTicketPayoutCents, 2500)
   assert.equal(report.summary.commercialIncomeCents, 0, 'pasajes no son ingreso operativo de encomiendas')
   assert.equal(report.summary.expensesCents, 0, 'entrega al chofer no es gasto operativo')
+  const directoryUid = 'tickets-directory-' + suffix
+  await db.collection('driver_directory').doc(directoryUid).set({ isActive: true, fullName: 'Conductor sin cuenta' })
+  const accountless = await createPassengerTicket.run({ auth, data: {
+    ...createPayload, driverUid: directoryUid, idempotencyKey: 'ticket-directory-create-' + suffix,
+  } })
+  assert.equal(accountless.operation.driverUid, directoryUid)
+  assert.equal(accountless.operation.driverName, 'Conductor sin cuenta')
 })

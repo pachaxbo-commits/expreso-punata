@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../auth/operationalRoles'
 import React, { useEffect, useState } from 'react'
 import {
   Boxes,
@@ -89,7 +90,7 @@ export const StorageManagementView: React.FC<StorageManagementViewProps> = ({
   const [configSpaceCount, setConfigSpaceCount] = useState<number | ''>('')
   const [configSaving, setConfigSaving] = useState(false)
   const [moduleConfigurations, setModuleConfigurations] = useState<Record<string, ModuleConfiguration>>({})
-  const canConfigureModules = currentUser.role === 'encargado_agencia' || currentUser.role === 'directiva_admin'
+  const canConfigureModules = currentUser.role === 'encargado_agencia' || isOperationalAdmin(currentUser)
 
   useEffect(() => {
     let cancelled = false

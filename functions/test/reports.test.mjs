@@ -2,7 +2,7 @@ import { test, before, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getSystemReport } from '../index.js'
+import { getDailyOperationsReport, getSystemReport } from '../index.js'
 
 process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
 process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
@@ -80,46 +80,35 @@ test('1. Permisos: Conductor solo puede consultar reporte de conductores', async
   assert.equal(res.reportType, 'drivers')
 })
 
-test('2. Permisos: Secretaria solo puede consultar encomiendas y finanzas de sucursal', async () => {
+test('2. Secretaría solo consulta totales de hoy y de su agencia', async () => {
   await createTestUser('sec-punata', 'secretaria', 'punata')
-
-  // Intentar consultar nómina -> error
-  await assert.rejects(
-    () => getSystemReport.run({
-      auth: { uid: 'sec-punata' },
-      data: { reportType: 'payroll_expenses' },
-    }),
-    { code: 'permission-denied' }
-  )
-
-  // Intentar consultar mensualidades -> error
-  await assert.rejects(
-    () => getSystemReport.run({
-      auth: { uid: 'sec-punata' },
-      data: { reportType: 'dues' },
-    }),
-    { code: 'permission-denied' }
-  )
-
-  // Consultar encomiendas -> permitido
-  const resShipments = await getSystemReport.run({
-    auth: { uid: 'sec-punata' },
-    data: { reportType: 'shipments' },
-  })
-  assert.equal(resShipments.success, true)
-  assert.equal(resShipments.branchId, 'punata') // Scoped a su sucursal
-
-  // Consultar caja/finanzas -> permitido
-  const resCash = await getSystemReport.run({
-    auth: { uid: 'sec-punata' },
-    data: { reportType: 'cash_financial' },
-  })
-  assert.equal(resCash.success, true)
-  assert.equal(resCash.branchId, 'punata')
+  await db.collection('users').doc('sec-punata').update({ allowedBranchIds: ['punata'] })
+  const auth = { uid: 'sec-punata' }
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
+  const start = new Date(day + 'T00:00:00-04:00').getTime()
+  const today = new Date(start).toISOString()
+  const yesterday = new Date(start - 1).toISOString()
+  const tomorrow = new Date(start + 86_400_000).toISOString()
+  await Promise.all([
+    db.collection('shipments').doc('daily-current').set({ originBranchId: 'punata', createdAtIso: today, status: 'received' }),
+    db.collection('shipments').doc('daily-previous').set({ originBranchId: 'punata', createdAtIso: yesterday, status: 'received' }),
+    db.collection('shipments').doc('daily-tomorrow').set({ originBranchId: 'punata', createdAtIso: tomorrow, status: 'received' }),
+    db.collection('shipments').doc('daily-delivery').set({ originBranchId: 'cochabamba', createdAtIso: yesterday, deliveredAtIso: today, deliveryRecord: { branchId: 'punata' } }),
+    db.collection('passenger_ticket_operations').doc('daily-ticket').set({ branchId: 'punata', createdAtIso: today }),
+    db.collection('financial_movements').doc('daily-payment').set({ branchId: 'punata', timestamp: today, createdAtIso: today, status: 'completed', type: 'shipment_income', amountCents: 500 }),
+    db.collection('financial_movements').doc('other-branch-payment').set({ branchId: 'cochabamba', timestamp: today, status: 'completed', type: 'shipment_income', amountCents: 999 }),
+  ])
+  for (const reportType of ['payroll_expenses', 'dues', 'shipments', 'cash_financial']) {
+    await assert.rejects(getSystemReport.run({ auth, data: { reportType } }), { code: 'permission-denied' })
+  }
+  await assert.rejects(getDailyOperationsReport.run({ auth, data: { branchId: 'cochabamba' } }), { code: 'permission-denied' })
+  const result = await getDailyOperationsReport.run({ auth, data: { branchId: 'punata', startDate: yesterday } })
+  assert.deepEqual(result, { day, branchId: 'punata', registered: 1, delivered: 1, pending: 1, tickets: 1, collections: 1,
+    income: { shipments: 500, cod: 0, tickets: 0 } })
 })
 
 test('3. Reporte B1: Encomiendas con métricas de bultos, peso, facturado, cobrado y rutas', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   const nowIso = new Date().toISOString()
   const yesterdayIso = new Date(Date.now() - 3600000 * 2).toISOString()
@@ -180,7 +169,7 @@ test('3. Reporte B1: Encomiendas con métricas de bultos, peso, facturado, cobra
 })
 
 test('4. Reporte B2: Caja y finanzas distingue ingresos comerciales, aportes, remesas de conductor y gastos', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   const nowIso = new Date().toISOString()
 
@@ -251,7 +240,7 @@ test('4. Reporte B2: Caja y finanzas distingue ingresos comerciales, aportes, re
 })
 
 test('4A. Reporte B2: conserva fechas históricas mixtas, deduplica y clasifica cada movimiento', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
   const nowIso = new Date().toISOString()
   const reportDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date(nowIso))
   const date = new Date(new Date(nowIso).getTime() + 60_000)
@@ -283,7 +272,7 @@ test('4A. Reporte B2: conserva fechas históricas mixtas, deduplica y clasifica 
 })
 
 test('5. Reporte B3: Rendición de conductores con viajes y saldo en custodia', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   const nowIso = new Date().toISOString()
 
@@ -323,7 +312,7 @@ test('5. Reporte B3: Rendición de conductores con viajes y saldo en custodia', 
 })
 
 test('6. Reporte B4: Padrón de socios, recaudación de mensualidades y morosidad', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   await db.collection('union_members').doc('MEM-01').set({
     memberNumber: 'SOC-001',
@@ -358,7 +347,7 @@ test('6. Reporte B4: Padrón de socios, recaudación de mensualidades y morosida
 })
 
 test('7. Reporte B5: Nómina de personal y gastos operativos por categoría', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   const nowIso = new Date().toISOString()
 
@@ -402,7 +391,7 @@ test('7. Reporte B5: Nómina de personal y gastos operativos por categoría', as
 })
 
 test('8. Reporte B6: Inventario de bienes fijos, valoración y bajas', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   await db.collection('fixed_assets').doc('AST-01').set({
     assetCode: 'ACT-PUN-0001',
@@ -442,7 +431,7 @@ test('8. Reporte B6: Inventario de bienes fijos, valoración y bajas', async () 
 })
 
 test('9. Reporte Consolidado Ejecutivo: Resume cross-module', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   const res = await getSystemReport.run({
     auth: { uid: 'admin-1' },

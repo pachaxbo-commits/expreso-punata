@@ -16,6 +16,8 @@ service cloud.firestore {
     function isActive() {
       return isAuthenticated() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        getUserRole() != 'soporte_pachax' &&
+        getUserRole() != 'afiliado' &&
         ('isActive' in getUserData()) &&
         getUserData().isActive == true &&
         (!('isActive' in request.auth.token) || request.auth.token.isActive == true);
@@ -29,7 +31,13 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return getUserRole() == 'directiva_admin';
+      return (
+        getUserRole() == 'directiva_admin' ||
+        (getUserRole() == 'afiliado_admin' &&
+          getUserData().get('primaryBranchId', '') in ['punata', 'cochabamba'] &&
+          getUserData().get('allowedBranchIds', []) is list &&
+          getUserData().get('allowedBranchIds', []).hasAll(['punata', 'cochabamba']))
+      );
     }
 
     function isTreasury() {
@@ -41,15 +49,11 @@ service cloud.firestore {
     }
 
     function isCashier() {
-      return getUserRole() in ['secretaria', 'encargado_agencia', 'directiva_admin'];
+      return isAdmin() || getUserRole() in ['secretaria', 'encargado_agencia'];
     }
 
     function isAffiliateAdmin() {
       return getUserRole() == 'afiliado_admin';
-    }
-
-    function isAffiliate() {
-      return getUserRole() == 'afiliado';
     }
 
     function isDriver() {
@@ -111,7 +115,7 @@ service cloud.firestore {
       allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        ((isCashier() || isAgencyManager()) && isBranchAllowed(resource.data.branchId))
+        (isAgencyManager() && isBranchAllowed(resource.data.branchId))
       );
       allow write: if false; // Solo backend en transacciones atómicas
     }
@@ -291,6 +295,11 @@ service cloud.firestore {
     // COLECCIÓN: cash_shift_active_locks (Candados determinísticos de turno activo)
     // =========================================================================
     match /cash_shift_active_locks/{lockId} {
+      // The operator must be able to observe a missing lock for their branch.
+      allow get: if isActive() && isCashier() && resource == null && (
+        (isBranchAllowed('punata') && lockId == request.auth.uid + '_punata') ||
+        (isBranchAllowed('cochabamba') && lockId == request.auth.uid + '_cochabamba')
+      );
       allow read: if isActive() && (
         resource.data.operatorUid == request.auth.uid ||
         (isAgencyManager() && isBranchAllowed(resource.data.branchId)) ||
@@ -321,14 +330,14 @@ service cloud.firestore {
     match /branch_consumables/{consumableId} {
       allow read: if isActive() && (
         isAdmin() || isTreasury() ||
-        ((isAgencyManager() || isCashier()) && isBranchAllowed(resource.data.branchId))
+        (isAgencyManager() && isBranchAllowed(resource.data.branchId))
       );
       allow write: if false; // Exclusivo de Cloud Functions (manageConsumable)
 
       match /movements/{movementId} {
         allow read: if isActive() && (
           isAdmin() || isTreasury() ||
-          ((isAgencyManager() || isCashier()) && isBranchAllowed(resource.data.branchId))
+          (isAgencyManager() && isBranchAllowed(resource.data.branchId))
         );
         allow write: if false;
       }
@@ -338,7 +347,7 @@ service cloud.firestore {
     match /consumable_movements/{movementId} {
       allow read: if isActive() && (
         isAdmin() || isTreasury() ||
-        ((isAgencyManager() || isCashier()) && isBranchAllowed(resource.data.branchId))
+        (isAgencyManager() && isBranchAllowed(resource.data.branchId))
       );
       allow write: if false;
     }
@@ -349,7 +358,7 @@ service cloud.firestore {
     match /fixed_assets/{assetId} {
       allow read: if isActive() && (
         isAdmin() || isTreasury() ||
-        ((isAgencyManager() || isCashier()) && isBranchAllowed(resource.data.branchId))
+        (isAgencyManager() && isBranchAllowed(resource.data.branchId))
       );
       allow write: if false; // Exclusivo de Cloud Functions (manageFixedAsset)
 
@@ -368,23 +377,23 @@ service cloud.firestore {
     }
 
     match /union_loans/{loanId} {
-      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId)) || (isAffiliate() && resource.data.memberId == getUserData().unionMemberId));
+      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId)));
       allow write: if false;
       match /installments/{installmentId} {
-        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_loans/$(loanId)).data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(get(/databases/$(database)/documents/union_loans/$(loanId)).data.memberId)).data.branchId)) || (isAffiliate() && get(/databases/$(database)/documents/union_loans/$(loanId)).data.memberId == getUserData().unionMemberId));
+        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_loans/$(loanId)).data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(get(/databases/$(database)/documents/union_loans/$(loanId)).data.memberId)).data.branchId)));
         allow write: if false;
       }
       match /payments/{paymentId} {
-        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_loans/$(loanId)).data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(get(/databases/$(database)/documents/union_loans/$(loanId)).data.memberId)).data.branchId)) || (isAffiliate() && get(/databases/$(database)/documents/union_loans/$(loanId)).data.memberId == getUserData().unionMemberId));
+        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_loans/$(loanId)).data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(get(/databases/$(database)/documents/union_loans/$(loanId)).data.memberId)).data.branchId)));
         allow write: if false;
       }
     }
 
     match /union_fines/{fineId} {
-      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId)) || (isAffiliate() && resource.data.memberId == getUserData().unionMemberId));
+      allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(resource.data.branchId)) || (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId)));
       allow write: if false;
       match /payments/{paymentId} {
-        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_fines/$(fineId)).data.branchId)) || (isAffiliate() && get(/databases/$(database)/documents/union_fines/$(fineId)).data.memberId == getUserData().unionMemberId));
+        allow read: if isActive() && (isAdmin() || isTreasury() || (isAgencyManager() && isBranchAllowed(get(/databases/$(database)/documents/union_fines/$(fineId)).data.branchId)));
         allow write: if false;
       }
     }
@@ -401,7 +410,7 @@ service cloud.firestore {
     // COLECCIONES SINDICALES: members, dues, workers, worker_payments, expenses
     // =========================================================================
     match /union_members/{memberId} {
-      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier() || (isAffiliateAdmin() && isBranchAllowed(resource.data.branchId)) || (isAffiliate() && memberId == getUserData().unionMemberId));
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || (isAffiliateAdmin() && isBranchAllowed(resource.data.branchId)));
       allow write: if false; // Exclusivo de Cloud Functions (manageUnionMember)
     }
 
@@ -409,9 +418,7 @@ service cloud.firestore {
       allow read: if isActive() && (
         isTreasury() ||
         (getUserRole() == 'encargado_agencia' && isBranchAllowed(resource.data.branchId)) ||
-        getUserRole() == 'secretaria' ||
-        (isAffiliateAdmin() && isBranchAllowed(resource.data.branchId)) ||
-        (isAffiliate() && resource.data.memberId == getUserData().unionMemberId)
+        (isAffiliateAdmin() && isBranchAllowed(resource.data.branchId))
       );
       allow write: if false; // Exclusivo de Cloud Functions (generateMonthlyDues, collectMemberDue)
 
@@ -419,9 +426,7 @@ service cloud.firestore {
         allow read: if isActive() && (
           isTreasury() ||
           (getUserRole() == 'encargado_agencia' && isBranchAllowed(get(/databases/$(database)/documents/union_dues/$(dueId)).data.branchId)) ||
-          getUserRole() == 'secretaria' ||
-          (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId)) ||
-          (isAffiliate() && get(/databases/$(database)/documents/union_dues/$(dueId)).data.memberId == getUserData().unionMemberId)
+          (isAffiliateAdmin() && isBranchAllowed(get(/databases/$(database)/documents/union_members/$(resource.data.memberId)).data.branchId))
         );
         allow write: if false; // Inmutable, solo Cloud Functions (collectMemberDue)
       }
@@ -435,6 +440,17 @@ service cloud.firestore {
     match /union_worker_payments/{paymentId} {
       allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
       allow write: if false; // Inmutable, solo Cloud Functions (registerWorkerPayment)
+    }
+
+    // The commission screen queries the company-wide ledger.
+    match /driver_commission_accounts/{driverId} {
+      allow read: if isActive() && isAdmin();
+      allow write: if false;
+    }
+
+    match /driver_commission_records/{recordId} {
+      allow read: if isActive() && isAdmin();
+      allow write: if false;
     }
 
     // Operaciones de pasajes: la oficina consulta por sucursal y el chofer solo las suyas.
@@ -467,7 +483,7 @@ service cloud.firestore {
     }
 
     match /union_expenses/{expenseId} {
-      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager() || isCashier());
+      allow read: if isActive() && (isTreasury() || isAdmin() || isAgencyManager());
       allow write: if false; // Inmutable, solo Cloud Functions (registerGeneralExpense)
     }
 

@@ -2,14 +2,14 @@ import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
-import { accrueDriverCommission } from '../index.js'
+import { accrueDriverCommission, listBranchCommissionAccruals } from '../index.js'
 
 if (getApps().length === 0) initializeApp({ projectId: process.env.GCLOUD_PROJECT || 'demo-expreso-punata-101' })
 const db = getFirestore()
 const profile = (uid, role, extra = {}) => ({ uid, role, isActive: true, fullName: `Fixture ${role}`, primaryBranchId: 'punata', allowedBranchIds: ['punata'], ...extra })
 
 async function reset() {
-  for (const name of ['users', 'shipments', 'manifests', 'system_config', 'driver_commission_accounts', 'driver_commission_records', 'idempotency_keys', 'audit_logs']) {
+  for (const name of ['users', 'driver_directory', 'shipments', 'manifests', 'system_config', 'driver_commission_accounts', 'driver_commission_records', 'idempotency_keys', 'audit_logs']) {
     const snap = await db.collection(name).get()
     for (let i = 0; i < snap.docs.length; i += 400) {
       const batch = db.batch()
@@ -125,4 +125,46 @@ test('a prior commission for the same shipment under another manifest is blocked
   assert.equal((await db.collection('driver_commission_accounts').doc('driver').get()).data().accruedCents, 1_000)
   assert.equal((await db.collection('audit_logs').where('action', '==', 'accrue_driver_commission').get()).size, 1)
   assert.ok(first.recordId)
+})
+
+test('fixed commission on manual freight is independent of price and idempotent under retries', async () => {
+  const driverUid = 'commission-directory-only'
+  await db.collection('driver_directory').doc(driverUid).set({ isActive: true, fullName: 'Conductor operativo' })
+  await seedEvent({ feeCents: null, driverUid })
+  await db.collection('shipments').doc('shipment-1').update({ finalAmountCents: 0 })
+  await assert.rejects(accrueDriverCommission.run(req('board')), { code: 'failed-precondition' })
+  assert.deepEqual(await financeState(), { accounts: [], records: [], audits: [] })
+
+  await db.collection('system_config').doc('expreso_punata').update({
+    commissions: { defaultType: 'fixed_per_shipment', defaultValue: 2 },
+  })
+  const results = await Promise.all([accrueDriverCommission.run(req('board')), accrueDriverCommission.run(req('board'))])
+  assert.deepEqual(results[0], results[1])
+  assert.equal(results[0].commissionAmountCents, 200)
+  const state = await financeState()
+  assert.equal(state.accounts[0][1].pendingCents, 200)
+  assert.equal(state.records.length, 1)
+  assert.equal(state.records[0][1].baseShippingAmountCents, null)
+  assert.equal(state.audits.length, 1)
+})
+
+test('approved affiliate administrator accrues a fixed commission only in their authorized branch', async () => {
+  const uid = 'affiliate-admin'
+  await db.collection('users').doc(uid).set(profile(uid, 'afiliado_admin'))
+  await seedEvent({ feeCents: null })
+  await db.collection('system_config').doc('expreso_punata').update({
+    commissions: { defaultType: 'fixed_per_shipment', defaultValue: 2 },
+  })
+  await assert.rejects(accrueDriverCommission.run(req(uid)), { code: 'permission-denied' })
+  await db.collection('users').doc(uid).update({ commissionAdministrationApproved: true, primaryBranchId: 'cochabamba', allowedBranchIds: ['cochabamba'] })
+  await assert.rejects(accrueDriverCommission.run(req(uid)), { code: 'permission-denied' })
+  assert.deepEqual(await financeState(), { accounts: [], records: [], audits: [] })
+  await db.collection('users').doc(uid).update({ primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+  const result = await accrueDriverCommission.run(req(uid))
+  const report = await listBranchCommissionAccruals.run({ auth: { uid }, data: { branchId: 'punata' } })
+  assert.equal(report.records.length, 1)
+  assert.equal(report.records[0].commissionAmountCents, 200)
+  await assert.rejects(listBranchCommissionAccruals.run({ auth: { uid }, data: { branchId: 'cochabamba' } }), { code: 'permission-denied' })
+  assert.equal(result.commissionAmountCents, 200)
+  assert.equal((await financeState()).audits[0][1].performedByUid, uid)
 })

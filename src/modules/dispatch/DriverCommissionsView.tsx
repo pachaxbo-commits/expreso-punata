@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../auth/operationalRoles'
 import React, { useState, useEffect } from 'react'
 import {
   Coins,
@@ -53,16 +54,15 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
   const [accrueShipmentId, setAccrueShipmentId] = useState('')
   const [accrueManifestId, setAccrueManifestId] = useState('')
   const [isAccruing, setIsAccruing] = useState(false)
-  const canAccrueCommission = currentUser.role === 'directiva_admin'
+  const canAccrueCommission = isOperationalAdmin(currentUser)
 
-  const loadAccounts = async () => {
+  const loadAccounts = async (focusDriverUid?: string) => {
     try {
       setLoading(true)
       const data = await fetchAllDriverCommissionAccounts()
       setAccounts(data)
-      if (data.length > 0 && !selectedDriverUid) {
-        setSelectedDriverUid(data[0].driverUid)
-      }
+      const driverToSelect = focusDriverUid || selectedDriverUid || data[0]?.driverUid
+      setSelectedDriverUid(driverToSelect || null)
     } catch (err: any) {
       console.error('Error cargando cuentas de choferes:', err)
       setFeedback({ type: 'error', message: err.message || 'Error al cargar comisiones de choferes.' })
@@ -154,7 +154,6 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
 
   const handleExecuteAccrue = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedAccount) return
     if (!accrueShipmentId.trim()) {
       alert('Ingrese el ID interno de la encomienda.')
       return
@@ -168,7 +167,6 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
     try {
       setIsAccruing(true)
       const res = await accrueDriverCommission({
-        driverUid: selectedAccount.driverUid,
         shipmentId: accrueShipmentId.trim(),
         manifestId: accrueManifestId.trim(),
       })
@@ -180,8 +178,8 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
       setIsAccrueModalOpen(false)
       setAccrueShipmentId('')
       setAccrueManifestId('')
-      await loadAccounts()
-      await loadRecords(selectedAccount.driverUid)
+      await loadAccounts(res.driverUid)
+      if (selectedDriverUid === res.driverUid) await loadRecords(res.driverUid)
     } catch (err: any) {
       alert(err.message || 'Error al devengar comisión.')
     } finally {
@@ -209,9 +207,17 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canAccrueCommission && <button
+            type="button"
+            onClick={() => setIsAccrueModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Devengar</span>
+          </button>}
           <button
             type="button"
-            onClick={loadAccounts}
+            onClick={() => void loadAccounts()}
             className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"
             title="Recargar datos"
           >
@@ -339,14 +345,6 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {canAccrueCommission && <button
-                    type="button"
-                    onClick={() => setIsAccrueModalOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Devengar</span>
-                  </button>}
                   <button
                     type="button"
                     data-tutorial-target="btn-settle-commission"
@@ -406,11 +404,11 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
                               <td className="p-2.5 text-slate-500">
                                 {r.createdAtIso ? new Date(r.createdAtIso).toLocaleDateString() : '-'}
                               </td>
-                              <td className="p-2.5 font-mono">Bs. {(r.baseShippingAmountCents / 100).toFixed(2)}</td>
+                              <td className="p-2.5 font-mono">{r.baseShippingAmountCents == null ? '—' : 'Bs. ' + (r.baseShippingAmountCents / 100).toFixed(2)}</td>
                               <td className="p-2.5 text-[11px] text-slate-600">
                                 {r.ruleApplied?.type === 'percentage'
                                   ? `${r.ruleApplied.value}%`
-                                  : `Bs. ${(r.ruleApplied?.value / 100).toFixed(2)}`}
+                                  : r.ruleApplied ? `Bs. ${r.ruleApplied.value.toFixed(2)}` : '—'}
                               </td>
                               <td className="p-2.5 font-bold font-mono text-slate-800">
                                 Bs. {(r.commissionAmountCents / 100).toFixed(2)}
@@ -419,6 +417,9 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
                                 <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${statusColor}`}>
                                   {statusLabel}
                                 </span>
+                                {!!r.voucherIds?.length && (
+                                  <div className="mt-1 font-mono text-[10px] text-slate-500">{r.voucherIds.join(', ')}</div>
+                                )}
                               </td>
                             </tr>
                           )
@@ -549,7 +550,7 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
       )}
 
       {/* Modal para devengar comisión manual */}
-      {isAccrueModalOpen && selectedAccount && canAccrueCommission && (
+      {isAccrueModalOpen && canAccrueCommission && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl border border-slate-200 overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
@@ -580,6 +581,7 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
                 <label className="block font-bold text-slate-700 mb-1">ID del manifiesto recibido</label>
                 <input
                   type="text"
+                  placeholder="ID del manifiesto"
                   value={accrueManifestId}
                   onChange={(e) => setAccrueManifestId(e.target.value.trim())}
                   required

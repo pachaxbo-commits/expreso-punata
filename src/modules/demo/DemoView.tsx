@@ -401,10 +401,17 @@ export const DemoView: React.FC = () => {
             onShipmentUpdated={(updated) => {
               showToast(`Encomienda ${updated.trackingCode} actualizada en demo.`)
             }}
-            demoTransfer={{
-              onUpdate: updateShipment,
-              onDeliver: (shipment: Shipment) => { setDeliveryTarget(shipment); setIsDeliveryModalOpen(true) },
-            }}
+            renderLocalTransfer={shipment => (
+              <DemoTransfer
+                key={shipment.id}
+                shipments={shipments}
+                initialShipment={shipments.find(item => item.id === shipment.id) ?? shipment}
+                user={demoUserProfile}
+                branch={currentBranchId}
+                onUpdate={updateShipment}
+                onDeliver={target => { setDeliveryTarget(target); setIsDeliveryModalOpen(true) }}
+              />
+            )}
             backendConnected={true}
             isCloudEnvironment={false}
           />

@@ -1,0 +1,35 @@
+Expreso Punata | Fase 1 | 2026-11-21 | Implementación 17a776a
+Proyecto de emuladores demo-expreso-punata-transfer. Chrome mediante Playwright.
+
+npm run typecheck: aprobado
+npm run build: aprobado con VITE_USE_FIREBASE_EMULATORS=true, VITE_SIMPLE_SHIPMENT_TRANSFER=true y el proyecto demo.
+npm run lint: 268 errores y 14 avisos. Base documentada: 272 errores y 14 avisos. Sin hallazgos nuevos por archivo, regla y mensaje.
+
+npm run test:unit
+ℹ tests 73
+ℹ pass 73
+ℹ fail 0
+
+Firestore Rules
+✔ administración institucional y perfiles de agencia mantienen fronteras de lectura y escritura (562.3369ms)
+ℹ tests 28
+ℹ pass 28
+ℹ fail 0
+
+npm --prefix functions test
+✔ 13. CONCURRENCIA: Protección del último administrador bajo dos peticiones simultáneas de degradación/suspensión (2912.8286ms)
+✔ afiliado_admin gestiona altas, alcance y estados sin conceder soporte (1180.4915ms)
+✔ company administrator cannot grant technical support or change a technical account (230.3819ms)
+✔ afiliado_admin devenga y liquida Bs 2 una sola vez para un conductor de directorio (6375.2826ms)
+✔ Pasajes: crea/verifica QR, uso de cantidad, entrega de efectivo, permisos, reportes e idempotencia (1121.7492ms)
+ℹ tests 157
+ℹ pass 157
+ℹ fail 0
+
+Playwright | tests/e2e/runSimpleTransferAuthenticatedBrowser.mjs
+Navegador autenticado: origin_paid PUN202600001
+Navegador autenticado: destination_cod PUN202600002
+Arqueo integrado: Bs 75, diferencia cero, segundo cierre rechazado.
+Administrador afiliado autenticado: aprovisionamiento de secretaría, configuración y reporte general.
+Administrador afiliado autenticado: cuenta, asiento y liquidación de Bs 2 para un conductor de directorio.
++  Script exited successfully (code 0)

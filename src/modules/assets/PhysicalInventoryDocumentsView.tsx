@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../auth/operationalRoles'
 import React, { useEffect, useMemo, useState } from 'react'
 import { FileText, Plus, Search, Pencil, X } from 'lucide-react'
 import type { PatrimonialLocationId, PhysicalInventoryDocument, UserProfile } from '../../types/index.ts'
@@ -20,7 +21,7 @@ export const PhysicalInventoryDocumentsView: React.FC<{ userProfile: UserProfile
   const [form, setForm] = useState<DocumentForm>(EMPTY_FORM)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const canManage = ['directiva_admin', 'encargado_agencia', 'tesoreria'].includes(userProfile.role)
+  const canManage = isOperationalAdmin(userProfile)
   const load = async () => setDocuments(await fetchPhysicalInventoryDocuments({ patrimonialLocationId: location, search }))
   useEffect(() => { void load().catch((err) => setError(err.message || 'No se pudieron cargar los documentos físicos.')) }, [location])
   const filtered = useMemo(() => documents.filter((doc) => [doc.title, doc.documentType, doc.description].some((value) => value.toLowerCase().includes(search.trim().toLowerCase()))), [documents, search])

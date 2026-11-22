@@ -6,7 +6,8 @@
 
 export type UserRole =
   | 'secretaria'
-  | 'afiliado_admin'
+  | 'soporte_pachax'
+   | 'afiliado_admin'
   | 'afiliado'
   | 'encargado_agencia'
   | 'tesoreria'
@@ -20,6 +21,7 @@ export interface UserProfile {
   email?: string
   phone: string
   role: UserRole
+  commissionAdministrationApproved?: boolean
   primaryBranchId: string
   allowedBranchIds: string[]
   assignedVehiclePlate?: string
@@ -914,7 +916,7 @@ export interface DriverCommissionRecord {
   manifestId?: string
   shipmentId: string
   trackingCode: string
-  baseShippingAmountCents: number
+  baseShippingAmountCents: number | null
   ruleApplied: DriverCommissionRule
   commissionAmountCents: number
   commissionAmountBob: number

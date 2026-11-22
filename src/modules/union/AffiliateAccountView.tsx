@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { FirebaseError } from 'firebase/app'
 import { AlertCircle, CreditCard, Loader2, UserCircle } from 'lucide-react'
 import type { UserProfile, UnionMember, UnionMonthlyDue } from '../../types/index.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
@@ -27,7 +28,16 @@ export const AffiliateAccountView: React.FC<Props> = ({ currentUser }) => {
         setLoans(result.loans || [])
         setFines(result.fines || [])
       })
-      .catch((err: any) => active && setError(err?.message || 'No se pudo cargar su cuenta de afiliado.'))
+      .catch((err: unknown) => {
+        if (!active) return
+        const code = err instanceof FirebaseError ? err.code : 'unknown'
+        if (err instanceof FirebaseError && ['functions/failed-precondition', 'functions/permission-denied'].includes(code)) {
+          setError(err.message)
+          return
+        }
+        console.warn('[Mi cuenta] Falló la consulta del afiliado.', { code })
+        setError('No se pudo cargar su cuenta de afiliado. Intente nuevamente o contacte a soporte.')
+      })
       .finally(() => active && setLoading(false))
     return () => { active = false }
   }, [currentUser.uid])

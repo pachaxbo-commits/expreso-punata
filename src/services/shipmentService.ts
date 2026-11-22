@@ -388,39 +388,28 @@ export async function searchShipmentsServer(
     console.warn('[searchShipmentsServer] Error buscando por tracking code:', err)
   }
 
-  // 2. Búsqueda por teléfono si contiene al menos 5 dígitos
-  const phoneDigits = cleanTerm.replace(/\D/g, '')
-  if (phoneDigits.length >= 5) {
-    const shipmentsRef = collection(db, 'shipments')
-    try {
-      const senderQ = query(shipmentsRef, where('sender.phone', '==', cleanTerm), limit(25))
-      const senderSnap = await getDocs(senderQ)
-      senderSnap.forEach((d) => {
-        const data = d.data() as Shipment
-        if (
-          branchId === 'all' ||
-          data.originBranchId === branchId ||
-          data.destinationBranchId === branchId
-        ) {
-          resultsMap.set(d.id, { ...data, id: d.id, trackingCode: data.trackingCode || d.id })
-        }
-      })
-
-      const recipientQ = query(shipmentsRef, where('recipient.phone', '==', cleanTerm), limit(25))
-      const recipientSnap = await getDocs(recipientQ)
-      recipientSnap.forEach((d) => {
-        const data = d.data() as Shipment
-        if (
-          branchId === 'all' ||
-          data.originBranchId === branchId ||
-          data.destinationBranchId === branchId
-        ) {
-          resultsMap.set(d.id, { ...data, id: d.id, trackingCode: data.trackingCode || d.id })
-        }
-      })
-    } catch (err) {
-      console.warn('[searchShipmentsServer] Error buscando por teléfono:', err)
-    }
+  // Firestore evaluates the query itself. Filtering after a global read cannot
+  // satisfy the agency rules and also excludes legitimate historical matches.
+  const criteria: Array<{ field: string; value: string }> = []
+  const code = cleanTerm.toUpperCase()
+  if (/^[A-Z]{3}-?\d{4}-?\d{5}$/.test(code)) {
+    const compact = code.replace(/-/g, '')
+    criteria.push({ field: 'trackingCode', value: compact },
+      { field: 'trackingCode', value: compact.slice(0, 3) + '-' + compact.slice(3, 7) + '-' + compact.slice(7) })
+  } else if (/^[+\d() .-]+$/.test(cleanTerm) && cleanTerm.replace(/\D/g, '').length >= 5) {
+    criteria.push({ field: 'sender.phone', value: cleanTerm }, { field: 'recipient.phone', value: cleanTerm })
+  }
+  const shipmentsRef = collection(db, 'shipments')
+  const scopes = branchId === 'all' ? [null] : ['originBranchId', 'destinationBranchId']
+  const snapshots = await Promise.all(criteria.flatMap(({ field, value }) => scopes.map(async scope => {
+    const constraints = scope ? [where(scope, '==', branchId), where(field, '==', value)] : [where(field, '==', value)]
+    return getDocs(query(shipmentsRef, ...constraints, limit(25)))
+  })))
+  for (const snapshot of snapshots) {
+    snapshot.forEach(doc => {
+      const data = doc.data() as Shipment
+      resultsMap.set(doc.id, { ...data, id: doc.id, trackingCode: data.trackingCode || doc.id })
+    })
   }
 
   const list = Array.from(resultsMap.values())
@@ -435,6 +424,8 @@ export async function searchShipmentsServer(
 export interface FetchShipmentsPageOptions {
   branchId?: string
   pageSize?: number
+  createdFrom?: string
+  createdUntil?: string
   lastVisibleDoc?: any
 }
 
@@ -450,13 +441,16 @@ export interface FetchShipmentsPageResult {
 export async function fetchShipmentsPage(
   options: FetchShipmentsPageOptions = {}
 ): Promise<FetchShipmentsPageResult> {
-  const { branchId = 'all', pageSize = 20, lastVisibleDoc = null } = options
+  const { branchId = 'all', pageSize = 20, lastVisibleDoc = null, createdFrom, createdUntil } = options
   const shipmentsRef = collection(db, 'shipments')
 
   const constraints: any[] = [
     orderBy('createdAtIso', 'desc'),
     limit(pageSize),
   ]
+
+  if (createdFrom) constraints.push(where('createdAtIso', '>=', createdFrom))
+  if (createdUntil) constraints.push(where('createdAtIso', '<', createdUntil))
 
   if (lastVisibleDoc) {
     constraints.push(startAfter(lastVisibleDoc))

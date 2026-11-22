@@ -387,6 +387,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
             </div>
           </div>
           <button
+            aria-label="Cerrar asistente de encomienda"
             onClick={onClose}
             className="text-emerald-200 hover:text-white p-1 rounded-lg hover:bg-emerald-800 transition-colors"
           >

@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../auth/operationalRoles'
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   Briefcase,
@@ -136,8 +137,8 @@ export const WorkersAndExpensesView: React.FC<WorkersAndExpensesViewProps> = ({
   })
 
   // Permisos
-  const canManageWorkers = ['directiva_admin', 'tesoreria'].includes(userProfile.role)
-  const canRegisterExpenses = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'secretaria'].includes(userProfile.role)
+  const canManageWorkers = isOperationalAdmin(userProfile)
+  const canRegisterExpenses = isOperationalAdmin(userProfile)
 
   // Suscripciones en tiempo real
   useEffect(() => {

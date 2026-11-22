@@ -6,7 +6,7 @@ import {
   assertFails,
   assertSucceeds,
 } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { doc, getDoc, collection, getDocs, query, where, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
 
 let testEnv
 
@@ -26,7 +26,7 @@ test('19. Incidencias: lectura por sucursal y escritura directa bloqueada', asyn
   await testEnv.withSecurityRulesDisabled(async context => {
     const seed = context.firestore()
     await setDoc(doc(seed, 'users', 'incident-sec-punata'), { role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true })
-    await setDoc(doc(seed, 'users', 'incident-admin'), { role: 'directiva_admin', primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'], isActive: true })
+    await setDoc(doc(seed, 'users', 'incident-admin'), { role: 'afiliado_admin', primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'], isActive: true })
     await setDoc(doc(seed, 'users', 'incident-inactive'), { role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: false })
     await setDoc(doc(seed, 'users', 'incident-no-role'), { primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true })
     await setDoc(doc(seed, 'shipment_incidents', 'incident-punata'), { branchId: 'punata', shipmentId: 'shipment-punata', incidentType: 'uncollected' })
@@ -109,10 +109,10 @@ test('Cuotas: encargado limitado por sucursal sin reducir permisos vigentes de o
   await assertFails(getDoc(doc(managerDb, 'union_dues', 'dues-cochabamba')))
   await assertSucceeds(getDoc(doc(managerDb, 'union_dues', 'dues-punata', 'payments', 'payment-punata')))
   await assertFails(getDoc(doc(managerDb, 'union_dues', 'dues-cochabamba', 'payments', 'payment-cbba')))
-  await assertSucceeds(getDoc(doc(secretaryDb, 'union_dues', 'dues-cochabamba')))
+  await assertFails(getDoc(doc(secretaryDb, 'union_dues', 'dues-cochabamba')))
   await assertSucceeds(getDoc(doc(treasuryDb, 'union_dues', 'dues-cochabamba')))
   await assertSucceeds(getDoc(doc(adminDb, 'union_dues', 'dues-cochabamba')))
-  await assertSucceeds(getDoc(doc(affiliateDb, 'union_dues', 'dues-punata')))
+  await assertFails(getDoc(doc(affiliateDb, 'union_dues', 'dues-punata')))
   await assertFails(getDoc(doc(affiliateDb, 'union_dues', 'dues-cochabamba')))
   await assertFails(setDoc(doc(managerDb, 'union_dues', 'dues-new'), { branchId: 'punata' }))
 })
@@ -844,9 +844,9 @@ test('18. FASE A: Alcance por sucursal y auditoría de encomiendas', async () =>
   const noRoleDb = testEnv.authenticatedContext('no-role-scope').firestore()
   const adminDb = testEnv.authenticatedContext('admin-scope').firestore()
 
-  await assertSucceeds(getDoc(doc(punataDb, 'fixed_assets', 'asset-punata-scope')))
+  await assertFails(getDoc(doc(punataDb, 'fixed_assets', 'asset-punata-scope')))
   await assertFails(getDoc(doc(punataDb, 'fixed_assets', 'asset-cbba-scope')))
-  await assertSucceeds(getDoc(doc(cbbaDb, 'branch_consumables', 'consumable-cbba-scope')))
+  await assertFails(getDoc(doc(cbbaDb, 'branch_consumables', 'consumable-cbba-scope')))
   await assertFails(getDoc(doc(cbbaDb, 'branch_consumables', 'consumable-punata-scope')))
   await assertFails(getDoc(doc(inactiveDb, 'fixed_assets', 'asset-punata-scope')))
   await assertFails(getDoc(doc(noRoleDb, 'fixed_assets', 'asset-punata-scope')))
@@ -854,4 +854,107 @@ test('18. FASE A: Alcance por sucursal y auditoría de encomiendas', async () =>
   await assertSucceeds(getDoc(doc(adminDb, 'branch_consumables', 'consumable-punata-scope')))
   await assertSucceeds(getDoc(doc(adminDb, 'shipments', 'shipment-audit-scope', 'audit_logs', 'cancel-1')))
   await assertFails(setDoc(doc(adminDb, 'shipments', 'shipment-audit-scope', 'audit_logs', 'hack'), { action: 'tampered' }))
+})
+
+test('cashier can observe a missing own shift lock only in an authorized branch', async () => {
+  const uid = 'missing-cash-lock-secretary'
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', uid), {
+      role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true,
+    })
+  })
+  const cashier = testEnv.authenticatedContext(uid).firestore()
+  const lock = id => doc(cashier, 'cash_shift_active_locks', id)
+  const own = await assertSucceeds(getDoc(lock(uid + '_punata')))
+  if (own.exists()) throw new Error('Expected the shift lock to be absent')
+  await assertFails(getDoc(lock(uid + '_cochabamba')))
+  await assertFails(getDoc(lock('other-operator_punata')))
+  await assertFails(setDoc(lock(uid + '_punata'), { operatorUid: uid, branchId: 'punata' }))
+})
+
+test('only the active company administrator can read the global commissions ledger', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    for (const [id, role, isActive] of [
+      ['ledger-admin', 'directiva_admin', true], ['ledger-inactive', 'directiva_admin', false],
+      ['ledger-secretary', 'secretaria', true], ['ledger-affiliate', 'afiliado', true],
+    ]) await setDoc(doc(seed, 'users', id), { role, isActive })
+    await setDoc(doc(seed, 'driver_commission_accounts', 'ledger-driver'), { pendingCents: 200 })
+    await setDoc(doc(seed, 'driver_commission_records', 'ledger-record'), { amountCents: 200 })
+  })
+  for (const [collectionName, id] of [
+    ['driver_commission_accounts', 'ledger-driver'], ['driver_commission_records', 'ledger-record'],
+  ]) {
+    const ref = uid => doc(testEnv.authenticatedContext(uid).firestore(), collectionName, id)
+    await assertSucceeds(getDoc(ref('ledger-admin')))
+    await assertFails(updateDoc(ref('ledger-admin'), { pendingCents: 0 }))
+    for (const uid of ['ledger-inactive', 'ledger-secretary', 'ledger-affiliate']) await assertFails(getDoc(ref(uid)))
+  }
+})
+
+test('soporte técnico solo puede leer su propio perfil de Firestore', async () => {
+  const uid = 'technical-support-test'
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    await setDoc(doc(seed, 'users', uid), { role: 'soporte_pachax', isActive: true })
+    await setDoc(doc(seed, 'branches', 'technical-branch'), { name: 'Sucursal' })
+  })
+  const support = testEnv.authenticatedContext(uid, { role: 'directiva_admin' }).firestore()
+  await assertSucceeds(getDoc(doc(support, 'users', uid)))
+  await assertFails(getDoc(doc(support, 'branches', 'technical-branch')))
+  await assertFails(updateDoc(doc(support, 'users', uid), { role: 'directiva_admin' }))
+})
+
+test('historical search accepts an agency-scoped phone query and rejects an unscoped search', async () => {
+  const uid = 'historical-search-secretary'
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    await setDoc(doc(seed, 'users', uid), { role: 'secretaria', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata'] })
+    await setDoc(doc(seed, 'shipments', 'old-guide-punata'), { originBranchId: 'punata', destinationBranchId: 'cochabamba', createdAtIso: '2025-01-01T00:00:00.000Z', sender: { phone: '70000001' } })
+    await setDoc(doc(seed, 'shipments', 'old-guide-foreign'), { originBranchId: 'cochabamba', destinationBranchId: 'cochabamba', createdAtIso: '2025-01-01T00:00:00.000Z', sender: { phone: '70000001' } })
+  })
+  const shipments = collection(testEnv.authenticatedContext(uid).firestore(), 'shipments')
+  const phone = where('sender.phone', '==', '70000001')
+  const result = await assertSucceeds(getDocs(query(shipments, where('originBranchId', '==', 'punata'), phone)))
+  assert.deepEqual(result.docs.map(doc => doc.id), ['old-guide-punata'])
+  await assertFails(getDocs(query(shipments, phone)))
+})
+
+test('administración institucional y perfiles de agencia mantienen fronteras de lectura y escritura', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const seed = context.firestore()
+    for (const [uid, role, agencies] of [
+      ['scope-full', 'afiliado_admin', ['punata', 'cochabamba']],
+      ['scope-limit', 'afiliado_admin', ['punata']],
+      ['scope-secretary', 'secretaria', ['punata']],
+      ['scope-member', 'afiliado', ['punata']],
+      ['scope-support', 'soporte_pachax', ['punata', 'cochabamba']],
+    ]) {
+      await setDoc(doc(seed, 'users', uid), { role, primaryBranchId: 'punata', allowedBranchIds: agencies, isActive: true })
+    }
+    await setDoc(doc(seed, 'driver_commission_accounts', 'scope-driver'), { pendingCents: 200 })
+    await setDoc(doc(seed, 'driver_commission_records', 'scope-record'), { originBranchId: 'punata', commissionAmountCents: 200 })
+    await setDoc(doc(seed, 'financial_movements', 'scope-financial'), { branchId: 'cochabamba', amountCents: 200 })
+    await setDoc(doc(seed, 'financial_movements', 'scope-financial-own-branch'), { branchId: 'punata', amountCents: 200 })
+    await setDoc(doc(seed, 'union_members', 'scope-member-punata'), { branchId: 'punata' })
+    await setDoc(doc(seed, 'union_members', 'scope-member-cocha'), { branchId: 'cochabamba' })
+  })
+  const full = testEnv.authenticatedContext('scope-full').firestore()
+  const limited = testEnv.authenticatedContext('scope-limit').firestore()
+  const secretary = testEnv.authenticatedContext('scope-secretary').firestore()
+  await assertFails(getDoc(doc(secretary, 'financial_movements', 'scope-financial-own-branch')))
+  await assertSucceeds(getDoc(doc(limited, 'union_members', 'scope-member-punata')))
+  await assertFails(getDoc(doc(limited, 'union_members', 'scope-member-cocha')))
+  for (const [collectionId, id] of [
+    ['driver_commission_accounts', 'scope-driver'],
+    ['driver_commission_records', 'scope-record'],
+    ['financial_movements', 'scope-financial'],
+  ]) {
+    await assertSucceeds(getDoc(doc(full, collectionId, id)))
+    await assertFails(updateDoc(doc(full, collectionId, id), { amountCents: 0 }))
+    for (const uid of ['scope-limit', 'scope-secretary', 'scope-member', 'scope-support']) {
+      const db = testEnv.authenticatedContext(uid, { role: 'directiva_admin' }).firestore()
+      await assertFails(getDoc(doc(db, collectionId, id)))
+    }
+  }
 })

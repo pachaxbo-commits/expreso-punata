@@ -1,4 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import { hasOperationalRole } from '../auth/operationalRoles'
+import { ShipmentTransfer } from './ShipmentTransfer'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import {
   Package,
   Plus,
@@ -15,7 +17,7 @@ import {
 import type { Shipment, UserProfile, Branch } from '../../types'
 import { formatCurrencyBob } from '../../domain/parcelEngine'
 import { ShipmentDetailModal } from './ShipmentDetailModal'
-import { searchShipmentsServer, fetchShipmentsPage } from '../../services/shipmentService'
+import { searchShipmentsServer, fetchShipmentsPage, fetchShipmentByTrackingCode } from '../../services/shipmentService'
 import { fetchShipmentContacts } from '../../services/incidentService'
 import { elapsedFullDays, receptionDate } from '../../utils/shipmentTiming'
 
@@ -29,7 +31,7 @@ interface ShipmentsManagementViewProps {
   onShipmentUpdated?: (updated: Shipment) => void
   backendConnected: boolean
   isCloudEnvironment: boolean
-  demoTransfer?: unknown
+  renderLocalTransfer?: (shipment: Shipment) => React.ReactNode
 }
 
 export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = ({
@@ -41,8 +43,18 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   onShipmentUpdated,
   backendConnected,
   isCloudEnvironment,
+  renderLocalTransfer,
+  simpleTransferEnabled,
 }) => {
   const [searchTerm, setSearchTerm] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const rangeActive = !searchTerm.trim() && Boolean(fromDate || toDate)
+  const invalidRange = rangeActive && Boolean(fromDate && toDate && fromDate > toDate)
+  const createdFrom = rangeActive && fromDate ? new Date(fromDate + 'T00:00:00-04:00').toISOString() : undefined
+  const createdUntil = rangeActive && toDate
+    ? new Date(Date.parse(toDate + 'T00:00:00-04:00') + 86_400_000).toISOString()
+    : undefined
   const [statusFilter, setStatusFilter] = useState('all')
   const [paymentFilter, setPaymentFilter] = useState('all')
   const [showFollowUp, setShowFollowUp] = useState(false)
@@ -64,15 +76,20 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   const [hasMoreHistory, setHasMoreHistory] = useState(true)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
 
+  const historyRevision = useRef(0)
   const handleLoadMoreHistory = async () => {
-    if (isLoadingHistory || !hasMoreHistory) return
+    if (isLoadingHistory || !hasMoreHistory || invalidRange) return
+    const revision = historyRevision.current
     setIsLoadingHistory(true)
     try {
       const res = await fetchShipmentsPage({
         branchId: currentBranch.id,
         pageSize: 30,
         lastVisibleDoc,
+        createdFrom,
+        createdUntil,
       })
+      if (revision !== historyRevision.current) return
       if (res.shipments.length > 0) {
         setHistoricalShipments(prev => [...prev, ...res.shipments])
         setLastVisibleDoc(res.lastDoc)
@@ -81,13 +98,13 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
     } catch (err) {
       console.warn('Error al cargar historial del servidor:', err)
     } finally {
-      setIsLoadingHistory(false)
+      if (revision === historyRevision.current) setIsLoadingHistory(false)
     }
   }
 
   useEffect(() => {
     const term = searchTerm.trim()
-    if (term.length < 4) {
+    if (renderLocalTransfer || term.length < 4) {
       setServerResults([])
       return
     }
@@ -105,7 +122,29 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
     }, 350)
 
     return () => clearTimeout(timer)
-  }, [searchTerm, currentBranch.id])
+  }, [searchTerm, currentBranch.id, renderLocalTransfer])
+
+  useEffect(() => {
+    historyRevision.current++
+    setIsLoadingHistory(false)
+    setHistoricalShipments([])
+    setLastVisibleDoc(null)
+    setHasMoreHistory(true)
+    setCurrentPage(1)
+    if (!rangeActive || invalidRange || renderLocalTransfer) return
+    let active = true
+    setIsLoadingHistory(true)
+    fetchShipmentsPage({ branchId: currentBranch.id, pageSize: 30, createdFrom, createdUntil })
+      .then(result => {
+        if (!active) return
+        setHistoricalShipments(result.shipments)
+        setLastVisibleDoc(result.lastDoc)
+        setHasMoreHistory(result.hasMore)
+      })
+      .catch(error => { if (active) console.warn('Error al cargar el rango histórico:', error) })
+      .finally(() => { if (active) setIsLoadingHistory(false) })
+    return () => { active = false }
+  }, [rangeActive, invalidRange, createdFrom, createdUntil, currentBranch.id, renderLocalTransfer])
 
   const combinedShipments = useMemo(() => {
     const map = new Map<string, Shipment>()
@@ -135,7 +174,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
 
   useEffect(() => {
     let cancelled = false
-    if (uncollectedShipments.length === 0) {
+    if (renderLocalTransfer || uncollectedShipments.length === 0) {
       setContactSummary({})
       return
     }
@@ -143,7 +182,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
       .then((entries) => { if (!cancelled) setContactSummary(Object.fromEntries(entries)) })
       .catch(() => { if (!cancelled) setContactSummary({}) })
     return () => { cancelled = true }
-  }, [uncollectedShipments, currentBranch.id])
+  }, [uncollectedShipments, currentBranch.id, renderLocalTransfer])
 
   const followUpRows = useMemo(() => uncollectedShipments.map((shipment) => {
     const contacts = contactSummary[shipment.id] || []
@@ -184,6 +223,9 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
   // 2. Filtrado reactivo de encomiendas (locales + servidor)
   const filteredShipments = useMemo(() => {
     return combinedShipments.filter(s => {
+      if (invalidRange) return false
+      if (createdFrom && (!s.createdAtIso || s.createdAtIso < createdFrom)) return false
+      if (createdUntil && (!s.createdAtIso || s.createdAtIso >= createdUntil)) return false
       if (statusFilter !== 'all' && s.status !== statusFilter) return false
       if (paymentFilter !== 'all' && s.paymentStatus !== paymentFilter) return false
 
@@ -201,7 +243,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
 
       return true
     })
-  }, [combinedShipments, statusFilter, paymentFilter, searchTerm])
+  }, [combinedShipments, statusFilter, paymentFilter, searchTerm, invalidRange, createdFrom, createdUntil])
 
   // 3. Paginación
   const totalPages = Math.max(1, Math.ceil(filteredShipments.length / pageSize))
@@ -209,6 +251,17 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
     const start = (currentPage - 1) * pageSize
     return filteredShipments.slice(start, start + pageSize)
   }, [filteredShipments, currentPage, pageSize])
+
+  const liveSelectedShipment = combinedShipments.find(shipment => shipment.id === selectedShipment?.id) ?? selectedShipment
+  const transferAction = liveSelectedShipment && simpleTransferEnabled && !renderLocalTransfer &&
+    hasOperationalRole(currentUser, ['secretaria', 'directiva_admin', 'encargado_agencia'])
+    ? (liveSelectedShipment.originBranchId === currentBranch.id &&
+       ['received', 'pending_dispatch'].includes(liveSelectedShipment.status) && !liveSelectedShipment.manifestId
+      ? 'depart'
+      : liveSelectedShipment.destinationBranchId === currentBranch.id && liveSelectedShipment.status === 'in_transit' &&
+          liveSelectedShipment.singleTransfer && liveSelectedShipment.manifestId
+        ? 'receive' : null)
+    : null
 
   const handleRowClick = (shipment: Shipment) => {
     setSelectedShipment(shipment)
@@ -305,6 +358,13 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
                   </button>
                 )}
               </div>
+            {!renderLocalTransfer && <fieldset className="flex flex-wrap items-center gap-2 text-xs">
+              <label>Desde <input type="date" className="rounded border p-1" value={fromDate} onChange={event => setFromDate(event.target.value)} /></label>
+              <label>Hasta <input type="date" className="rounded border p-1" value={toDate} onChange={event => setToDate(event.target.value)} /></label>
+              {(fromDate || toDate) && <button type="button" onClick={() => { setFromDate(''); setToDate('') }}>Quitar fechas</button>}
+              {searchTerm.trim() && (fromDate || toDate) && <span>La búsqueda ignora el rango de fechas.</span>}
+              {invalidRange && <span role="alert">La fecha inicial debe ser anterior a la final.</span>}
+            </fieldset>}
             </div>
             <p className="text-[11px] text-slate-500">
               * Acepta códigos alfanuméricos limpios (<code className="font-mono text-emerald-800">PUN202600042</code>) y guías anteriores con guión.
@@ -630,7 +690,21 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
 
       {/* Modal Ficha Completa de Encomienda */}
       <ShipmentDetailModal
-        shipment={selectedShipment}
+        shipment={liveSelectedShipment}
+        transfer={liveSelectedShipment && transferAction && (
+          <ShipmentTransfer key={liveSelectedShipment.id + ':' + transferAction} shipment={liveSelectedShipment} action={transferAction}
+            onDone={async () => {
+              const updated = await fetchShipmentByTrackingCode(liveSelectedShipment.trackingCode)
+              if (updated) {
+                setSelectedShipment(updated)
+                setServerResults(previous => previous.map(item => item.id === updated.id ? updated : item))
+                setHistoricalShipments(previous => previous.map(item => item.id === updated.id ? updated : item))
+                onShipmentUpdated?.(updated)
+              }
+            }}
+          />
+        )}
+        localTransfer={selectedShipment && renderLocalTransfer?.(selectedShipment)}
         isOpen={isDetailOpen}
         onClose={() => {
           setIsDetailOpen(false)

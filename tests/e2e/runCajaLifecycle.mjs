@@ -25,15 +25,15 @@ const {
 async function runFullCajaLifecycle() {
   console.log('--- INICIANDO RECORRIDO COMPLETO DE CAJA (ENTREGA 1 CONTROLES) ---')
 
-  // 0. Crear perfil de prueba autorizado (secretaria Punata)
-  const uid = 'sec-recorrido-punata'
+  // 0. Crear perfil de prueba autorizado (administración institucional)
+  const uid = 'admin-recorrido-punata'
   await db.collection('users').doc(uid).set({
     uid,
-    fullName: 'Secretaria Recorrido Punata',
+    fullName: 'Administración Recorrido Punata',
     email: 'sec.recorrido@expresopunata.com',
-    role: 'secretaria',
+    role: 'afiliado_admin',
     primaryBranchId: 'punata',
-    allowedBranchIds: ['punata'],
+    allowedBranchIds: ['punata', 'cochabamba'],
     isActive: true,
   })
 

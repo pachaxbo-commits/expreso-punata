@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../auth/operationalRoles'
 import React, { useEffect, useState } from 'react'
 import {
   X,
@@ -28,6 +29,8 @@ import type { ShipmentContact, ShipmentContactMethod, ShipmentContactResult } fr
 
 interface ShipmentDetailModalProps {
   shipment: Shipment | null
+  localTransfer?: React.ReactNode
+  transfer?: React.ReactNode
   isOpen: boolean
   onClose: () => void
   currentUser: UserProfile
@@ -38,6 +41,8 @@ interface ShipmentDetailModalProps {
 
 export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   shipment,
+  localTransfer,
+  transfer,
   isOpen,
   onClose,
   currentUser,
@@ -82,9 +87,9 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   const [rectificationReason, setRectificationReason] = useState('')
 
   useEffect(() => {
-    if (!shipment?.id) return
+    if (!shipment?.id || localTransfer) return
     fetchShipmentContacts(shipment.id, currentBranchId).then(setContacts).catch(() => setContacts([]))
-  }, [shipment?.id, currentBranchId])
+  }, [shipment?.id, currentBranchId, localTransfer])
 
   const handleRegisterContact = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -144,18 +149,18 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
 
   const isOriginBranch = currentUser.allowedBranchIds?.includes(shipment.originBranchId) ||
     currentUser.primaryBranchId === shipment.originBranchId ||
-    currentUser.role === 'directiva_admin'
+    isOperationalAdmin(currentUser)
 
   const isDestBranch = currentUser.allowedBranchIds?.includes(shipment.destinationBranchId) ||
     currentUser.primaryBranchId === shipment.destinationBranchId ||
-    currentUser.role === 'directiva_admin'
+    isOperationalAdmin(currentUser)
 
   const isPaid = shipment.paymentStatus === 'paid'
   const isPostDispatch = ['dispatched', 'in_transit', 'received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery', 'delivered'].includes(shipment.status)
   const isDelivered = shipment.status === 'delivered'
-  const canEdit = currentUser.role === 'directiva_admin' || currentUser.role === 'encargado_agencia' || (!isDelivered && currentUser.role === 'secretaria' && (isOriginBranch || isDestBranch))
-  const canDeliver = !isDelivered && ['received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery'].includes(shipment.status) && (currentBranchId === shipment.destinationBranchId || currentUser.role === 'directiva_admin')
-  const canCancel = !isPaid && ['received', 'pending_dispatch'].includes(shipment.status) && (currentUser.role === 'directiva_admin' || isOriginBranch)
+  const canEdit = isOperationalAdmin(currentUser) || currentUser.role === 'encargado_agencia' || (!isDelivered && currentUser.role === 'secretaria' && (isOriginBranch || isDestBranch))
+  const canDeliver = !isDelivered && ['received_at_dest', 'stored', 'ready_for_pickup', 'in_delivery'].includes(shipment.status) && (currentBranchId === shipment.destinationBranchId || isOperationalAdmin(currentUser))
+  const canCancel = !isPaid && ['received', 'pending_dispatch'].includes(shipment.status) && (isOperationalAdmin(currentUser) || isOriginBranch)
 
   const dateFormatted = shipment.createdAtIso
     ? new Date(shipment.createdAtIso).toLocaleString('es-BO', {
@@ -350,14 +355,14 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
               <FileText className="w-3.5 h-3.5" />
               <span>Detalles del Envío</span>
             </button>
-            <button
+            {!localTransfer && <button
               type="button"
               onClick={() => setActiveTab('contacts')}
               className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-1.5 ${activeTab === 'contacts' ? 'border-[#064e3b] text-[#064e3b] bg-white' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
             >
               <Phone className="w-3.5 h-3.5" />
               <span>Seguimiento del destinatario ({contacts.length})</span>
-            </button>
+            </button>}
             <button
               type="button"
               onClick={() => setActiveTab('history')}
@@ -370,7 +375,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
               <History className="w-3.5 h-3.5" />
               <span>Auditoría & Trazabilidad ({shipment.auditHistory?.length || 0})</span>
             </button>
-            <button
+            {!localTransfer && <button
               type="button"
               onClick={() => setActiveTab('incidents')}
               className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center gap-1.5 ${
@@ -381,8 +386,8 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
             >
               <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
               <span>Incidencias & Rezagos</span>
-            </button>
-            {canEdit && (
+            </button>}
+            {!localTransfer && canEdit && (
               <button
                 type="button"
                 onClick={handleStartEdit}
@@ -406,6 +411,7 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
         {/* Contenido scrolleable */}
         <div className="p-5 overflow-y-auto space-y-5 text-xs flex-1">
           {/* TAB 1: DETALLES */}
+          {activeTab === 'info' && (localTransfer || transfer)}
           {activeTab === 'info' && (
             <div className="space-y-4">
               {/* Tarjeta de Ruta y Precio */}
@@ -1013,10 +1019,10 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {canCancel && (
+            {!localTransfer && canCancel && (
               <button type="button" onClick={() => { setCancellationError(null); setShowCancelDialog(true) }} className="px-3 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-xl font-bold text-xs">Anular encomienda</button>
             )}
-            {canDeliver && (
+            {!localTransfer && canDeliver && (
               <button
                 type="button"
                 onClick={() => {

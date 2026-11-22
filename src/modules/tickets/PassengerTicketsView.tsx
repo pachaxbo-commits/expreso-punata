@@ -1,3 +1,4 @@
+import { hasOperationalRole } from '../auth/operationalRoles'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Banknote, CheckCircle2, Printer,
@@ -19,7 +20,6 @@ import { buildPassengerTicketPairHtml, printPassengerTicketPair, type PassengerT
 interface Props { currentUser: UserProfile; currentBranch: Branch; tutorialFormContextOpen?: boolean }
 
 const staffRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
-const canManage = (role: UserProfile['role']) => staffRoles.includes(role)
 const formatDate = (value: string) => {
   if (!value) return '—'
   const date = new Date(`${value}T12:00:00`)
@@ -32,8 +32,8 @@ const statusCopy: Record<PassengerTicketOperation['paymentStatus'], string> = {
 
 export const PassengerTicketsView: React.FC<Props> = ({ currentUser, currentBranch, tutorialFormContextOpen = false }) => {
   const isDriver = currentUser.role === 'conductor'
-  const canRegister = canManage(currentUser.role)
-  const canReadAll = ['directiva_admin', 'tesoreria'].includes(currentUser.role)
+  const canRegister = hasOperationalRole(currentUser, staffRoles)
+  const canReadAll = hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria'])
   const [operations, setOperations] = useState<PassengerTicketOperation[]>([])
   const [drivers, setDrivers] = useState<DriverDirectoryEntry[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -250,7 +250,7 @@ export const PassengerTicketsView: React.FC<Props> = ({ currentUser, currentBran
       {error && <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>{error}</div>}
       {notice && <div role="status" className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0"/>{notice}</div>}
 
-      {isDriver && <section data-tutorial-target="tickets-driver-validation" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      {(isDriver || canRegister) && <section data-tutorial-target="tickets-driver-validation" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-extrabold text-slate-800">Comprobar comprobante</h2>
         <p className="mt-1 text-xs text-slate-600">Escribe el código que aparece en el comprobante. La confirmación consulta el registro oficial.</p>
         <form onSubmit={handleValidateTicket} className="mt-3 flex flex-col gap-2 sm:flex-row">

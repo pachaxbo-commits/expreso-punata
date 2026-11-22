@@ -1,3 +1,4 @@
+import { isOperationalAdmin, hasOperationalRole } from './operationalRoles'
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import {
   onAuthStateChanged,
@@ -212,7 +213,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // Directiva / Admin General tiene acceso irrestricto a ambas sucursales
-    if (userProfile.role === 'directiva_admin') {
+    if (isOperationalAdmin(userProfile)) {
       _setCurrentBranchId(branchId)
       return true
     }
@@ -284,7 +285,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasRole = (roles: UserRole[]) => {
     if (!userProfile || userProfile.isActive === false) return false
-    return roles.includes(userProfile.role) || userProfile.role === 'directiva_admin'
+    return hasOperationalRole(userProfile, roles)
   }
 
   return (

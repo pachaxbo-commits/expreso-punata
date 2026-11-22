@@ -29,10 +29,11 @@ import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig'
 import { getUnionMembersRosterThroughBackend, type UnionRosterMember } from '../../services/unionService.ts'
 
 const ROLE_LABELS: Record<UserRole, { label: string; bg: string; text: string }> = {
-  directiva_admin: { label: 'Administrador General (Directiva)', bg: 'bg-purple-100', text: 'text-purple-800' },
+  soporte_pachax: { label: 'Soporte PACHAX', bg: 'bg-slate-100', text: 'text-slate-800' },
+   directiva_admin: { label: 'Administrador General (Directiva)', bg: 'bg-purple-100', text: 'text-purple-800' },
   encargado_agencia: { label: 'Encargado de Agencia', bg: 'bg-blue-100', text: 'text-blue-800' },
   secretaria: { label: 'Secretaria / Ventanilla', bg: 'bg-emerald-100', text: 'text-emerald-800' },
-  afiliado_admin: { label: 'Administrador de Afiliados', bg: 'bg-cyan-100', text: 'text-cyan-800' },
+  afiliado_admin: { label: 'Administrador de Expreso Punata', bg: 'bg-cyan-100', text: 'text-cyan-800' },
   afiliado: { label: 'Afiliado', bg: 'bg-slate-100', text: 'text-slate-800' },
   tesoreria: { label: 'Tesorería', bg: 'bg-amber-100', text: 'text-amber-800' },
   conductor: { label: 'Chofer / Conductor', bg: 'bg-indigo-100', text: 'text-indigo-800' },
@@ -162,7 +163,9 @@ export const UserManagementView: React.FC = () => {
         phone: roleChangeUser.phone,
         role: newSelectedRole,
         primaryBranchId: roleChangeUser.primaryBranchId,
-        allowedBranchIds: roleChangeUser.allowedBranchIds,
+        allowedBranchIds: roleChangeUser.role === 'directiva_admin' && newSelectedRole === 'afiliado_admin'
+          ? INITIAL_BRANCHES.map(branch => branch.id)
+          : roleChangeUser.allowedBranchIds,
         assignedVehiclePlate: roleChangeUser.assignedVehiclePlate,
         assignedMobileNumber: roleChangeUser.assignedMobileNumber,
         isActive: roleChangeUser.isActive,
@@ -189,14 +192,8 @@ export const UserManagementView: React.FC = () => {
 
     try {
       setActionLoading(true)
-      // 1. Disparar el flujo oficial de Firebase Auth directamente a la bandeja del usuario
-      await sendUserPasswordResetEmail(targetEmail)
-      // 2. Registrar la autorización en la bitácora de auditoría del backend
-      try {
-        await requestPasswordResetLink(targetEmail, user.uid)
-      } catch (auditErr) {
-        console.warn('Auditoría registrada:', auditErr)
-      }
+      const { email } = await requestPasswordResetLink(targetEmail, user.uid)
+      await sendUserPasswordResetEmail(email)
       alert(`Correo oficial de restablecimiento enviado exitosamente a: ${targetEmail}.\nEl operador debe abrir el enlace recibido para configurar su contraseña.`)
     } catch (err: any) {
       alert(`Error al procesar restablecimiento: ${err.message}`)
@@ -302,7 +299,7 @@ export const UserManagementView: React.FC = () => {
               <option value="all">Todos los roles</option>
               <option value="directiva_admin">Administrador General</option>
               <option value="encargado_agencia">Encargado de Agencia</option>
-              <option value="afiliado_admin">Administrador de Afiliados</option>
+              <option value="afiliado_admin">Administrador de Expreso Punata</option>
               <option value="afiliado">Afiliado (solo su cuenta)</option>
               <option value="secretaria">Secretaria / Ventanilla</option>
               <option value="conductor">Chofer / Conductor</option>
@@ -601,13 +598,10 @@ export const UserManagementView: React.FC = () => {
                 onChange={(e) => setNewSelectedRole(e.target.value as UserRole)}
                 className="w-full p-2.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
               >
-                <option value="afiliado_admin">Administrador de Afiliados (Padrón y consultas financieras)</option>
+                <option value="afiliado_admin">Administrador de Expreso Punata</option>
                 <option value="afiliado">Afiliado (solo su cuenta)</option>
                 <option value="secretaria">Secretaria / Ventanilla (Emisión de guías, cobros en caja)</option>
-                <option value="encargado_agencia">Encargado de Agencia (Almacén, inventario, caja)</option>
-                <option value="conductor">Chofer / Conductor (Manifiestos y entregas en ruta)</option>
-                <option value="tesoreria">Tesorería (Socios, mensualidades, reportes)</option>
-                <option value="directiva_admin">Administrador General (Control total de Expreso Punata)</option>
+
               </select>
             </div>
 
@@ -774,7 +768,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
       return
     }
 
-    if ((role === 'afiliado' || role === 'afiliado_admin') && !unionMemberId) {
+    if (role === 'afiliado' && !unionMemberId) {
       setFormError('Seleccione el afiliado que se vinculará a esta cuenta.')
       return
     }
@@ -797,7 +791,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
               : [primaryBranchId, ...allowedBranches],
         assignedVehiclePlate: role === 'conductor' ? vehiclePlate.trim() : undefined,
         assignedMobileNumber: role === 'conductor' ? mobileNumber.trim() : undefined,
-        unionMemberId: role === 'afiliado' || role === 'afiliado_admin' ? unionMemberId : undefined,
+        unionMemberId: unionMemberId || undefined,
         isActive: true,
       }
 
@@ -907,13 +901,10 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
                 onChange={(e) => setRole(e.target.value as UserRole)}
                 className="w-full p-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#064e3b] bg-white font-medium"
               >
-                <option value="afiliado_admin">Administrador de Afiliados</option>
+                <option value="afiliado_admin">Administrador de Expreso Punata</option>
                 <option value="afiliado">Afiliado (solo su cuenta)</option>
                 <option value="secretaria">Secretaria / Ventanilla</option>
-                <option value="encargado_agencia">Encargado de Agencia</option>
-                <option value="conductor">Chofer / Conductor</option>
-                <option value="tesoreria">Tesorería</option>
-                <option value="directiva_admin">Administrador General (Directiva)</option>
+
               </select>
             </div>
             <div>
@@ -943,7 +934,7 @@ const NewUserModal: React.FC<NewUserModalProps> = ({ onClose, onSuccess }) => {
           {/* Sucursales autorizadas (oculto para secretaria ya que tiene agencia fija única) */}
           {(role === 'afiliado' || role === 'afiliado_admin') && (
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Afiliado vinculado *</label>
+              <label className="font-bold text-slate-700 block mb-1">Afiliado vinculado {role === 'afiliado' ? '*' : '(opcional)'}</label>
               <select value={unionMemberId} onChange={(e) => setUnionMemberId(e.target.value)} className="w-full p-2.5 border border-slate-300 rounded-lg bg-white">
                 <option value="">Seleccione un afiliado activo</option>
                 {availableMembers.map((member) => <option key={member.id} value={member.id}>{member.memberNumber} · {member.fullName}</option>)}

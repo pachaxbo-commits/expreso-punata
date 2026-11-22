@@ -64,7 +64,7 @@ beforeEach(async () => {
 })
 
 test('1. manageWorker: Creación exitosa de trabajador con código autogenerado y auditoría', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   const res = await manageWorker.run({
     auth: { uid: 'admin-1' },
@@ -112,7 +112,7 @@ test('2. manageWorker: Denegación estricta para usuarios sin rol directiva o te
 })
 
 test('3. manageWorker: Actualización de datos y cambio de estado de trabajador', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   const created = await manageWorker.run({
     auth: { uid: 'admin-1' },
@@ -145,7 +145,7 @@ test('3. manageWorker: Actualización de datos y cambio de estado de trabajador'
 })
 
 test('4. registerWorkerPayment: Pago de nómina en efectivo con descuento transaccional de caja', async () => {
-  await createTestUser('admin-1', 'directiva_admin', 'punata')
+  await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   // Abrir turno de caja en Punata con saldo inicial de Bs 5,000 (500000 cents)
   const shiftRes = await openCashShift.run({
@@ -208,7 +208,7 @@ test('4. registerWorkerPayment: Pago de nómina en efectivo con descuento transa
 })
 
 test('5. registerWorkerPayment: Idempotencia estricta contra doble pago o reintento de red', async () => {
-  await createTestUser('admin-1', 'directiva_admin', 'punata')
+  await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   const workerRes = await manageWorker.run({
     auth: { uid: 'admin-1' },
@@ -243,7 +243,7 @@ test('5. registerWorkerPayment: Idempotencia estricta contra doble pago o reinte
 })
 
 test('6. registerGeneralExpense: Registro de gasto operativo con comprobante EGR-YYYY-XXXXX', async () => {
-  await createTestUser('admin-1', 'directiva_admin', 'cochabamba')
+  await createTestUser('admin-1', 'afiliado_admin', 'cochabamba')
 
   const shiftRes = await openCashShift.run({
     auth: { uid: 'admin-1' },
@@ -285,7 +285,7 @@ test('6. registerGeneralExpense: Registro de gasto operativo con comprobante EGR
 })
 
 test('7. manageFixedAsset: Registro de activo con código autogenerado ACT-PUN-0001 y auditoría', async () => {
-  await createTestUser('manager-1', 'encargado_agencia', 'punata')
+  await createTestUser('manager-1', 'afiliado_admin', 'punata')
 
   const res = await manageFixedAsset.run({
     auth: { uid: 'manager-1' },
@@ -315,7 +315,7 @@ test('7. manageFixedAsset: Registro de activo con código autogenerado ACT-PUN-0
 })
 
 test('8. manageFixedAsset: Transferencia de activo a Cochabamba registra trazabilidad', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   const created = await manageFixedAsset.run({
     auth: { uid: 'admin-1' },
@@ -356,7 +356,7 @@ test('8. manageFixedAsset: Transferencia de activo a Cochabamba registra trazabi
 })
 
 test('9. manageFixedAsset: Baja justificada de activo fija estado disposed y motivo inmutable', async () => {
-  await createTestUser('admin-1', 'directiva_admin')
+  await createTestUser('admin-1', 'afiliado_admin')
 
   const created = await manageFixedAsset.run({
     auth: { uid: 'admin-1' },
@@ -392,7 +392,7 @@ test('9. manageFixedAsset: Baja justificada de activo fija estado disposed y mot
 })
 
 test('10. registerWorkerPayment: Rechaza pago si saldo en caja es insuficiente o reintenta con fingerprint alterado', async () => {
-  await createTestUser('admin-1', 'directiva_admin', 'punata')
+  await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   // Abrir turno con solo Bs 50 (5000 cents)
   const shiftRes = await openCashShift.run({
@@ -455,7 +455,7 @@ test('10. registerWorkerPayment: Rechaza pago si saldo en caja es insuficiente o
 
 test('11. registerGeneralExpense: Control de saldo de caja y límite de Bs 150 para secretarias', async () => {
   await createTestUser('sec-punata', 'secretaria', 'punata')
-  await createTestUser('admin-1', 'directiva_admin', 'punata')
+  await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   // Abrir turno con Bs 300 (30000 cents)
   const shiftRes = await openCashShift.run({
@@ -498,7 +498,7 @@ test('11. registerGeneralExpense: Control de saldo de caja y límite de Bs 150 p
 
 test('12. manageFixedAsset: Activo dado de baja NO puede modificarse ni reactivarse sin directiva_admin y justificación', async () => {
   await createTestUser('manager-1', 'encargado_agencia', 'punata')
-  await createTestUser('admin-1', 'directiva_admin', 'punata')
+  await createTestUser('admin-1', 'afiliado_admin', 'punata')
 
   const created = await manageFixedAsset.run({
     auth: { uid: 'admin-1' },

@@ -1,3 +1,4 @@
+import { isOperationalAdmin } from '../auth/operationalRoles'
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   Wallet,
@@ -659,7 +660,7 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
             </div>
 
             {/* Selector de sucursal para Administrador y Tesorería */}
-            {(currentUser.role === 'directiva_admin' || currentUser.role === 'tesoreria') && (
+            {(isOperationalAdmin(currentUser) || currentUser.role === 'tesoreria') && (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-500">Sucursal:</span>
                 <select
@@ -877,6 +878,41 @@ export const CashManagementView: React.FC<CashManagementViewProps> = ({
  * SUBCOMPONENTE: OpenShiftModal (Apertura de Turno con Fondo Inicial)
  * =============================================================================
  */
+export function CounterCashShift({ currentUser, currentBranch }: CashManagementViewProps) {
+  const [shift, setShift] = useState<CashShift | null>(null)
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [modal, setModal] = useState<'open' | 'close' | null>(null)
+  const [receipt, setReceipt] = useState<CashShift | null>(null)
+
+  useEffect(() => subscribeActiveCashShift(currentUser.uid, currentBranch.id, value => {
+    setShift(value)
+    setStatus('ready')
+  }, () => setStatus('error')), [currentUser.uid, currentBranch.id])
+
+  return (
+    <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <div>
+        <h2 className="text-sm font-bold text-slate-900">Turno de ventanilla</h2>
+        <p role="status" className="text-xs text-slate-600">
+          {status === 'loading' ? 'Consultando turno…' : status === 'error' ? 'No se pudo consultar el turno.' :
+            shift ? 'Turno abierto · ' + (shift.shiftNumber || shift.id) : 'Sin turno abierto'}
+        </p>
+      </div>
+      {status === 'ready' && (
+        <button type="button" className="rounded-lg border px-3 py-2 text-sm font-semibold text-emerald-900"
+          onClick={() => setModal(shift ? 'close' : 'open')}>
+          {shift ? 'Cerrar turno de ventanilla' : 'Abrir turno de ventanilla'}
+        </button>
+      )}
+      {modal === 'open' && <OpenShiftModal currentBranch={currentBranch} onClose={() => setModal(null)}
+        onSuccess={value => { setShift(value); setModal(null) }} />}
+      {modal === 'close' && shift && <CloseShiftModal shift={shift} onClose={() => setModal(null)}
+        onSuccess={value => { setShift(null); setModal(null); setReceipt(value) }} />}
+      {receipt && <CashTicket80mm shift={receipt} onClose={() => setReceipt(null)} />}
+    </section>
+  )
+}
+
 interface OpenShiftModalProps {
   currentBranch: Branch
   onClose: () => void
