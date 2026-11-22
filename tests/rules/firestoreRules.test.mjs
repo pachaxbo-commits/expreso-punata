@@ -10,6 +10,18 @@ import { doc, getDoc, collection, getDocs, query, where, setDoc, updateDoc, dele
 
 let testEnv
 
+test('soporte no puede escribir ni leer respaldos o auditoría directamente', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'support-direct-test'), { role: 'soporte_pachax', isActive: true, primaryBranchId: 'punata' })
+    await setDoc(doc(context.firestore(), 'support_cleanup_backups', 'backup'), { sensitive: true })
+    await setDoc(doc(context.firestore(), 'audit_logs', 'support-log'), { action: 'example' })
+  })
+  const support = testEnv.authenticatedContext('support-direct-test').firestore()
+  await assertFails(getDoc(doc(support, 'support_cleanup_backups', 'backup')))
+  await assertFails(setDoc(doc(support, 'support_cleanup_backups', 'forged'), { sensitive: false }))
+  await assertFails(updateDoc(doc(support, 'audit_logs', 'support-log'), { action: 'forged' }))
+})
+
 before(async () => {
   const rules = readFileSync('firestore.rules', 'utf8')
   testEnv = await initializeTestEnvironment({

@@ -5,6 +5,8 @@ import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 import { getStorage } from 'firebase-admin/storage'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { createSupportFunctions } from './supportCenter.js'
+import { createUserSecurityFunctions } from './userSecurity.js'
 
 if (getApps().length === 0) {
   initializeApp()
@@ -13,6 +15,9 @@ if (getApps().length === 0) {
 const db = getFirestore()
 const authAdmin = getAuth()
 const storageAdmin = getStorage()
+
+export const { getSupportOverview, simulateSupportCleanup, executeSupportCleanup } = createSupportFunctions(db)
+export const { adminRevokeUserSessions } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
 // Transitional access for legacy profiles. New administrators require both agencies.
 function isOperationalAdmin(profile) {

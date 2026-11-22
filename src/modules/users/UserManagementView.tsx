@@ -21,6 +21,7 @@ import {
   provisionUserThroughBackend,
   requestPasswordResetLink,
   sendUserPasswordResetEmail,
+  revokeUserSessions,
   fetchUserAuditLogs,
   type ProvisionUserInput,
 } from '../../services/userService'
@@ -149,6 +150,20 @@ export const UserManagementView: React.FC = () => {
     } finally {
       setActionLoading(false)
     }
+  }
+
+  const handleRevokeSessions = async (user: UserProfile) => {
+    const reason = window.prompt(`Motivo para cerrar las sesiones de ${user.fullName} (mínimo 10 caracteres):`)
+    if (reason === null) return
+    if (reason.trim().length < 10) { alert('Indique un motivo de al menos 10 caracteres.'); return }
+    if (!window.confirm(`¿Revocar las sesiones de ${user.fullName}? La cuenta permanecerá activa.`)) return
+    try {
+      setActionLoading(true)
+      await revokeUserSessions(user.uid, reason.trim())
+      alert('Sesiones revocadas. La cuenta permanece activa.')
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'No se pudieron revocar las sesiones.')
+    } finally { setActionLoading(false) }
   }
 
   // Acción: Confirmar cambio de rol
@@ -501,6 +516,7 @@ export const UserManagementView: React.FC = () => {
                           </button>
 
                           {/* Restablecer Contraseña */}
+                          <button type="button" disabled={actionLoading} onClick={() => void handleRevokeSessions(u)} className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg" title="Revocar sesiones" aria-label={`Revocar sesiones de ${u.fullName}`}><Lock className="w-4 h-4" /></button>
                           <button
                             type="button"
                             onClick={() => handleRequestPasswordReset(u)}

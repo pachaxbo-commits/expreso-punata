@@ -42,6 +42,11 @@ export interface PasswordResetResult {
   message: string
 }
 
+export async function revokeUserSessions(targetUid: string, reason: string): Promise<void> {
+  if (!auth.currentUser) throw new Error('Debe iniciar sesión para administrar usuarios.')
+  await httpsCallable<{ targetUid: string; reason: string; confirmation: boolean }, { success: boolean }>(functions, 'adminRevokeUserSessions')({ targetUid, reason, confirmation: true })
+}
+
 /**
  * Suscripción reactiva al listado de usuarios de Expreso Punata.
  * Solo puede ser consultado por Directiva y Encargados autorizados según Firestore Rules.

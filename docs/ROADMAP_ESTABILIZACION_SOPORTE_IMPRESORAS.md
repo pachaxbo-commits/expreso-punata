@@ -943,6 +943,23 @@ Documenta la deuda heredada y las correcciones verificadas.
 
 ## Fase 2
 
+### Avance local · Centro de Soporte
+
+Rama `codex/phase-2-support-center`, creada desde `origin/main` en `c35b620e08e2af32196b900bdaa8c12d55004e8b`. No se ha publicado esta fase. En la comprobación de producción anterior al desarrollo, Vercel estaba READY en ese SHA, las 71 Functions estaban activas y `/demo` respondía 307 a `/`. El inicio de sesión real de Nelson y la creación de usuarios requieren comprobación humana y siguen pendientes.
+
+| Tarea | Estado real | Evidencia y trabajo pendiente |
+|---|---|---|
+| EP-13 · Soporte | En curso | Panel independiente con resumen y acceso exclusivo al perfil técnico. Backend exige perfil activo y, fuera de emuladores, segundo factor. La activación de una identidad real requiere titular confirmado, MFA, aprovisionamiento IAM y auditoría; no se ha creado ninguna cuenta. Edición de configuración, historial navegable, diagnósticos detallados e integración de impresoras están pendientes. |
+| EP-14 · Usuarios | En curso | Se conserva la gestión y la protección transaccional de Fase 1. Se añadió revocación de sesiones con motivo, confirmación, autenticación reciente y auditoría; exige volver a iniciar sesión si la autenticación tiene más de cinco minutos. Faltan baja y borrado seguros, reautenticación reciente para suspender o degradar administradores, historial completo e idempotencia de las nuevas acciones. No se considera verificada la creación real de usuarios. |
+| EP-15 · Cuentas antiguas | Pendiente de revisión | Las tres cuentas antiguas fueron deshabilitadas y sus sesiones revocadas. Existen referencias en movimientos, manifiestos y auditoría, así como dos candados históricos de caja; no se han eliminado físicamente perfiles ni registros de negocio. |
+| EP-16 · Limpieza | En curso, solo emulador | Simulación de categorías y dependencias bidireccionales en una colección aislada de registros sintéticos marcados. El backend bloquea producción, exige soporte activo, autenticación reciente para ejecutar y confirmación; verifica cambios desde la simulación y guarda respaldo, auditoría e idempotencia en la misma transacción. No procesa colecciones operativas, no identifica automáticamente datos históricos ni está listo para limpieza real. Faltan el grafo de dependencias de los módulos, revisión de conflictos reales, recuperación de fallos y autorización explícita por conjunto. |
+
+**Identidad técnica futura:** el propietario de PACHAX debe identificar al titular y configurar autenticación multifactor en Firebase Auth. Un operador IAM autorizado deberá preparar el perfil técnico y sus permisos mediante un procedimiento revisado y auditado, sin credenciales en Git. El administrador del cliente no puede crear ni modificar el rol de soporte. Esta descripción no habilita una cuenta ni sustituye un procedimiento de aprovisionamiento probado.
+
+**Limitaciones:** las tarjetas de configuración, usuarios, diagnósticos, mantenimiento e impresoras son indicadores de trabajo pendiente; no representan herramientas terminadas. El antiguo `internal 0` sigue sin causa confirmada. Se preserva la política comercial: no se propone ninguna tarifa de comisión. El alcance de Fase 3 permanece intacto.
+
+**Pruebas locales:** build y TypeScript aprobados; 73 unitarias, 165 Functions en la regresión anterior a la nueva acción de revocación y 29 reglas Firestore aprobadas. Las siete pruebas dirigidas de soporte y revocación pasaron después del último cambio de backend. Playwright en viewport móvil verificó sesión de soporte sintética, simulación, dependencias, ejecución y respaldo en emuladores. No se han completado los recorridos E2E de gestión avanzada de usuarios ni de configuración y restauración. Las pruebas locales utilizaron Node 26; falta repetir con Node 22 antes de publicar.
+
 ### EP-13 · CENTRO DE SOPORTE PACHAX
 
 - [ ] Pendiente

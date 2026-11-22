@@ -374,9 +374,9 @@ try {
   await verifyScenario('Sesión técnica y retiro de DEMO', async () => {
     const support = await createOperator('technical', 'soporte_pachax', 'punata')
     const supportPage = await login(support, 'h1', true)
-    await supportPage.getByRole('heading', { name: 'Soporte PACHAX', exact: true }).waitFor()
+    await supportPage.getByRole('heading', { name: 'Centro de Soporte PACHAX', exact: true }).waitFor()
     assert.equal(await supportPage.getByRole('navigation', { name: 'Secciones del sistema' }).count(), 0)
-    assert.equal(await adminPage.getByRole('heading', { name: 'Soporte PACHAX', exact: true }).count(), 0)
+    assert.equal(await adminPage.getByRole('heading', { name: 'Centro de Soporte PACHAX', exact: true }).count(), 0)
     for (const [idToken, fn, data] of [
       [support.idToken, 'getSystemReport', { branchId: 'punata' }],
       [support.idToken, 'getSystemConfig', {}],
