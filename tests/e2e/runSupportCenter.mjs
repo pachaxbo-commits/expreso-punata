@@ -10,7 +10,7 @@ assert.equal(process.env.FIREBASE_AUTH_EMULATOR_HOST, '127.0.0.1:9099')
 const app = initializeApp({ projectId: 'demo-support-phase2' })
 const db = getFirestore(app)
 const auth = getAuth(app)
-for (const collection of ['support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_config_history']) {
+for (const collection of ['support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_cleanup_restores', 'support_config_history']) {
   const existing = await db.collection(collection).get()
   if (!existing.empty) { const batch = db.batch(); existing.forEach(doc => batch.delete(doc.ref)); await batch.commit() }
 }
@@ -53,5 +53,9 @@ try {
   await page.getByText(/Limpieza de emulador completada/).waitFor()
   assert.equal((await db.collection('support_cleanup_fixtures').get()).size, 0)
   assert.equal((await db.collection('support_cleanup_backups').get()).size, 1)
-  console.log('Support E2E: panel responsive, configuración, restauración, simulación, dependencias, ejecución y respaldo aprobados.')
+  await page.getByLabel('Escriba RESTAURAR').fill('RESTAURAR')
+  await page.getByRole('button', { name: 'Restaurar respaldo' }).click()
+  await page.getByText(/Restauración completada: 2 registros/).waitFor()
+  assert.equal((await db.collection('support_cleanup_fixtures').get()).size, 2)
+  console.log('Support E2E: panel responsive, configuración, restauración, simulación, dependencias, limpieza y recuperación aprobadas.')
 } finally { await browser.close(); preview.kill() }

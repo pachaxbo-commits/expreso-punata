@@ -602,7 +602,7 @@ test('13. CONCURRENCIA: Protección del último administrador bajo dos peticione
 
   // Preparar dos solicitudes concurrentes intentando suspender a ambos administradores al mismo tiempo
   const req1 = {
-    auth: { uid: 'admin-1', token: { email: 'admin1@expresopunata.com' } },
+    auth: { uid: 'admin-1', token: { email: 'admin1@expresopunata.com', auth_time: Math.floor(Date.now() / 1000) } },
     data: {
       targetUid: 'admin-1',
       fullName: 'Admin 1 Modificado',
@@ -611,11 +611,12 @@ test('13. CONCURRENCIA: Protección del último administrador bajo dos peticione
       primaryBranchId: 'punata',
       allowedBranchIds: ['punata', 'cochabamba'],
       isActive: false, // Desactivar
+      sensitiveReason: 'Cambio administrativo autorizado', confirmSensitive: true,
     }
   }
 
   const req2 = {
-    auth: { uid: 'admin-2', token: { email: 'admin2@expresopunata.com' } },
+    auth: { uid: 'admin-2', token: { email: 'admin2@expresopunata.com', auth_time: Math.floor(Date.now() / 1000) } },
     data: {
       targetUid: 'admin-2',
       fullName: 'Admin 2 Modificado',
@@ -624,6 +625,7 @@ test('13. CONCURRENCIA: Protección del último administrador bajo dos peticione
       primaryBranchId: 'cochabamba',
       allowedBranchIds: ['punata', 'cochabamba'],
       isActive: false, // Desactivar
+      sensitiveReason: 'Cambio administrativo autorizado', confirmSensitive: true,
     }
   }
 
@@ -655,8 +657,8 @@ test('afiliado_admin gestiona altas, alcance y estados sin conceder soporte', as
   const admin = await auth.createUser({ email: `operational-${suffix}@example.test` })
   await db.collection('users').doc(admin.uid).set({ role: 'afiliado_admin', primaryBranchId: 'punata', allowedBranchIds: branches, isActive: true })
   const provision = (data, uid = admin.uid) => adminProvisionUser.run({
-    auth: { uid, token: {} },
-    data: { fullName: 'Cuenta sintética', phone: '70000000', primaryBranchId: 'punata', ...data },
+    auth: { uid, token: { auth_time: Math.floor(Date.now() / 1000) } },
+    data: { fullName: 'Cuenta sintética', phone: '70000000', primaryBranchId: 'punata', sensitiveReason: 'Cambio administrativo autorizado', confirmSensitive: true, ...data },
   })
   const secretary = (await provision({ email: `secretary-${suffix}@example.test`, role: 'secretaria', allowedBranchIds: branches })).profile
   assert.deepEqual(secretary.allowedBranchIds, ['punata'])

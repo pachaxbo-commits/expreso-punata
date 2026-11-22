@@ -1,7 +1,7 @@
 import { beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup } from '../index.js'
+import { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } from '../index.js'
 
 const db = getFirestore()
 const uid = 'support-test'
@@ -9,7 +9,7 @@ const auth = { uid, token: { auth_time: Math.floor(Date.now() / 1000) } }
 const marker = 'pachax-emulator-fixture-v1'
 const request = categories => ({ auth, data: { categories } })
 beforeEach(async () => {
-  for (const name of ['users', 'support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_config_history', 'audit_logs', 'system_config']) {
+  for (const name of ['users', 'support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_cleanup_restores', 'support_config_history', 'audit_logs', 'system_config']) {
     const docs = await db.collection(name).get()
     if (!docs.empty) { const batch = db.batch(); docs.forEach(doc => batch.delete(doc.ref)); await batch.commit() }
   }
@@ -82,6 +82,15 @@ test('limpieza transaccional requiere reautenticación, respaldo, auditoría e i
   assert.equal((await ref.get()).exists, false)
   assert.equal((await db.collection('support_cleanup_backups').doc(data.operationId).get()).data().records.length, 1)
   assert.equal((await db.collection('audit_logs').get()).size, 1)
+  const restore = { auth, data: { operationId: data.operationId, confirmation: 'RESTAURAR' } }
+  await ref.set({ category: 'encomiendas', testMarker: marker, dependsOn: [], existing: true })
+  await assert.rejects(() => restoreSupportCleanup.run(restore), { code: 'already-exists' })
+  assert.equal((await ref.get()).data().existing, true)
+  await ref.delete()
+  const restored = await Promise.all([restoreSupportCleanup.run(restore), restoreSupportCleanup.run(restore)])
+  assert.deepEqual(restored[0], restored[1])
+  assert.equal((await ref.get()).exists, true)
+  assert.equal((await db.collection('audit_logs').get()).size, 2)
 })
 
 test('cambio después de simular invalida ejecución y producción queda bloqueada', async () => {

@@ -12,6 +12,7 @@ const categories = ['encomiendas', 'manifiestos', 'custodia', 'recepciones', 'en
 const overviewCall = httpsCallable<void, Overview>(functions, 'getSupportOverview')
 const simulateCall = httpsCallable<{ categories: string[] }, Plan>(functions, 'simulateSupportCleanup')
 const executeCall = httpsCallable<{ categories: string[]; digest: string; confirmation: string; operationId: string }, { count: number; operationId: string }>(functions, 'executeSupportCleanup')
+const restoreCall = httpsCallable<{ operationId: string; confirmation: string }, { count: number; operationId: string }>(functions, 'restoreSupportCleanup')
 const configCall = httpsCallable<void, SupportConfig>(functions, 'getSupportConfiguration')
 const updateConfigCall = httpsCallable<{ field: ConfigField; value: string; expectedValue: string; reason: string; confirmation: boolean }, { success: boolean }>(functions, 'updateSupportConfiguration')
 
@@ -22,6 +23,8 @@ export const SupportCenter: React.FC = () => {
   const [plan, setPlan] = useState<Plan | null>(null)
   const [confirmation, setConfirmation] = useState('')
   const [operationId, setOperationId] = useState('')
+  const [restoreId, setRestoreId] = useState('')
+  const [restoreConfirmation, setRestoreConfirmation] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [config, setConfig] = useState<SupportConfig | null>(null)
@@ -46,8 +49,14 @@ export const SupportCenter: React.FC = () => {
   const execute = async () => {
     if (!plan) return
     setBusy(true); setMessage('')
-    try { const r = await executeCall({ categories: selected, digest: plan.digest, confirmation, operationId }); setMessage(`Limpieza de emulador completada: ${r.data.count} registros. Operación ${r.data.operationId}.`); setPlan(null) }
+    try { const r = await executeCall({ categories: selected, digest: plan.digest, confirmation, operationId }); setRestoreId(r.data.operationId); setMessage(`Limpieza de emulador completada: ${r.data.count} registros. Operación ${r.data.operationId}.`); setPlan(null) }
     catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo completar la limpieza.') }
+    finally { setBusy(false) }
+  }
+  const restore = async () => {
+    setBusy(true); setMessage('')
+    try { const r = await restoreCall({ operationId: restoreId, confirmation: restoreConfirmation }); setMessage(`Restauración completada: ${r.data.count} registros.`); setRestoreConfirmation('') }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo restaurar el respaldo.') }
     finally { setBusy(false) }
   }
   return <main className="min-h-screen bg-slate-100 text-slate-900">
@@ -58,6 +67,7 @@ export const SupportCenter: React.FC = () => {
       <section className="rounded-xl bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">Configuración institucional</h2>{config ? <div className="mt-4 space-y-3 text-sm"><label className="block">Campo <select className="ml-2 rounded border p-2" value={field} onChange={e => { setField(e.target.value as ConfigField); setValue('') }}>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><p>Valor actual: <strong>{config.values[field] || 'Sin establecer'}</strong></p><label className="block">Nuevo valor <input className="ml-2 rounded border p-2" value={value} onChange={e => setValue(e.target.value)} /></label><label className="block">Motivo <input className="ml-2 rounded border p-2" value={reason} onChange={e => setReason(e.target.value)} /></label><button disabled={busy || reason.trim().length < 10} onClick={() => void saveConfig(field, value)} className="rounded bg-emerald-700 px-4 py-2 font-semibold text-white disabled:opacity-40">Guardar cambio</button><h3 className="font-semibold">Historial reciente</h3><ul>{config.history.map(item => <li key={item.id} className="mb-2">{labels[item.field]} · {item.createdAtIso} · anterior: {item.previous || 'vacío'} <button disabled={busy || reason.trim().length < 10} className="ml-2 underline disabled:opacity-40" onClick={() => void saveConfig(item.field, item.previous)}>Restaurar valor anterior</button></li>)}</ul><p className="text-slate-500">Para guardar o restaurar, indique un motivo y vuelva a iniciar sesión si su autenticación ya no es reciente.</p></div> : <p className="mt-2 text-sm text-slate-600">Configuración oficial no disponible o sin autorización.</p>}</section>
       <section className="rounded-xl bg-white p-6 shadow-sm"><h2 className="text-lg font-bold">Limpieza de datos de prueba</h2><p className="mt-2 text-sm text-slate-600">Disponible únicamente para registros sintéticos del emulador. No elimina usuarios ni datos operativos.</p><fieldset disabled={busy || overview?.cleanupEnvironment !== 'emulador'} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><legend className="sr-only">Categorías</legend>{categories.map(category => <label key={category} className="flex items-center gap-2 text-sm capitalize"><input type="checkbox" checked={selected.includes(category)} onChange={e => { setSelected(e.target.checked ? [...selected, category] : selected.filter(x => x !== category)); setPlan(null) }} />{category}</label>)}</fieldset><button disabled={busy || !selected.length || overview?.cleanupEnvironment !== 'emulador'} onClick={() => void simulate()} className="mt-5 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">SIMULAR LIMPIEZA</button>
         {plan && <div className="mt-5 space-y-3 rounded-lg border border-slate-200 p-4"><h3 className="font-semibold">Vista previa</h3><p className="text-sm">{plan.records.length} registros · {plan.retained} conservados · agencias: {plan.branches.join(', ') || 'ninguna'} · fechas: {plan.from ?? 'sin fecha'} a {plan.to ?? 'sin fecha'} · importe: Bs {(plan.amountCents / 100).toFixed(2)}</p><ul className="max-h-48 overflow-auto text-sm">{plan.records.map(r => <li key={r.id}>{r.category}: {r.id} {r.dependsOn.length ? `(depende de ${r.dependsOn.join(', ')})` : ''}</li>)}</ul><label className="block text-sm">Escriba LIMPIAR para confirmar <input className="ml-2 rounded border p-2" value={confirmation} onChange={e => setConfirmation(e.target.value)} /></label><button disabled={busy || !plan.records.length || confirmation !== 'LIMPIAR'} onClick={() => void execute()} className="rounded bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">Ejecutar en emulador</button></div>}
+        <div className="mt-5 space-y-2 border-t pt-4 text-sm"><h3 className="font-semibold">Restaurar respaldo del emulador</h3><label className="block">ID de operación <input className="ml-2 rounded border p-2" value={restoreId} onChange={e => setRestoreId(e.target.value)} /></label><label className="block">Escriba RESTAURAR <input className="ml-2 rounded border p-2" value={restoreConfirmation} onChange={e => setRestoreConfirmation(e.target.value)} /></label><button disabled={busy || overview?.cleanupEnvironment !== 'emulador' || !restoreId || restoreConfirmation !== 'RESTAURAR'} onClick={() => void restore()} className="rounded border px-4 py-2 disabled:opacity-40">Restaurar respaldo</button></div>
       </section>
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[['Usuarios', 'Gestión técnica y bajas: pendiente de implementación segura.'], ['Diagnósticos', 'El incidente internal 0 sigue sin causa confirmada.'], ['Historial de cambios', 'Los cambios institucionales y limpiezas se registran en auditoría.'], ['Impresoras y plantillas', 'Herramientas existentes y ampliación previstas para Fase 3.'], ['Mantenimiento', 'No hay herramientas de producción habilitadas.']].map(([title, description]) => <div key={title} className="rounded-xl bg-white p-5 shadow-sm"><h2 className="font-semibold">{title}</h2><p className="mt-2 text-sm text-slate-600">{description}</p></div>)}</section>
     </div>

@@ -16,7 +16,7 @@ const db = getFirestore()
 const authAdmin = getAuth()
 const storageAdmin = getStorage()
 
-export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup } = createSupportFunctions(db)
+export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db)
 export const { adminRevokeUserSessions } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
 // Transitional access for legacy profiles. New administrators require both agencies.
@@ -969,6 +969,8 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     assignedMobileNumber,
     unionMemberId,
     isActive = true,
+    sensitiveReason,
+    confirmSensitive,
   } = payload
 
   if (!fullName || typeof fullName !== 'string' || !fullName.trim()) {
@@ -1151,6 +1153,19 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
         }
       }
 
+      const wasAdministrator = ['directiva_admin', 'afiliado_admin'].includes(existingData.role)
+      const removesAdministrator = !['directiva_admin', 'afiliado_admin'].includes(role) || willBeInactive || (isCurrentlyActiveAdmin && willDemoteRole)
+      if (wasAdministrator && removesAdministrator) {
+        const authTime = request.auth.token?.auth_time
+        const nowSeconds = Date.now() / 1000
+        if (!Number.isFinite(authTime) || nowSeconds - authTime > 300 || authTime > nowSeconds + 30) {
+          throw new HttpsError('failed-precondition', 'Vuelva a iniciar sesión antes de modificar el acceso de un administrador.')
+        }
+        if (confirmSensitive !== true || typeof sensitiveReason !== 'string' || sensitiveReason.trim().length < 10 || sensitiveReason.trim().length > 500) {
+          throw new HttpsError('invalid-argument', 'Confirme la acción e indique un motivo de al menos 10 caracteres.')
+        }
+      }
+
       if (!safePhone && existingData.phone) {
         profileData.phone = existingData.phone
       }
@@ -1224,6 +1239,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
           isActive: Boolean(isActive),
           ciProvided: safeCi !== null,
           claimsSynced: true,
+          reason: typeof sensitiveReason === 'string' ? sensitiveReason.trim().slice(0, 500) : null,
         },
         timestamp: FieldValue.serverTimestamp(),
         timestampIso: new Date().toISOString(),

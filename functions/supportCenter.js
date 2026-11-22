@@ -141,5 +141,34 @@ export function createSupportFunctions(db) {
       return result
     })
   })
-  return { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup }
+  const restoreSupportCleanup = onCall({ cors: true }, async request => {
+    await authorize(db, request, true)
+    if (!inEmulators()) throw new HttpsError('failed-precondition', 'La restauración está limitada a emuladores.')
+    const { operationId, confirmation } = request.data || {}
+    if (!/^[a-zA-Z0-9_-]{12,80}$/.test(operationId || '') || confirmation !== 'RESTAURAR') throw new HttpsError('invalid-argument', 'Confirme el identificador del respaldo.')
+    return db.runTransaction(async tx => {
+      const [profile, backup, prior] = await Promise.all([
+        tx.get(db.collection('users').doc(request.auth.uid)),
+        tx.get(db.collection('support_cleanup_backups').doc(operationId)),
+        tx.get(db.collection('support_cleanup_restores').doc(operationId)),
+      ])
+      if (profile.data()?.role !== 'soporte_pachax' || profile.data()?.isActive !== true) throw new HttpsError('permission-denied', 'La autorización de soporte ya no está activa.')
+      if (prior.exists) {
+        if (prior.data().uid !== request.auth.uid) throw new HttpsError('permission-denied', 'El respaldo pertenece a otra identidad técnica.')
+        return prior.data().result
+      }
+      const saved = backup.data()
+      if (!backup.exists || saved.uid !== request.auth.uid || !Array.isArray(saved.records) || saved.records.length < 1 || saved.records.length > 100) throw new HttpsError('failed-precondition', 'El respaldo no existe o no está disponible para esta identidad.')
+      if (saved.records.some(r => typeof r.id !== 'string' || !r.id || r.id.includes('/') || r.data?.testMarker !== MARKER || !CATEGORIES.has(r.data.category))) throw new HttpsError('failed-precondition', 'El respaldo contiene registros no verificables.')
+      const refs = saved.records.map(r => db.collection(COLLECTION).doc(r.id))
+      const existing = await Promise.all(refs.map(ref => tx.get(ref)))
+      if (existing.some(doc => doc.exists)) throw new HttpsError('already-exists', 'Hay registros existentes; no se sobrescribió ninguno.')
+      const result = { operationId, count: saved.records.length }
+      saved.records.forEach((r, i) => tx.create(refs[i], r.data))
+      tx.create(db.collection('support_cleanup_restores').doc(operationId), { uid: request.auth.uid, result, createdAt: new Date().toISOString() })
+      tx.create(db.collection('audit_logs').doc(), { action: 'SUPPORT_FIXTURE_RESTORE', uid: request.auth.uid, operationId, count: saved.records.length, createdAt: new Date().toISOString() })
+      return result
+    })
+  })
+  return { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup }
 }

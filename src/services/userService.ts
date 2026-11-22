@@ -28,6 +28,8 @@ export interface ProvisionUserInput {
   assignedMobileNumber?: string
   unionMemberId?: string
   isActive?: boolean
+  sensitiveReason?: string
+  confirmSensitive?: boolean
 }
 
 export interface ProvisionUserResult {

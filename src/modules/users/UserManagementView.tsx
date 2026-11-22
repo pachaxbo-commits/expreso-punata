@@ -40,6 +40,18 @@ const ROLE_LABELS: Record<UserRole, { label: string; bg: string; text: string }>
   conductor: { label: 'Chofer / Conductor', bg: 'bg-indigo-100', text: 'text-indigo-800' },
 }
 
+function confirmAdminChange(user: UserProfile, nextRole: UserRole, nextActive: boolean, nextBranches: string[]): { sensitiveReason?: string; confirmSensitive?: boolean } | null {
+  if (!['directiva_admin', 'afiliado_admin'].includes(user.role)) return {}
+  const institutional = user.role === 'directiva_admin' || ['punata', 'cochabamba'].every(id => user.allowedBranchIds?.includes(id))
+  const keepsInstitutional = nextRole === 'directiva_admin' || (nextRole === 'afiliado_admin' && ['punata', 'cochabamba'].every(id => nextBranches.includes(id)))
+  if (nextActive && ['directiva_admin', 'afiliado_admin'].includes(nextRole) && (!institutional || keepsInstitutional)) return {}
+  const reason = window.prompt('Indique el motivo del cambio de acceso del administrador (mínimo 10 caracteres). Si su sesión tiene más de cinco minutos, vuelva a iniciar sesión antes de continuar.')
+  if (reason === null) return null
+  if (reason.trim().length < 10) { alert('Indique un motivo de al menos 10 caracteres.'); return null }
+  if (!window.confirm(`¿Confirma modificar el acceso administrativo de ${user.fullName}?`)) return null
+  return { sensitiveReason: reason.trim(), confirmSensitive: true }
+}
+
 export const UserManagementView: React.FC = () => {
   const [users, setUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
@@ -129,6 +141,8 @@ export const UserManagementView: React.FC = () => {
       : `¿Confirma suspender la cuenta de "${user.fullName}"?\n\nAl suspender, sus sesiones activas serán revocadas inmediatamente y no podrá acceder a emitir encomiendas ni manejar caja.`
 
     if (!window.confirm(confirmMessage)) return
+    const confirmation = confirmAdminChange(user, user.role, nextState, user.allowedBranchIds || [])
+    if (!confirmation) return
 
     try {
       setActionLoading(true)
@@ -143,6 +157,7 @@ export const UserManagementView: React.FC = () => {
         assignedVehiclePlate: user.assignedVehiclePlate,
         assignedMobileNumber: user.assignedMobileNumber,
         isActive: nextState,
+        ...confirmation,
       })
       alert(`Usuario ${actionLabel === 'activar' ? 'reactivado' : 'suspendido'} exitosamente.`)
     } catch (err: any) {
@@ -169,6 +184,9 @@ export const UserManagementView: React.FC = () => {
   // Acción: Confirmar cambio de rol
   const handleConfirmRoleChange = async () => {
     if (!roleChangeUser) return
+    const nextBranches = roleChangeUser.role === 'directiva_admin' && newSelectedRole === 'afiliado_admin' ? INITIAL_BRANCHES.map(branch => branch.id) : roleChangeUser.allowedBranchIds
+    const confirmation = confirmAdminChange(roleChangeUser, newSelectedRole, roleChangeUser.isActive, nextBranches || [])
+    if (!confirmation) return
     try {
       setActionLoading(true)
       await provisionUserThroughBackend({
@@ -184,6 +202,7 @@ export const UserManagementView: React.FC = () => {
         assignedVehiclePlate: roleChangeUser.assignedVehiclePlate,
         assignedMobileNumber: roleChangeUser.assignedMobileNumber,
         isActive: roleChangeUser.isActive,
+        ...confirmation,
       })
       alert(`Rol actualizado a "${ROLE_LABELS[newSelectedRole]?.label || newSelectedRole}" exitosamente.`)
       setRoleChangeUser(null)
@@ -1097,6 +1116,10 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
         assignedMobileNumber: user.role === 'conductor' ? mobileNumber.trim() : undefined,
         isActive: user.isActive,
       }
+
+      const confirmation = confirmAdminChange(user, input.role, Boolean(input.isActive), input.allowedBranchIds)
+      if (!confirmation) return
+      Object.assign(input, confirmation)
 
       await provisionUserThroughBackend(input)
       onSuccess()
