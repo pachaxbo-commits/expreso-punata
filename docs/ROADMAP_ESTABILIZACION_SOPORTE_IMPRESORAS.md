@@ -1,5 +1,14 @@
 # Roadmap de estabilización, soporte e impresoras
 
+## Publicación autorizada · avance y puerta operativa
+
+- PR [#63](https://github.com/pachaxbo-commits/expreso-punata/pull/63) creada; pendiente de integración. La integración automática de `main` puede publicar el frontend en Vercel y debe esperar al backend compatible.
+- Respaldo Firestore finalizado en el bucket privado `pachax-expreso-phase1-backup-00f7eeda9c`, prefijo `firestore-pre-phase1`; se verificó la operación y su metadato. Inventario separado de cuatro perfiles, cuatro cuentas y sus claims, configuración, índices, reglas y 38 Functions guardado en el mismo bucket; SHA-256 `3e84fc72da2f5f1eec9ff9e0d8099054fe746a3c290c639addab5719e91b88d3`. No contiene hashes de contraseñas y no permite recuperar contraseñas después de una eliminación física de Auth. Los respaldos contienen datos privados y no deben añadirse a Git.
+- Ensayo aislado en emuladores: restauración y comparación de cuatro perfiles y claims de cuatro cuentas aprobada; no se restauró la exportación completa de Firestore en otro proyecto. Las 38 fuentes actuales de Functions, con sus generaciones, eran accesibles al comprobarlas. El bucket de respaldo exige prevención de acceso público y acceso uniforme.
+- Índices: los diez existentes se conservaron, se agregaron once y los 21 están `READY`. Functions de producción: 38 activas; la rama declara 72 invocables, por lo que la diferencia de versiones debe considerarse al desplegar y revertir. Rules, Functions y frontend todavía no fueron publicados.
+- Puerta pendiente: confirmar pausa de operaciones en ambas agencias y disponibilidad de inicio de sesión de Nelson antes de activar backend, reglas y frontend coordinadamente. No se ha migrado a Nelson ni desactivado o eliminado las otras cuentas. La eliminación física de Auth no debe ejecutarse antes de verificar continuidad y dependencias históricas.
+- Comisión oficial sin configurar: `percentage` y valor cero; los nuevos devengos quedan bloqueados hasta definición comercial. La comprobación previa de `/demo` en producción devolvió HTTP 200 sin redirección; la corrección sigue pendiente de publicación y verificación. Fases 2 y 3 conservan su alcance.
+
 ## Preparación de publicación · verificación del 21 de noviembre de 2026
 
 Este registro actualiza las afirmaciones históricas anteriores sobre falta de acceso e inventario; no altera el alcance de las Fases 2 y 3. El desarrollo de Fase 1 está completado para revisión y la regresión local está aprobada: 159 Functions, 28 Rules, 73 unitarias, TypeScript, build y recorridos E2E. La publicación, los accesos reales posteriores y la definición comercial siguen pendientes. El error `internal 0` y la redirección `/demo` en producción siguen sin verificar. Lint mantiene 267 errores heredados y 14 avisos, sin refactor de esta etapa.
