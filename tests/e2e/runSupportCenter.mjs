@@ -10,7 +10,7 @@ assert.equal(process.env.FIREBASE_AUTH_EMULATOR_HOST, '127.0.0.1:9099')
 const app = initializeApp({ projectId: 'demo-support-phase2' })
 const db = getFirestore(app)
 const auth = getAuth(app)
-for (const collection of ['support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_cleanup_restores', 'support_config_history']) {
+for (const collection of ['support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_cleanup_restores', 'support_config_history', 'support_diagnostics']) {
   const existing = await db.collection(collection).get()
   if (!existing.empty) { const batch = db.batch(); existing.forEach(doc => batch.delete(doc.ref)); await batch.commit() }
 }
@@ -44,6 +44,13 @@ try {
   page.once('dialog', dialog => dialog.accept())
   await page.getByRole('button', { name: 'Restaurar valor anterior' }).first().click()
   await page.getByText('Nombre inicial', { exact: true }).waitFor()
+  await page.getByLabel('Módulo').fill('cuenta')
+  await page.getByLabel('Operación', { exact: true }).fill('getAccount')
+  await page.getByLabel('Código', { exact: true }).fill('internal_0')
+  await page.getByLabel('ID de correlación').fill('case-123')
+  await page.getByRole('button', { name: 'Registrar diagnóstico' }).click()
+  await page.getByText('Diagnóstico registrado.').waitFor()
+  assert.equal((await db.collection('support_diagnostics').get()).size, 1)
   await page.getByLabel('encomiendas', { exact: true }).check()
   await page.getByRole('button', { name: 'SIMULAR LIMPIEZA' }).click()
   await page.getByText(/2 registros/).waitFor()

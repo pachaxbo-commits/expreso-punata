@@ -107,6 +107,26 @@ export function createSupportFunctions(db) {
       return { success: true, historyId: historyRef.id }
     })
   })
+  const listSupportDiagnostics = onCall({ cors: true }, async request => {
+    await authorize(db, request)
+    const logs = await db.collection('support_diagnostics').orderBy('createdAtIso', 'desc').limit(30).get()
+    return { entries: logs.docs.map(doc => { const d = doc.data(); return { id: doc.id, module: d.module, operation: d.operation, code: d.code, branchId: d.branchId, correlationId: d.correlationId, status: d.status, createdAtIso: d.createdAtIso } }) }
+  })
+  const recordSupportDiagnostic = onCall({ cors: true }, async request => {
+    await authorize(db, request, true)
+    const { module, operation, code, branchId, correlationId, status } = request.data || {}
+    const safeIdentifier = x => typeof x === 'string' && /^[a-zA-Z0-9_.-]{1,64}$/.test(x)
+    if (![module, operation, code, correlationId].every(safeIdentifier) || !['punata', 'cochabamba', ''].includes(branchId) || !['pendiente', 'investigando', 'resuelto'].includes(status)) throw new HttpsError('invalid-argument', 'Utilice identificadores técnicos válidos y una agencia admitida.')
+    const entry = { module, operation, code, branchId: branchId || null, correlationId, status, createdAtIso: new Date().toISOString() }
+    const ref = db.collection('support_diagnostics').doc()
+    await db.runTransaction(async tx => {
+      const profile = await tx.get(db.collection('users').doc(request.auth.uid))
+      if (profile.data()?.role !== 'soporte_pachax' || profile.data()?.isActive !== true) throw new HttpsError('permission-denied', 'La autorización de soporte ya no está activa.')
+      tx.create(ref, entry)
+      tx.create(db.collection('audit_logs').doc(), { action: 'SUPPORT_DIAGNOSTIC_RECORDED', uid: request.auth.uid, diagnosticId: ref.id, createdAtIso: entry.createdAtIso })
+    })
+    return { success: true, id: ref.id }
+  })
   const simulateSupportCleanup = onCall({ cors: true }, async request => {
     await authorize(db, request)
     if (!inEmulators()) throw new HttpsError('failed-precondition', 'La limpieza todavía está limitada a emuladores.')
@@ -170,5 +190,5 @@ export function createSupportFunctions(db) {
       return result
     })
   })
-  return { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup }
+  return { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup }
 }

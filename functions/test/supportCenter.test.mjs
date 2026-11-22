@@ -1,7 +1,7 @@
 import { beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } from '../index.js'
+import { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } from '../index.js'
 
 const db = getFirestore()
 const uid = 'support-test'
@@ -9,11 +9,24 @@ const auth = { uid, token: { auth_time: Math.floor(Date.now() / 1000) } }
 const marker = 'pachax-emulator-fixture-v1'
 const request = categories => ({ auth, data: { categories } })
 beforeEach(async () => {
-  for (const name of ['users', 'support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_cleanup_restores', 'support_config_history', 'audit_logs', 'system_config']) {
+  for (const name of ['users', 'support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_cleanup_restores', 'support_config_history', 'support_diagnostics', 'audit_logs', 'system_config']) {
     const docs = await db.collection(name).get()
     if (!docs.empty) { const batch = db.batch(); docs.forEach(doc => batch.delete(doc.ref)); await batch.commit() }
   }
   await db.collection('users').doc(uid).set({ role: 'soporte_pachax', isActive: true })
+})
+
+test('diagnósticos validan identificadores y descartan campos adicionales', async () => {
+  const data = { module: 'cuenta', operation: 'getAccount', code: 'internal_0', branchId: 'punata', correlationId: 'case-123', status: 'investigando' }
+  await assert.rejects(() => recordSupportDiagnostic.run({ auth, data: { ...data, code: 'password: secreto' } }), { code: 'invalid-argument' })
+  await assert.rejects(() => recordSupportDiagnostic.run({ auth: { uid, token: { auth_time: 1 } }, data }), { code: 'failed-precondition' })
+  await recordSupportDiagnostic.run({ auth, data: { ...data, password: 'ignored' } })
+  const result = await listSupportDiagnostics.run({ auth, data: {} })
+  assert.equal(result.entries[0].code, 'internal_0')
+  assert.equal(result.entries[0].password, undefined)
+  assert.equal((await db.collection('audit_logs').get()).size, 1)
+  await db.collection('users').doc(uid).update({ role: 'secretaria' })
+  await assert.rejects(() => listSupportDiagnostics.run({ auth, data: {} }), { code: 'permission-denied' })
 })
 
 test('configuración institucional valida, audita y restaura sin modificar finanzas', async () => {

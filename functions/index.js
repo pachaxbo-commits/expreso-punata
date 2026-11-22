@@ -16,7 +16,7 @@ const db = getFirestore()
 const authAdmin = getAuth()
 const storageAdmin = getStorage()
 
-export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db)
+export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db)
 export const { adminRevokeUserSessions } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
 // Transitional access for legacy profiles. New administrators require both agencies.
