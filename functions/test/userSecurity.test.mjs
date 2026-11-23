@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
-import { adminProvisionUser, adminRevokeUserSessions, adminRetireUser } from '../index.js'
+import { adminProvisionUser, adminRevokeUserSessions, adminRetireUser, adminDeleteRetiredUser, getUserDeletionStatus } from '../index.js'
 
 test('revocar sesiones exige administración, autenticación reciente, motivo y auditoría', async () => {
   const db = getFirestore(), auth = getAuth(), suffix = randomUUID()
@@ -71,6 +71,29 @@ test('baja interrumpida mantiene reserva y se completa con el mismo identificado
   await adminRetireUser.run(req)
   assert.equal((await auth.getUser(target.uid)).disabled, true)
   assert.equal((await db.collection('user_retirement_operations').doc(req.data.operationId).get()).data().status, 'completed')
+})
+
+test('elimina identidad sintética dada de baja y conserva historial, con reintento', async () => {
+  const db = getFirestore(), auth = getAuth(), suffix = randomUUID()
+  const admin = await auth.createUser({ email: `delete-admin-${suffix}@example.test` })
+  const target = await auth.createUser({ email: `delete-target-${suffix}@example.test` })
+  await db.collection('users').doc(admin.uid).set({ role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
+  await db.collection('users').doc(target.uid).set({ role: 'secretaria', isActive: true, primaryBranchId: 'punata', emulatorDeletionEligible: true })
+  const history = db.collection('financial_movements').doc(`history-delete-${suffix}`)
+  await history.set({ operatorUid: target.uid })
+  const callAuth = { uid: admin.uid, token: { auth_time: Math.floor(Date.now() / 1000) } }
+  await adminRetireUser.run({ auth: callAuth, data: { targetUid: target.uid, reason: 'Baja sintética autorizada', confirmation: true, operationId: `retire-${suffix}` } })
+  const req = { auth: callAuth, data: { targetUid: target.uid, reason: 'Eliminación sintética autorizada', confirmation: true, operationId: `delete-${suffix}` } }
+  const proto = Object.getPrototypeOf(auth), original = proto.deleteUser
+  try { proto.deleteUser = async () => { throw new Error('fallo sintético') }; await assert.rejects(() => adminDeleteRetiredUser.run(req), { code: 'unavailable' }) }
+  finally { proto.deleteUser = original }
+  assert.equal((await db.collection('user_deletion_operations').doc(req.data.operationId).get()).data().status, 'retry_required')
+  assert.equal((await getUserDeletionStatus.run({ auth: callAuth, data: { operationId: req.data.operationId } })).status, 'retry_required')
+  assert.equal((await adminDeleteRetiredUser.run(req)).status, 'completed')
+  assert.equal((await adminDeleteRetiredUser.run(req)).status, 'completed')
+  await assert.rejects(() => auth.getUser(target.uid), { code: 'auth/user-not-found' })
+  assert.equal((await history.get()).data().operatorUid, target.uid)
+  assert.equal((await db.collection('users').doc(target.uid).get()).data().syncStatus, 'auth_deleted')
 })
 
 test('suspender a otro administrador exige sesión reciente, confirmación y motivo', async () => {

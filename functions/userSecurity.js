@@ -88,5 +88,68 @@ export function createUserSecurityFunctions(db, authAdmin, isOperationalAdmin) {
       throw new HttpsError('unavailable', 'Baja incompleta; reintente con el mismo identificador. El perfil permanece inactivo.')
     }
   })
-  return { adminRevokeUserSessions, adminRetireUser }
+  const adminDeleteRetiredUser = onCall({ cors: true }, async request => {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión.')
+    const { targetUid, operationId, reason, confirmation } = request.data || {}
+    const now = Date.now() / 1000, authTime = request.auth.token?.auth_time
+    if (!Number.isFinite(authTime) || now - authTime > 300 || authTime > now + 30) throw new HttpsError('failed-precondition', 'Vuelva a iniciar sesión.')
+    if (typeof targetUid !== 'string' || !targetUid || targetUid.includes('/') || !/^[a-zA-Z0-9_-]{12,80}$/.test(operationId || '') || typeof reason !== 'string' || reason.trim().length < 10 || reason.length > 500 || confirmation !== true) throw new HttpsError('invalid-argument', 'Confirme la operación y el motivo.')
+    if (process.env.FUNCTIONS_EMULATOR !== 'true' || !process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST || !(process.env.GCLOUD_PROJECT || '').startsWith('demo-')) throw new HttpsError('failed-precondition', 'Eliminación bloqueada: las responsabilidades operativas aún no están verificadas para producción.')
+    const profileRef = db.collection('users').doc(targetUid), opRef = db.collection('user_deletion_operations').doc(operationId), auditRef = db.collection('audit_logs').doc(`delete-${operationId}`)
+    const result = await db.runTransaction(async tx => {
+      await tx.get(db.collection('system_locks').doc('admin_management'))
+      const caller = await tx.get(db.collection('users').doc(request.auth.uid))
+      if (caller.data()?.isActive !== true || !isOperationalAdmin(caller.data())) throw new HttpsError('permission-denied', 'Solo la administración puede eliminar cuentas.')
+      const prior = await tx.get(opRef)
+      if (prior.exists) {
+        const op = prior.data()
+        if (op.targetUid !== targetUid || op.reason !== reason.trim()) throw new HttpsError('already-exists', 'Identificador asociado a otra operación.')
+        return op
+      }
+      const profile = await tx.get(profileRef)
+      const p = profile.data()
+      if (!profile.exists) throw new HttpsError('not-found', 'Perfil no encontrado.')
+      if (p.role === 'soporte_pachax') throw new HttpsError('permission-denied', 'Las cuentas técnicas están protegidas.')
+      if (p.role === 'afiliado_admin' || p.role === 'directiva_admin') throw new HttpsError('failed-precondition', 'La eliminación de administradores está bloqueada.')
+      if (p.isActive !== false || p.syncStatus !== 'retired' || p.emulatorDeletionEligible !== true) throw new HttpsError('failed-precondition', 'La cuenta debe estar de baja y ser un caso sintético verificable.')
+      if (p.authDeletionOperationId) throw new HttpsError('failed-precondition', 'Ya existe una operación de eliminación para esta cuenta.')
+      const locks = await tx.get(db.collection('cash_shift_active_locks').where('operatorUid', '==', targetUid))
+      const shifts = await tx.get(db.collection('cash_shifts').where('operatorUid', '==', targetUid))
+      const manifests = await tx.get(db.collection('manifests').where('driverUid', '==', targetUid))
+      const account = await tx.get(db.collection('driver_commission_accounts').doc(targetUid))
+      if (locks.docs.some(x => x.data().status === 'open') || shifts.docs.some(x => x.data().status === 'open') || manifests.docs.some(x => ['dispatched', 'in_transit'].includes(x.data().status)) || Number(account.data()?.pendingCents || 0) > 0) throw new HttpsError('failed-precondition', 'Hay responsabilidades activas.')
+      const op = { targetUid, reason: reason.trim(), status: 'pending', createdBy: request.auth.uid, createdAtIso: new Date().toISOString() }
+      tx.create(opRef, op)
+      tx.create(auditRef, { action: 'USER_AUTH_DELETION', entityId: targetUid, performedByUid: request.auth.uid, reason: op.reason, result: 'pending', timestampIso: op.createdAtIso })
+      tx.update(profileRef, { authDeletionOperationId: operationId })
+      return op
+    })
+    if (result.status === 'completed') return { success: true, operationId, status: 'completed' }
+    try {
+      try { await authAdmin.deleteUser(targetUid) } catch (error) { if (error.code !== 'auth/user-not-found') throw error }
+      try { await authAdmin.getUser(targetUid); throw new Error('La identidad todavía existe.') } catch (error) { if (error.code !== 'auth/user-not-found') throw error }
+      await db.runTransaction(async tx => {
+        const profile = await tx.get(profileRef)
+        if (profile.data()?.authDeletionOperationId !== operationId || profile.data()?.isActive !== false) throw new Error('El perfil cambió durante la eliminación.')
+        tx.update(profileRef, { syncStatus: 'auth_deleted' })
+        tx.update(opRef, { status: 'completed', completedAtIso: new Date().toISOString() })
+        tx.update(auditRef, { result: 'success' })
+      })
+      return { success: true, operationId, status: 'completed' }
+    } catch (error) {
+      await opRef.update({ status: 'retry_required' }).catch(() => {})
+      throw new HttpsError('unavailable', 'Eliminación pendiente; reintente la misma operación.')
+    }
+  })
+  const getUserDeletionStatus = onCall({ cors: true }, async request => {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión.')
+    const caller = await db.collection('users').doc(request.auth.uid).get()
+    if (caller.data()?.isActive !== true || !isOperationalAdmin(caller.data())) throw new HttpsError('permission-denied', 'Solo la administración puede consultar operaciones.')
+    const operationId = request.data?.operationId
+    if (!/^[a-zA-Z0-9_-]{12,80}$/.test(operationId || '')) throw new HttpsError('invalid-argument', 'Identificador inválido.')
+    const operation = await db.collection('user_deletion_operations').doc(operationId).get()
+    if (!operation.exists) throw new HttpsError('not-found', 'Operación no encontrada.')
+    return { operationId, targetUid: operation.data().targetUid, status: operation.data().status, reason: operation.data().reason }
+  })
+  return { adminRevokeUserSessions, adminRetireUser, adminDeleteRetiredUser, getUserDeletionStatus }
 }

@@ -17,7 +17,7 @@ const authAdmin = getAuth()
 const storageAdmin = getStorage()
 
 export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db)
-export const { adminRevokeUserSessions, adminRetireUser } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
+export const { adminRevokeUserSessions, adminRetireUser, adminDeleteRetiredUser, getUserDeletionStatus } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
 // Transitional access for legacy profiles. New administrators require both agencies.
 function isOperationalAdmin(profile) {
