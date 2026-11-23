@@ -1,3 +1,4 @@
+import { fetchSystemConfig } from '../../services/configService'
 import { hasOperationalRole } from '../auth/operationalRoles'
 import React, { useState, useEffect, useCallback } from 'react'
 import {
@@ -81,6 +82,12 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
   const isConductor = role === 'conductor'
   const isSecretaria = role === 'secretaria'
 
+  const [companyName, setCompanyName] = useState<string>()
+  useEffect(() => {
+    void fetchSystemConfig().then(response => {
+      if (response.status === 'configured' && response.isOfficial) setCompanyName(response.config?.company?.tradeName)
+    })
+  }, [])
   const [activeTab, setActiveTab] = useState<ReportType>(
     isConductor ? 'drivers' : canViewAll ? 'consolidated_dashboard' : 'shipments'
   )
@@ -290,14 +297,14 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
       const summary = reportData.summary || {}
       const kpiCards = Object.entries(summary).filter(([key, value]) => typeof value === 'number' && !key.endsWith('Bob'))
         .slice(0, 4).map(([key, value]) => ({ label: key.replace(/([A-Z])/g, ' $1').replace(/Cents$/, ' (centavos)'), value: key.endsWith('Cents') ? formatCurrencyBob(Number(value), true) : String(value) }))
-      exportReportToPdf({ title: `Reporte ${GENERIC_REPORT_LABELS[activeTab] || activeTab}`, dateRangeStr,
+      exportReportToPdf({ companyName, title: `Reporte ${GENERIC_REPORT_LABELS[activeTab] || activeTab}`, dateRangeStr,
         branchLabel,
         generatedByName: currentUser.fullName, kpiCards, tableHeaders: headers.map((key) => key.replace(/([A-Z])/g, ' $1')),
         tableRows: rows, filename: `Reporte_${activeTab}_${startDate || 'periodo'}` })
       return
     }
     if (activeTab === 'consolidated_dashboard') {
-      exportReportToPdf({ title: 'Reporte General de Expreso Punata', dateRangeStr, branchLabel,
+      exportReportToPdf({ companyName, title: 'Reporte General de Expreso Punata', dateRangeStr, branchLabel,
         generatedByName: currentUser.fullName,
         tableHeaders: ['Sección', 'Indicador', 'Resultado'],
         tableRows: dashboardExportRows(reportData.dashboard), filename: `Reporte_General_${startDate || 'periodo'}` })
@@ -330,7 +337,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           : 'Pendiente',
         formatCurrencyBob(s.amountCents, false),
       ])
-      exportReportToPdf({
+      exportReportToPdf({ companyName,
         title: 'Reporte Operativo de Encomiendas y Logística',
         dateRangeStr,
         branchLabel,
@@ -356,7 +363,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         m.operatorName || 'Ventanilla',
         formatCurrencyBob(m.amountCents, false),
       ])
-      exportReportToPdf({
+      exportReportToPdf({ companyName,
         title: 'Reporte Financiero y Arqueo de Caja',
         dateRangeStr,
         branchLabel,
@@ -392,7 +399,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         formatCurrencyBob(d.totalRemittedCents, false),
         formatCurrencyBob(d.pendingCustodyCents, false),
       ])
-      exportReportToPdf({
+      exportReportToPdf({ companyName,
         title: 'Reporte de Operación de Conductores y Custodia',
         dateRangeStr,
         branchLabel,
@@ -417,7 +424,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         d.oldestDuePeriod,
         formatCurrencyBob(d.totalDebtCents, false),
       ])
-      exportReportToPdf({
+      exportReportToPdf({ companyName,
         title: 'Reporte de Recaudación de Mensualidades y Morosidad',
         dateRangeStr: `Período: ${data.period || 'General'}`,
         branchLabel,
@@ -453,7 +460,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           formatCurrencyBob(e.amountCents, false),
         ]),
       ]
-      exportReportToPdf({
+      exportReportToPdf({ companyName,
         title: 'Reporte de Nómina de Personal y Gastos Operativos',
         dateRangeStr,
         branchLabel,
@@ -481,7 +488,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         formatCurrencyBob(a.acquisitionCostCents, false),
         a.status,
       ])
-      exportReportToPdf({
+      exportReportToPdf({ companyName,
         title: 'Reporte de Inventario de Bienes Fijos y Equipos',
         branchLabel,
         generatedByName: currentUser.fullName,

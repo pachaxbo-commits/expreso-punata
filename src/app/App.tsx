@@ -60,6 +60,8 @@ import { DriverCommissionsView } from '../modules/dispatch/DriverCommissionsView
 import { PassengerTicketsView } from '../modules/tickets/PassengerTicketsView'
 import { ConsumablesManagementView } from '../modules/assets/ConsumablesManagementView'
 import { PhysicalInventoryDocumentsView } from '../modules/assets/PhysicalInventoryDocumentsView'
+import { CommercialSettings } from '../modules/support/CommercialSettings'
+import { InstitutionalSettings } from '../modules/support/InstitutionalSettings'
 import { SystemConfigView } from '../modules/admin/SystemConfigView'
 import type { Shipment } from '../types'
 
@@ -689,7 +691,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             {configSubTab === 'users' && <UserManagementView />}
 
             {(configSubTab === 'general' || configSubTab === 'tariffs') && (
-              <SystemConfigView currentUser={userProfile} />
+              <><InstitutionalSettings /><CommercialSettings /><SystemConfigView currentUser={userProfile} /></>
             )}
 
             {configSubTab === 'printers' && (

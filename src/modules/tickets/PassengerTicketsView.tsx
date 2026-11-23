@@ -15,7 +15,8 @@ import {
   validatePassengerTicketThroughBackend,
   verifyPassengerTicketPaymentThroughBackend,
 } from '../../services/passengerTicketService.ts'
-import { buildPassengerTicketPairHtml, printPassengerTicketPair, type PassengerTicketPaperWidth } from '../../services/passengerTicketPrintService.ts'
+import { fetchSystemConfig } from '../../services/configService.ts'
+import { buildPassengerTicketPairHtml, printPassengerTicketPair, type PassengerTicketPaperWidth, type PassengerTicketPresentation } from '../../services/passengerTicketPrintService.ts'
 
 interface Props { currentUser: UserProfile; currentBranch: Branch; tutorialFormContextOpen?: boolean }
 
@@ -65,7 +66,7 @@ export const PassengerTicketsView: React.FC<Props> = ({ currentUser, currentBran
   const [cancelReason, setCancelReason] = useState('')
   const [deliveryOperation, setDeliveryOperation] = useState<PassengerTicketOperation | null>(null)
   const [authorizationCode, setAuthorizationCode] = useState('')
-  const [printPreview, setPrintPreview] = useState<{ operation: PassengerTicketOperation; html: string; reprint: boolean } | null>(null)
+  const [printPreview, setPrintPreview] = useState<{ operation: PassengerTicketOperation; html: string; reprint: boolean; presentation: PassengerTicketPresentation } | null>(null)
   const [paperWidth, setPaperWidth] = useState<PassengerTicketPaperWidth>(80)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
@@ -193,8 +194,14 @@ export const PassengerTicketsView: React.FC<Props> = ({ currentUser, currentBran
   const openTicketPreview = async (operation: PassengerTicketOperation, reprint: boolean) => {
     setError('')
     try {
-      const html = await buildPassengerTicketPairHtml(operation, { paperWidth, reprint })
-      setPrintPreview({ operation, html, reprint })
+      const response = await fetchSystemConfig()
+      const config = response.status === 'configured' && response.isOfficial ? response.config : null
+      const presentation = {
+        companyName: config?.company?.tradeName, branchName: config?.branches?.[operation.branchId]?.name,
+        notice: config?.documentNotices?.passengers,
+      }
+      const html = await buildPassengerTicketPairHtml(operation, { paperWidth, reprint, ...presentation })
+      setPrintPreview({ operation, html, reprint, presentation })
     } catch (err) { setActionError(err) }
   }
 
@@ -316,7 +323,7 @@ export const PassengerTicketsView: React.FC<Props> = ({ currentUser, currentBran
 
       {deliveryOperation && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-3"><form onSubmit={handleDelivery} className="w-full max-w-md space-y-3 rounded-xl bg-white p-4 shadow-xl"><h2 className="text-sm font-extrabold">Entregar efectivo al chofer</h2><p className="text-xs text-slate-600">{deliveryOperation.operationNumber} · {deliveryOperation.driverName}</p><div className="rounded-lg bg-amber-50 p-3"><div className="text-xs text-amber-900">Efectivo a entregar</div><strong className="font-mono text-xl text-amber-950">{formatCurrencyBob(deliveryOperation.pendingSettlementCents, true)}</strong><div className="mt-1 text-[11px] text-amber-900">Se descontará del efectivo físico de la caja abierta. La acción no se puede repetir.</div></div><label className="block text-xs font-bold">Código de autorización (solo si Caja lo solicita)<input value={authorizationCode} onChange={(e) => setAuthorizationCode(e.target.value.toUpperCase())} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 font-mono text-sm font-normal"/></label><div className="flex justify-end gap-2"><button type="button" onClick={() => setDeliveryOperation(null)} className="min-h-10 rounded-lg border px-4 text-xs font-bold">Volver</button><button disabled={saving} className="min-h-10 rounded-lg bg-amber-700 px-4 text-xs font-bold text-white">{saving ? 'Registrando…' : 'Confirmar entrega en efectivo'}</button></div></form></div>}
 
-      {printPreview && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-2 sm:p-5"><div className="flex h-[96vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"><div className="flex flex-wrap items-center justify-between gap-2 border-b p-3"><div><h2 className="text-sm font-extrabold">{printPreview.reprint ? 'Reimpresión de dos comprobantes' : 'Dos comprobantes de la misma operación'}</h2><p className="text-xs text-slate-500">{printPreview.operation.operationNumber} · Solo se generan el respaldo de oficina y el ticket para el chofer.</p></div><div className="flex items-center gap-2"><label className="text-xs">Papel<select aria-label="Ancho de papel" value={paperWidth} onChange={async (e) => { const width = Number(e.target.value) as PassengerTicketPaperWidth; setPaperWidth(width); const html = await buildPassengerTicketPairHtml(printPreview.operation, { paperWidth: width, reprint: printPreview.reprint }); setPrintPreview({ ...printPreview, html }) }} className="ml-1 rounded border px-2 py-1"><option value={58}>58 mm</option><option value={80}>80 mm</option></select></label><button type="button" aria-label="Cerrar comprobantes" onClick={() => setPrintPreview(null)} className="rounded p-2 text-slate-600 hover:bg-slate-100"><X className="h-5 w-5"/></button></div></div><iframe ref={iframeRef} title="Vista previa de los dos comprobantes" srcDoc={printPreview.html} className="min-h-0 flex-1 bg-slate-100"/><div className="flex justify-end gap-2 border-t p-3"><button type="button" onClick={() => setPrintPreview(null)} className="min-h-10 rounded-lg border px-4 text-xs font-bold">Cerrar</button><button type="button" onClick={() => { try { printPassengerTicketPair(iframeRef.current) } catch (err) { setActionError(err) } }} className="flex min-h-10 items-center gap-2 rounded-lg bg-[#064e3b] px-4 text-xs font-bold text-white"><Printer className="h-4 w-4"/>Imprimir los dos comprobantes</button></div></div></div>}
+      {printPreview && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-2 sm:p-5"><div className="flex h-[96vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"><div className="flex flex-wrap items-center justify-between gap-2 border-b p-3"><div><h2 className="text-sm font-extrabold">{printPreview.reprint ? 'Reimpresión de dos comprobantes' : 'Dos comprobantes de la misma operación'}</h2><p className="text-xs text-slate-500">{printPreview.operation.operationNumber} · Solo se generan el respaldo de oficina y el ticket para el chofer.</p></div><div className="flex items-center gap-2"><label className="text-xs">Papel<select aria-label="Ancho de papel" value={paperWidth} onChange={async (e) => { const width = Number(e.target.value) as PassengerTicketPaperWidth; setPaperWidth(width); const html = await buildPassengerTicketPairHtml(printPreview.operation, { paperWidth: width, reprint: printPreview.reprint, ...printPreview.presentation }); setPrintPreview({ ...printPreview, html }) }} className="ml-1 rounded border px-2 py-1"><option value={58}>58 mm</option><option value={80}>80 mm</option></select></label><button type="button" aria-label="Cerrar comprobantes" onClick={() => setPrintPreview(null)} className="rounded p-2 text-slate-600 hover:bg-slate-100"><X className="h-5 w-5"/></button></div></div><iframe ref={iframeRef} title="Vista previa de los dos comprobantes" srcDoc={printPreview.html} className="min-h-0 flex-1 bg-slate-100"/><div className="flex justify-end gap-2 border-t p-3"><button type="button" onClick={() => setPrintPreview(null)} className="min-h-10 rounded-lg border px-4 text-xs font-bold">Cerrar</button><button type="button" onClick={() => { try { printPassengerTicketPair(iframeRef.current) } catch (err) { setActionError(err) } }} className="flex min-h-10 items-center gap-2 rounded-lg bg-[#064e3b] px-4 text-xs font-bold text-white"><Printer className="h-4 w-4"/>Imprimir los dos comprobantes</button></div></div></div>}
     </div>
   )
 }

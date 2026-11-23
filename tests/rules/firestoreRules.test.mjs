@@ -42,6 +42,23 @@ test('auditoría y reservas de baja y eliminación protegidas frente a clientes 
   }
 })
 
+test('versiones comerciales e institucionales solo se administran mediante Functions', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'users', 'commercial-rules-admin'), { role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
+    await setDoc(doc(db, 'commercial_settings', 'commission'), { version: 1 })
+    await setDoc(doc(db, 'commercial_settings', 'commission', 'history', '1'), { version: 1 })
+    await setDoc(doc(db, 'support_config_history', 'institutional'), { version: 1 })
+  })
+  const db = testEnv.authenticatedContext('commercial-rules-admin').firestore()
+  for (const path of [['commercial_settings', 'commission'], ['commercial_settings', 'commission', 'history', '1'], ['support_config_history', 'institutional']]) {
+    const ref = doc(db, path.join('/'))
+    await assertFails(getDoc(ref))
+    await assertFails(setDoc(ref, { version: 2 }))
+    await assertFails(deleteDoc(ref))
+  }
+})
+
 before(async () => {
   const rules = readFileSync('firestore.rules', 'utf8')
   testEnv = await initializeTestEnvironment({

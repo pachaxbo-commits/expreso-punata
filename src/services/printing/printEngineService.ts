@@ -36,6 +36,25 @@ export class PrintEngineService {
     if (!doc.branchAddress) doc.branchAddress = branch.address
     if (!doc.branchPhone) doc.branchPhone = branch.phone
 
+    const { fetchSystemConfig } = await import('../configService.ts')
+    const response = await fetchSystemConfig()
+    if (response.status === 'configured' && response.isOfficial && response.config) {
+      const { company, branches, documentNotices } = response.config
+      const moduleNotice = doc.documentType === 'member_due_receipt' ? documentNotices?.contributions
+        : doc.documentType === 'worker_payroll_receipt' ? documentNotices?.personnel
+        : doc.documentType === 'fixed_asset_label' ? documentNotices?.inventory : undefined
+      const officialBranch = branches?.[doc.branchId]
+      doc = {
+        ...doc,
+        companyName: company?.tradeName || doc.companyName,
+        logoUrl: company?.logoUrl || doc.logoUrl,
+        branchName: officialBranch?.name || doc.branchName,
+        branchAddress: officialBranch?.address ?? doc.branchAddress,
+        branchPhone: officialBranch?.phone ?? doc.branchPhone,
+        footerNotes: [...new Set([...(doc.footerNotes || []), company?.legalNotice, moduleNotice].filter((note): note is string => Boolean(note)))],
+      }
+    }
+
     const paperFormat: PaperFormat = effectivePrinter.paperFormat || '80mm'
     const options = {
       fontSize: effectivePrinter.capabilities.fontSize,
@@ -82,7 +101,7 @@ export class PrintEngineService {
       // Encabezado
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(isThermal ? 13 : 16)
-      pdf.text('EXPRESO PUNATA', pageWidth / 2, y, { align: 'center' })
+      pdf.text(doc.companyName || 'EXPRESO PUNATA', pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 12 })
       y += 5
 
       pdf.setFont('helvetica', 'normal')

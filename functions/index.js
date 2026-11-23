@@ -16,6 +16,9 @@ const db = getFirestore()
 const authAdmin = getAuth()
 const storageAdmin = getStorage()
 
+import { commercialSettingsRef, createCommercialFunctions, effectiveCommercialRule, localBusinessDay } from './commercialSettings.js'
+
+export const { getCommercialSettings, updateCommercialSettings } = createCommercialFunctions(db)
 export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db)
 export const { adminRevokeUserSessions, adminRetireUser, adminDeleteRetiredUser, getUserDeletionStatus } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
@@ -199,7 +202,11 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
   const safeIdempotencyKey = idempotencyKey.trim()
 
-  const automaticPricingEnabled = process.env.ENABLE_AUTOMATIC_PARCEL_PRICING === 'true'
+  const automaticPricingAvailable = process.env.ENABLE_AUTOMATIC_PARCEL_PRICING === 'true'
+  const routeSettings = automaticPricingAvailable
+    ? (await commercialSettingsRef(db, `${originBranchId}-${destinationBranchId}`).get()).data() : null
+  const release = effectiveCommercialRule(routeSettings, localBusinessDay())
+  const automaticPricingEnabled = automaticPricingAvailable && release?.enabled !== false
   const hasManualAmount = payload.agreedAmountCents !== undefined && payload.agreedAmountCents !== null
   if (!automaticPricingEnabled && payload.pricingMode === 'automatic') {
     throw new HttpsError('failed-precondition', 'El cálculo automático de tarifas está desactivado. Ingrese manualmente el precio acordado.')
@@ -232,14 +239,14 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     const sysConfigSnap = await db.collection('system_config').doc('expreso_punata').get()
     const sysConfig = sysConfigSnap.exists ? sysConfigSnap.data() : null
     const hasOfficialConfig = sysConfig && sysConfig.status === 'configured' && sysConfig.isOfficial === true && sysConfig.tariffs && typeof sysConfig.tariffs === 'object'
-    if (hasOfficialConfig) {
-      const t = sysConfig.tariffs
+    if (hasOfficialConfig || (release && sysConfig?.status === 'configured' && sysConfig.isOfficial === true)) {
+      const t = release || sysConfig.tariffs
       baseFeeCents = t.baseFeeCents != null ? Number(t.baseFeeCents) : null
       freeWeightKg = t.freeWeightKg != null ? Number(t.freeWeightKg) : null
       extraKgRateCents = t.extraKgRateCents != null ? Number(t.extraKgRateCents) : null
       homeDeliveryRateCents = t.homeDeliveryFeeCents != null ? Number(t.homeDeliveryFeeCents) : null
     }
-    if (!isFunctionsEmulator && (!hasOfficialConfig || [baseFeeCents, freeWeightKg, extraKgRateCents, homeDeliveryRateCents].some(value => value === null || Number.isNaN(value)))) {
+    if (!isFunctionsEmulator && ((!hasOfficialConfig && !release?.enabled) || [baseFeeCents, freeWeightKg, extraKgRateCents, homeDeliveryRateCents].some(value => value === null || Number.isNaN(value)))) {
       throw new HttpsError('failed-precondition', 'Falta la configuración tarifaria oficial aprobada para activar el cálculo automático.')
     }
     if (isFunctionsEmulator) {
@@ -453,6 +460,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
       // Valores monetarios en centavos enteros (única fuente de verdad)
       shippingFeeCents: baseFeeCents,
+      ...(automaticPricingEnabled && release ? { tariffCommercialVersion: release.version, tariffEffectiveFrom: release.effectiveFrom } : {}),
       weightSurchargeCents,
       homeDeliveryFeeCents,
       discountCents: safeDiscountCents,
@@ -8442,7 +8450,11 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     }
 
     const config = configDoc.exists ? configDoc.data() || {} : {}
-    const commissionConfig = config.commissions || {}
+    const commercial = await transaction.get(commercialSettingsRef(db, 'commission'))
+    const release = effectiveCommercialRule(commercial.data(), localBusinessDay(shipment.createdAtIso || new Date()))
+    const commissionConfig = release
+      ? { defaultType: release.enabled ? release.type : null, defaultValue: release.value }
+      : config.commissions || {}
     const ruleType = commissionConfig.defaultType
     const ruleValue = Number(commissionConfig.defaultValue)
     if (config.status !== 'configured' || config.isOfficial !== true || !['percentage', 'fixed_per_shipment'].includes(ruleType) ||
@@ -8470,6 +8482,7 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     transaction.create(recordRef, {
       id: recordRef.id, driverUid, driverName, manifestId: manifestIdValue, shipmentId: shipmentIdValue,
       trackingCode: shipment.trackingCode || shipmentIdValue, baseShippingAmountCents,
+      ...(release ? { commercialVersion: release.version, effectiveFrom: release.effectiveFrom } : {}),
       originBranchId: manifest.originBranchId || null,
       ruleApplied: { type: ruleType, value: ruleValue }, commissionAmountCents, commissionAmountBob: commissionAmountCents / 100,
       status: 'accrued', paidAmountCents: 0, voucherIds: [], createdAtIso: nowIso,
@@ -9365,10 +9378,16 @@ export const getSystemConfig = onCall({ cors: true }, async (request) => {
     config: {
       id: configDoc.id,
       ...(isOperationalAdmin(caller) ? data : {
+        documentNotices: data.documentNotices || {},
+        company: {
+          tradeName: data.company?.tradeName || '',
+          logoUrl: data.company?.logoUrl || '',
+          legalNotice: data.company?.legalNotice || '',
+        },
         branches: Object.fromEntries(Object.entries(data.branches || {}).map(([id, branch]) => [id, {
-          phone: branch.phone,
-          address: branch.address,
-          name: branch.name,
+          phone: branch.phone || '',
+          address: branch.address || '',
+          name: branch.name || '',
         }])),
         tariffs: data.tariffs,
       }),
@@ -9394,119 +9413,137 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
   const nowIso = new Date().toISOString()
 
   const configRef = db.collection('system_config').doc('expreso_punata')
-  const currentSnap = await configRef.get()
-  const existing = currentSnap.exists ? currentSnap.data() : {}
+  return db.runTransaction(async tx => {
+    const [profile, currentSnap] = await Promise.all([tx.get(db.collection('users').doc(request.auth.uid)), tx.get(configRef)])
+    if (profile.data()?.isActive !== true || !isOperationalAdmin(profile.data())) throw new HttpsError('permission-denied', 'La autorización administrativa ya no está activa.')
+    const existing = currentSnap.exists ? currentSnap.data() : {}
 
-  const updatedConfig = {
-    ...existing,
-    status: 'configured',
-    isOfficial: true,
-    isDemo: isDemo !== undefined ? Boolean(isDemo) : (existing.isDemo !== undefined ? Boolean(existing.isDemo) : true),
-    updatedAtIso: nowIso,
-    updatedByUid: callerUid,
-    updatedByName: callerName,
-  }
-
-  if (company && typeof company === 'object') {
-    updatedConfig.company = {
-      ...(existing.company || {}),
-      name: company.name ? String(company.name).trim() : 'EXPRESO PUNATA',
-      tradeName: company.tradeName ? String(company.tradeName).trim() : 'EXPRESO PUNATA',
-      legalName: company.legalName ? String(company.legalName).trim() : 'Expreso Punata',
-      acronym: company.acronym ? String(company.acronym).trim() : 'EP',
-      legalNotice: company.legalNotice ? String(company.legalNotice).trim() : 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
-      logoUrl: company.logoUrl || existing.company?.logoUrl || '',
-      taxNotice: company.taxNotice || existing.company?.taxNotice || '',
+    const updatedConfig = {
+      ...existing,
+      status: 'configured',
+      isOfficial: true,
+      isDemo: isDemo !== undefined ? Boolean(isDemo) : (existing.isDemo !== undefined ? Boolean(existing.isDemo) : true),
+      updatedAtIso: nowIso,
+      updatedByUid: callerUid,
+      updatedByName: callerName,
     }
-  }
 
-  if (branches && typeof branches === 'object') {
-    updatedConfig.branches = branches
-  }
-
-  if (tariffs && typeof tariffs === 'object') {
-    const baseCents = (Number.isInteger(tariffs.baseFeeCents) && tariffs.baseFeeCents >= 0)
-      ? tariffs.baseFeeCents
-      : (tariffs.baseFeeBob !== undefined && tariffs.baseFeeBob !== null && !isNaN(Number(tariffs.baseFeeBob)) && Number(tariffs.baseFeeBob) >= 0 ? Math.round(Number(tariffs.baseFeeBob) * 100) : (existing.tariffs?.baseFeeCents ?? 0))
-    const extraCents = (Number.isInteger(tariffs.extraKgRateCents) && tariffs.extraKgRateCents >= 0)
-      ? tariffs.extraKgRateCents
-      : (tariffs.extraKgRateBob !== undefined && tariffs.extraKgRateBob !== null && !isNaN(Number(tariffs.extraKgRateBob)) && Number(tariffs.extraKgRateBob) >= 0 ? Math.round(Number(tariffs.extraKgRateBob) * 100) : (existing.tariffs?.extraKgRateCents ?? 0))
-    const homeCents = (Number.isInteger(tariffs.homeDeliveryFeeCents) && tariffs.homeDeliveryFeeCents >= 0)
-      ? tariffs.homeDeliveryFeeCents
-      : (tariffs.homeDeliveryFeeBob !== undefined && tariffs.homeDeliveryFeeBob !== null && !isNaN(Number(tariffs.homeDeliveryFeeBob)) && Number(tariffs.homeDeliveryFeeBob) >= 0 ? Math.round(Number(tariffs.homeDeliveryFeeBob) * 100) : (existing.tariffs?.homeDeliveryFeeCents ?? 0))
-
-    const freeWeight = tariffs.freeWeightKg !== undefined && tariffs.freeWeightKg !== null && !isNaN(Number(tariffs.freeWeightKg))
-      ? Math.max(0, Number(tariffs.freeWeightKg))
-      : (existing.tariffs?.freeWeightKg ?? 0)
-
-    updatedConfig.tariffs = {
-      baseFeeCents: baseCents,
-      baseFeeBob: baseCents / 100,
-      freeWeightKg: freeWeight,
-      extraKgRateCents: extraCents,
-      extraKgRateBob: extraCents / 100,
-      homeDeliveryFeeCents: homeCents,
-      homeDeliveryFeeBob: homeCents / 100,
+    if (company && typeof company === 'object') {
+      updatedConfig.company = {
+        ...(existing.company || {}),
+        name: company.name ? String(company.name).trim() : 'EXPRESO PUNATA',
+        tradeName: company.tradeName ? String(company.tradeName).trim() : 'EXPRESO PUNATA',
+        legalName: company.legalName ? String(company.legalName).trim() : 'Expreso Punata',
+        acronym: company.acronym ? String(company.acronym).trim() : 'EP',
+        legalNotice: company.legalNotice ? String(company.legalNotice).trim() : 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
+        logoUrl: company.logoUrl || existing.company?.logoUrl || '',
+        taxNotice: company.taxNotice || existing.company?.taxNotice || '',
+      }
     }
-  }
 
-  if (commissions && typeof commissions === 'object') {
-    const commVal = commissions.defaultValue !== undefined && commissions.defaultValue !== null && !isNaN(Number(commissions.defaultValue))
-      ? Math.max(0, Number(commissions.defaultValue))
-      : (existing.commissions?.defaultValue ?? 0)
-
-    updatedConfig.commissions = {
-      defaultType: ['percentage', 'fixed_per_shipment'].includes(commissions.defaultType) ? commissions.defaultType : (existing.commissions?.defaultType || 'percentage'),
-      defaultValue: commVal,
+    if (branches && typeof branches === 'object') {
+      updatedConfig.branches = Object.fromEntries(['punata', 'cochabamba'].flatMap(id => {
+        const branch = branches[id] || existing.branches?.[id]
+        if (!branch) return []
+        return [[id, { ...branch, code: existing.branches?.[id]?.code || (id === 'punata' ? 'PUN' : 'CBB') }]]
+      }))
     }
-  }
 
-  if (dues && typeof dues === 'object') {
-    const dueCents = (Number.isInteger(dues.monthlyDueCents) && dues.monthlyDueCents >= 0)
-      ? dues.monthlyDueCents
-      : (dues.monthlyDueBob !== undefined && dues.monthlyDueBob !== null && !isNaN(Number(dues.monthlyDueBob)) && Number(dues.monthlyDueBob) >= 0 ? Math.round(Number(dues.monthlyDueBob) * 100) : (existing.dues?.monthlyDueCents ?? 0))
+    if (tariffs && typeof tariffs === 'object') {
+      const baseCents = (Number.isInteger(tariffs.baseFeeCents) && tariffs.baseFeeCents >= 0)
+        ? tariffs.baseFeeCents
+        : (tariffs.baseFeeBob !== undefined && tariffs.baseFeeBob !== null && !isNaN(Number(tariffs.baseFeeBob)) && Number(tariffs.baseFeeBob) >= 0 ? Math.round(Number(tariffs.baseFeeBob) * 100) : (existing.tariffs?.baseFeeCents ?? 0))
+      const extraCents = (Number.isInteger(tariffs.extraKgRateCents) && tariffs.extraKgRateCents >= 0)
+        ? tariffs.extraKgRateCents
+        : (tariffs.extraKgRateBob !== undefined && tariffs.extraKgRateBob !== null && !isNaN(Number(tariffs.extraKgRateBob)) && Number(tariffs.extraKgRateBob) >= 0 ? Math.round(Number(tariffs.extraKgRateBob) * 100) : (existing.tariffs?.extraKgRateCents ?? 0))
+      const homeCents = (Number.isInteger(tariffs.homeDeliveryFeeCents) && tariffs.homeDeliveryFeeCents >= 0)
+        ? tariffs.homeDeliveryFeeCents
+        : (tariffs.homeDeliveryFeeBob !== undefined && tariffs.homeDeliveryFeeBob !== null && !isNaN(Number(tariffs.homeDeliveryFeeBob)) && Number(tariffs.homeDeliveryFeeBob) >= 0 ? Math.round(Number(tariffs.homeDeliveryFeeBob) * 100) : (existing.tariffs?.homeDeliveryFeeCents ?? 0))
 
-    const lateFee = dues.lateFeePercentage !== undefined && dues.lateFeePercentage !== null && !isNaN(Number(dues.lateFeePercentage))
-      ? Math.max(0, Number(dues.lateFeePercentage))
-      : (existing.dues?.lateFeePercentage ?? 0)
+      const freeWeight = tariffs.freeWeightKg !== undefined && tariffs.freeWeightKg !== null && !isNaN(Number(tariffs.freeWeightKg))
+        ? Math.max(0, Number(tariffs.freeWeightKg))
+        : (existing.tariffs?.freeWeightKg ?? 0)
 
-    const graceDays = dues.gracePeriodDays !== undefined && dues.gracePeriodDays !== null && !isNaN(Number(dues.gracePeriodDays))
-      ? Math.max(0, Math.floor(Number(dues.gracePeriodDays)))
-      : (existing.dues?.gracePeriodDays ?? 0)
-
-    updatedConfig.dues = {
-      monthlyDueCents: dueCents,
-      monthlyDueBob: dueCents / 100,
-      lateFeePercentage: lateFee,
-      gracePeriodDays: graceDays,
+      updatedConfig.tariffs = {
+        baseFeeCents: baseCents,
+        baseFeeBob: baseCents / 100,
+        freeWeightKg: freeWeight,
+        extraKgRateCents: extraCents,
+        extraKgRateBob: extraCents / 100,
+        homeDeliveryFeeCents: homeCents,
+        homeDeliveryFeeBob: homeCents / 100,
+      }
     }
-  }
 
-  if (printing && typeof printing === 'object') {
-    updatedConfig.printing = {
-      cutPaper: printing.cutPaper !== undefined ? Boolean(printing.cutPaper) : true,
-      openDrawer: printing.openDrawer !== undefined ? Boolean(printing.openDrawer) : true,
-      headerNotice: printing.headerNotice || '',
-      footerNotice: printing.footerNotice || '',
+    if (commissions && typeof commissions === 'object') {
+      const commVal = commissions.defaultValue !== undefined && commissions.defaultValue !== null && !isNaN(Number(commissions.defaultValue))
+        ? Math.max(0, Number(commissions.defaultValue))
+        : (existing.commissions?.defaultValue ?? 0)
+
+      updatedConfig.commissions = {
+        defaultType: ['percentage', 'fixed_per_shipment'].includes(commissions.defaultType) ? commissions.defaultType : (existing.commissions?.defaultType || 'percentage'),
+        defaultValue: commVal,
+      }
     }
-  }
 
-  await configRef.set(updatedConfig)
+    if (dues && typeof dues === 'object') {
+      const dueCents = (Number.isInteger(dues.monthlyDueCents) && dues.monthlyDueCents >= 0)
+        ? dues.monthlyDueCents
+        : (dues.monthlyDueBob !== undefined && dues.monthlyDueBob !== null && !isNaN(Number(dues.monthlyDueBob)) && Number(dues.monthlyDueBob) >= 0 ? Math.round(Number(dues.monthlyDueBob) * 100) : (existing.dues?.monthlyDueCents ?? 0))
 
-  // Auditoría administrativa
-  await db.collection('audit_logs').add({
-    action: 'system_config_updated',
-    performedByUid: callerUid,
-    performedByName: callerName,
-    details: 'Actualización autoritativa de configuración oficial de Expreso Punata',
-    timestampIso: nowIso,
+      const lateFee = dues.lateFeePercentage !== undefined && dues.lateFeePercentage !== null && !isNaN(Number(dues.lateFeePercentage))
+        ? Math.max(0, Number(dues.lateFeePercentage))
+        : (existing.dues?.lateFeePercentage ?? 0)
+
+      const graceDays = dues.gracePeriodDays !== undefined && dues.gracePeriodDays !== null && !isNaN(Number(dues.gracePeriodDays))
+        ? Math.max(0, Math.floor(Number(dues.gracePeriodDays)))
+        : (existing.dues?.gracePeriodDays ?? 0)
+
+      updatedConfig.dues = {
+        monthlyDueCents: dueCents,
+        monthlyDueBob: dueCents / 100,
+        lateFeePercentage: lateFee,
+        gracePeriodDays: graceDays,
+      }
+    }
+
+    if (printing && typeof printing === 'object') {
+      updatedConfig.printing = {
+        cutPaper: printing.cutPaper !== undefined ? Boolean(printing.cutPaper) : true,
+        openDrawer: printing.openDrawer !== undefined ? Boolean(printing.openDrawer) : true,
+        headerNotice: printing.headerNotice || '',
+        footerNotice: printing.footerNotice || '',
+      }
+    }
+
+    // The legacy form may contain a stale snapshot. Fields managed by the
+    // versioned editor can only be changed through that editor.
+    for (const field of Object.keys(existing.institutionalVersions || {})) {
+      if (['tradeName', 'logoUrl', 'legalNotice'].includes(field)) {
+        updatedConfig.company[field] = existing.company[field]
+      } else if (field.startsWith('punata') || field.startsWith('cochabamba')) {
+        const id = field.startsWith('punata') ? 'punata' : 'cochabamba'
+        const property = field.slice(id.length).toLowerCase()
+        updatedConfig.branches[id][property] = existing.branches[id][property]
+      }
+    }
+    tx.set(configRef, updatedConfig)
+
+    // Auditoría administrativa
+    tx.create(db.collection('audit_logs').doc(), {
+      action: 'system_config_updated',
+      performedByUid: callerUid,
+      performedByName: callerName,
+      details: 'Actualización autoritativa de configuración oficial de Expreso Punata',
+      timestampIso: nowIso,
+    })
+
+    return {
+      success: true,
+      config: updatedConfig,
+      message: 'Configuración oficial actualizada exitosamente.',
+    }
   })
-
-  return {
-    success: true,
-    config: updatedConfig,
-    message: 'Configuración oficial actualizada exitosamente.',
-  }
 })
 
 // =========================================================================
@@ -9604,7 +9641,12 @@ export const createUnionLoan = onCall({ cors: true }, async (request) => {
   const nowIso = new Date().toISOString()
   const year = new Date().getFullYear()
   return db.runTransaction(async (transaction) => {
-    const [memberDoc, counterDoc] = await Promise.all([transaction.get(memberRef), transaction.get(counterRef)])
+    const [memberDoc, counterDoc, settings] = await Promise.all([
+      transaction.get(memberRef), transaction.get(counterRef), transaction.get(commercialSettingsRef(db, 'loan')),
+    ])
+    const rule = effectiveCommercialRule(settings.data(), localBusinessDay(nowIso))
+    if (rule?.enabled && installmentCount > rule.maxInstallments) throw new HttpsError('invalid-argument', `Cuotas: el máximo autorizado es ${rule.maxInstallments}.`)
+    if (rule?.enabled && principalCents > rule.maxPrincipalCents) throw new HttpsError('invalid-argument', 'Capital: supera el máximo comercial vigente.')
     if (!memberDoc.exists) throw new HttpsError('not-found', 'El afiliado seleccionado no existe.')
     const sequence = (counterDoc.exists ? Number(counterDoc.data()?.currentSequence) || 0 : 0) + 1
     const loanNumber = `PRE-${year}-${String(sequence).padStart(5, '0')}`
@@ -9625,6 +9667,7 @@ export const createUnionLoan = onCall({ cors: true }, async (request) => {
       id: loanRef.id, loanNumber, memberId: memberRef.id,
       memberNumber: member.memberNumber || '', memberName: member.fullName || '',
       grantDate: grantDate || new Date().toISOString().slice(0, 10),
+      ...(rule?.enabled ? { commercialVersion: rule.version } : {}),
       principalCents, principalBob: principalCents / 100,
       installmentCount, installmentAmountCents: baseCents + (remainderCents ? 1 : 0),
       firstDueDate, notes: notes.trim(), status: firstDueDate < today ? 'overdue' : 'active',
@@ -10111,7 +10154,8 @@ export const createUnionFine = onCall({ cors: true }, async (request) => {
 // Deportes y asistencia: usa la colección union_fines existente para cualquier sanción.
 const UNION_SPORTS_WRITE_ROLES = LOAN_MANAGEMENT_ROLES
 const UNION_SPORTS_ATTENDANCE = ['pending', 'present', 'late', 'absent', 'exempt']
-const sportsFineAmountCents = (attendance) => attendance === 'late' ? 5000 : attendance === 'absent' ? 10000 : 0
+const sportsFineAmountCents = (attendance, event) => attendance === 'late' ? (event.finePolicy?.lateFineCents ?? 5000)
+  : attendance === 'absent' ? (event.finePolicy?.absentFineCents ?? 10000) : 0
 const sportsFineReason = (event, attendance) => attendance === 'late'
   ? `Tardanza en jornada deportiva: ${event.activityName}`
   : `Inasistencia a jornada deportiva: ${event.activityName}`
@@ -10127,7 +10171,7 @@ async function applyUnionSportsAttendance(transaction, { eventRef, participantRe
     attendance, changedAtIso: nowIso, changedByUid: caller.uid,
     changedByName: caller.fullName || 'Operador', reason: reason || null,
   } : null
-  const shouldFine = sportsFineAmountCents(attendance) > 0
+  const shouldFine = sportsFineAmountCents(attendance, event) > 0
   let financialReviewRequired = false
   let fineId = fineDoc.exists ? fineRef.id : null
   if (fineDoc.exists) {
@@ -10145,7 +10189,7 @@ async function applyUnionSportsAttendance(transaction, { eventRef, participantRe
           updatedAtIso: nowIso,
         })
     } else if (shouldFine) {
-      const amountCents = sportsFineAmountCents(attendance)
+      const amountCents = sportsFineAmountCents(attendance, event)
       transaction.update(fineRef, {
         fineNumber: `MUL-DEP-${eventRef.id}-${participant.memberId}`,
         memberNumber: participant.memberNumber, memberName: participant.memberName,
@@ -10168,7 +10212,7 @@ async function applyUnionSportsAttendance(transaction, { eventRef, participantRe
       })
     }
   } else if (shouldFine) {
-    const amountCents = sportsFineAmountCents(attendance)
+    const amountCents = sportsFineAmountCents(attendance, event)
     const fineNumber = `MUL-DEP-${eventRef.id}-${participant.memberId}`
     transaction.create(fineRef, {
       id: fineRef.id, fineNumber, memberId: participant.memberId,
@@ -10221,10 +10265,13 @@ export const createUnionSportsEvent = onCall({ cors: true }, async (request) => 
     }
     const missingIndex = memberDocs.findIndex((doc) => !doc.exists)
     if (missingIndex >= 0) throw new HttpsError('not-found', `No existe el afiliado convocado ${cleanedMemberIds[missingIndex]}.`)
+    const settings = await transaction.get(commercialSettingsRef(db, 'sports'))
+    const rule = effectiveCommercialRule(settings.data(), date)
     const event = {
       id: eventRef.id, date, scheduledTime, activityName: activityName.trim(),
       place: place.trim(), notes: notes.trim(), status: 'scheduled',
       branchId: caller.primaryBranchId || 'punata',
+      ...(rule?.enabled ? { finePolicy: { lateFineCents: rule.lateFineCents, absentFineCents: rule.absentFineCents, version: rule.version } } : {}),
       participantCount: cleanedMemberIds.length, createdAtIso: nowIso,
       createdByUid: caller.uid, createdByName: caller.fullName || 'Operador',
       updatedAtIso: nowIso,

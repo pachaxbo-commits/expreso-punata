@@ -130,7 +130,8 @@ export async function buildDocumentHtml(
 
   <!-- ENCABEZADO INSTITUCIONAL OFICIAL (EXCLUSIVAMENTE EXPRESO PUNATA) -->
   <div class="header-box">
-    <div class="company-title">EXPRESO PUNATA</div>
+    ${options.includeLogo && doc.logoUrl?.startsWith('https://') ? `<img alt="" src="${escapeHtml(doc.logoUrl)}" referrerpolicy="no-referrer" style="max-width: 38mm; max-height: 15mm;">` : ''}
+    <div class="company-title">${escapeHtml(doc.companyName || 'EXPRESO PUNATA')}</div>
     <div style="font-size: 10px; margin-top: 1px;">Agencia: ${escapeHtml(doc.branchName || doc.branchId)} ${doc.branchAddress ? '— ' + escapeHtml(doc.branchAddress) : ''}</div>
     ${doc.branchPhone ? `<div style="font-size: 10px;">Teléfono: ${escapeHtml(doc.branchPhone)}</div>` : ''}
     <div class="separator-solid"></div>

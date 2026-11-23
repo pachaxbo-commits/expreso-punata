@@ -446,6 +446,7 @@ export function exportToCsv(filename: string, headers: string[], rows: (string |
  */
 export function exportReportToPdf(params: {
   title: string
+  companyName?: string
   subtitle?: string
   dateRangeStr?: string
   branchLabel?: string
@@ -471,7 +472,8 @@ export function exportReportToPdf(params: {
   doc.setTextColor(255, 255, 255)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
-  doc.text('EXPRESO PUNATA', 14, 12)
+  const companyName = params.companyName || 'EXPRESO PUNATA'
+  doc.text(companyName, 14, 12, { maxWidth: pageWidth - 85 })
 
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
@@ -569,7 +571,7 @@ export function exportReportToPdf(params: {
       doc.setFontSize(7.5)
       doc.setTextColor(156, 163, 175)
       doc.text(
-        `EXPRESO PUNATA 1.0 • Documento Oficial de Reportes • Página ${pageNumber}`,
+        `${companyName} • Documento Oficial de Reportes • Página ${pageNumber}`,
         14,
         doc.internal.pageSize.getHeight() - 10
       )
