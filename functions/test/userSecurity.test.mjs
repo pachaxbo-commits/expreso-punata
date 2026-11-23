@@ -117,6 +117,12 @@ test('elimina identidad sintética dada de baja y conserva historial, con reinte
   const history = db.collection('financial_movements').doc(`history-delete-${suffix}`)
   await history.set({ operatorUid: target.uid })
   const callAuth = { uid: admin.uid, token: { auth_time: Math.floor(Date.now() / 1000) } }
+  const technical = db.collection('users').doc(`technical-${suffix}`)
+  await technical.set({ role: 'soporte_pachax', isActive: false, syncStatus: 'retired', emulatorDeletionEligible: true })
+  const technicalRequest = { auth: callAuth, data: { targetUid: technical.id, reason: 'Comprobación de cuenta técnica', confirmation: true, operationId: `technical-${suffix}` } }
+  await assert.rejects(() => adminDeleteRetiredUser.run(technicalRequest), { code: 'permission-denied' })
+  await technical.update({ isActive: true, syncStatus: 'synced' })
+  await assert.rejects(() => adminRetireUser.run(technicalRequest), { code: 'permission-denied' })
   await adminRetireUser.run({ auth: callAuth, data: { targetUid: target.uid, reason: 'Baja sintética autorizada', confirmation: true, operationId: `retire-${suffix}` } })
   const req = { auth: callAuth, data: { targetUid: target.uid, reason: 'Eliminación sintética autorizada', confirmation: true, operationId: `delete-${suffix}` } }
   const demoFlag = process.env.FUNCTIONS_EMULATOR
