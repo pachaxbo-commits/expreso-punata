@@ -943,6 +943,10 @@ Documenta la deuda heredada y las correcciones verificadas.
 
 ## Fase 2
 
+### Bloque A · avance de gestión de usuarios
+
+Se añadió una baja lógica con autenticación reciente, confirmación, motivo, candado de administración, protección del último administrador, bloqueo ante caja abierta, revocación de acceso, auditoría y reintentos por identificador. Se conserva Auth deshabilitado y el perfil histórico; todavía no existe eliminación física segura ni un inventario completo de custodia y obligaciones. La interfaz permite iniciar la baja y reintentar mientras permanece abierta; la recuperación del identificador tras cerrar la pantalla sigue pendiente. TypeScript y build aprobados; tres pruebas dirigidas de seguridad y 29 pruebas Rules aprobadas. Faltan Playwright del recorrido completo, fallos parciales y concurrencia específica de la baja. No se tocaron usuarios de producción. EP-14 sigue en curso y la baja no está lista para publicación.
+
 ### Avance local · Centro de Soporte
 
 Rama `codex/phase-2-support-center`, creada desde `origin/main` en `c35b620e08e2af32196b900bdaa8c12d55004e8b`. No se ha publicado esta fase. En la comprobación de producción anterior al desarrollo, Vercel estaba READY en ese SHA, las 71 Functions estaban activas y `/demo` respondía 307 a `/`. El inicio de sesión real de Nelson y la creación de usuarios requieren comprobación humana y siguen pendientes.

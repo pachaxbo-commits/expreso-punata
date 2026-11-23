@@ -22,6 +22,7 @@ import {
   requestPasswordResetLink,
   sendUserPasswordResetEmail,
   revokeUserSessions,
+  retireUser,
   fetchUserAuditLogs,
   type ProvisionUserInput,
 } from '../../services/userService'
@@ -53,6 +54,7 @@ function confirmAdminChange(user: UserProfile, nextRole: UserRole, nextActive: b
 }
 
 export const UserManagementView: React.FC = () => {
+  const retirementAttempts = React.useRef<Record<string, { operationId: string; reason: string }>>({})
   const [users, setUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -179,6 +181,25 @@ export const UserManagementView: React.FC = () => {
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'No se pudieron revocar las sesiones.')
     } finally { setActionLoading(false) }
+  }
+
+  const handleRetire = async (user: UserProfile) => {
+    let attempt = retirementAttempts.current[user.uid]
+    if (!attempt) {
+      const reason = window.prompt(`Motivo de la baja de ${user.fullName} (mínimo 10 caracteres):`)
+      if (reason === null) return
+      if (reason.trim().length < 10) { alert('Indique un motivo de al menos 10 caracteres.'); return }
+      if (!window.confirm(`¿Dar de baja a ${user.fullName} (${user.email || user.uid})? Se retirará el acceso y se conservarán los registros históricos.`)) return
+      attempt = { reason: reason.trim(), operationId: crypto.randomUUID() }
+      retirementAttempts.current[user.uid] = attempt
+    }
+    try {
+      setActionLoading(true)
+      const result = await retireUser(user.uid, attempt.reason, attempt.operationId)
+      delete retirementAttempts.current[user.uid]
+      alert(result.message)
+    } catch (error: unknown) { alert(error instanceof Error ? error.message : 'No se pudo completar la baja.') }
+    finally { setActionLoading(false) }
   }
 
   // Acción: Confirmar cambio de rol
@@ -535,6 +556,7 @@ export const UserManagementView: React.FC = () => {
                           </button>
 
                           {/* Restablecer Contraseña */}
+                          <button type="button" disabled={actionLoading} onClick={() => void handleRetire(u)} className="p-1.5 text-rose-700 hover:bg-rose-50 rounded-lg" title="Eliminar usuario" aria-label={`Eliminar usuario ${u.fullName}`}><XCircle className="w-4 h-4" /></button>
                           <button type="button" disabled={actionLoading} onClick={() => void handleRevokeSessions(u)} className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg" title="Revocar sesiones" aria-label={`Revocar sesiones de ${u.fullName}`}><Lock className="w-4 h-4" /></button>
                           <button
                             type="button"

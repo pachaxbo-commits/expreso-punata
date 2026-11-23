@@ -49,6 +49,11 @@ export async function revokeUserSessions(targetUid: string, reason: string): Pro
   await httpsCallable<{ targetUid: string; reason: string; confirmation: boolean }, { success: boolean }>(functions, 'adminRevokeUserSessions')({ targetUid, reason, confirmation: true })
 }
 
+export async function retireUser(targetUid: string, reason: string, operationId: string): Promise<{ message: string }> {
+  const call = httpsCallable<{ targetUid: string; reason: string; confirmation: boolean; operationId: string }, { message: string }>(functions, 'adminRetireUser')
+  return (await call({ targetUid, reason, operationId, confirmation: true })).data
+}
+
 /**
  * Suscripción reactiva al listado de usuarios de Expreso Punata.
  * Solo puede ser consultado por Directiva y Encargados autorizados según Firestore Rules.

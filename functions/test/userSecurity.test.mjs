@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
-import { adminProvisionUser, adminRevokeUserSessions } from '../index.js'
+import { adminProvisionUser, adminRevokeUserSessions, adminRetireUser } from '../index.js'
 
 test('revocar sesiones exige administración, autenticación reciente, motivo y auditoría', async () => {
   const db = getFirestore(), auth = getAuth(), suffix = randomUUID()
@@ -23,6 +23,28 @@ test('revocar sesiones exige administración, autenticación reciente, motivo y 
   assert.equal((await auth.getUser(target.uid)).disabled, false)
   await db.collection('users').doc(target.uid).update({ role: 'soporte_pachax' })
   await assert.rejects(() => call(admin.uid, now), { code: 'permission-denied' })
+})
+
+test('baja conserva historial, bloquea caja abierta y permite reintentos', async () => {
+  const db = getFirestore(), auth = getAuth(), suffix = randomUUID()
+  const admin = await auth.createUser({ email: `retire-admin-${suffix}@example.test` })
+  const target = await auth.createUser({ email: `retire-user-${suffix}@example.test` })
+  await db.collection('users').doc(admin.uid).set({ role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
+  await db.collection('users').doc(target.uid).set({ role: 'secretaria', isActive: true, primaryBranchId: 'punata' })
+  const lock = db.collection('cash_shift_active_locks').doc(`lock-${suffix}`)
+  await lock.set({ operatorUid: target.uid, status: 'open' })
+  const history = db.collection('financial_movements').doc(`history-${suffix}`)
+  await history.set({ operatorUid: target.uid, amountCents: 100 })
+  const request = { auth: { uid: admin.uid, token: { auth_time: Math.floor(Date.now() / 1000) } }, data: { targetUid: target.uid, reason: 'Baja autorizada de prueba', confirmation: true, operationId: `retire-${suffix}` } }
+  await assert.rejects(() => adminRetireUser.run(request), { code: 'failed-precondition' })
+  await lock.delete()
+  const result = await adminRetireUser.run(request)
+  assert.equal(result.disposition, 'disabled')
+  assert.deepEqual(await adminRetireUser.run(request), result)
+  assert.equal((await auth.getUser(target.uid)).disabled, true)
+  assert.equal((await db.collection('users').doc(target.uid).get()).data().syncStatus, 'retired')
+  assert.equal((await history.get()).exists, true)
+  await assert.rejects(() => adminRetireUser.run({ ...request, data: { ...request.data, targetUid: admin.uid, operationId: `other-${suffix}` } }), { code: 'failed-precondition' })
 })
 
 test('suspender a otro administrador exige sesión reciente, confirmación y motivo', async () => {

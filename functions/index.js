@@ -17,7 +17,7 @@ const authAdmin = getAuth()
 const storageAdmin = getStorage()
 
 export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db)
-export const { adminRevokeUserSessions } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
+export const { adminRevokeUserSessions, adminRetireUser } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
 // Transitional access for legacy profiles. New administrators require both agencies.
 function isOperationalAdmin(profile) {
@@ -1118,6 +1118,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
       throw new HttpsError('invalid-argument', 'Use afiliado_admin para asignar la administración de Expreso Punata.')
     }
     const existingProfile = existingDoc.data()
+    if (existingProfile?.syncStatus === 'retiring' || existingProfile?.syncStatus === 'retired') throw new HttpsError('failed-precondition', 'La cuenta está en proceso de baja o ya fue dada de baja.')
     const syncAgeMs = Date.now() - Date.parse(existingProfile?.updatedAtIso || '')
     if (existingProfile?.syncStatus === 'syncing' && syncAgeMs < 120_000) {
       throw new HttpsError('aborted', 'Ya hay una actualización en curso para esta cuenta.')
