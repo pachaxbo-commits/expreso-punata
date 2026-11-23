@@ -945,6 +945,18 @@ Documenta la deuda heredada y las correcciones verificadas.
 
 ### Bloque A · avance de gestión de usuarios
 
+#### Continuación desde `c8187ba`
+
+- **Responsabilidades por UID.** Baja y eliminación comparten comprobaciones transaccionales de caja, manifiestos y traslados, encomiendas asignadas en tránsito, cobros COD pendientes de rendición, pasajes por embarcar o liquidar, saldo de comisiones y bienes patrimoniales vigentes con responsable explícito. Las recepciones y entregas de ventanilla corresponden a la agencia. Los UID de registro, entrega completada, recepción completada y almacenamiento son trazabilidad. El COD conciliado conserva su referencia histórica. Un nombre libre de responsable no demuestra un vínculo con una identidad de Auth.
+- **Asignaciones concurrentes.** La apertura de caja y la entrega leen el perfil vigente dentro de la transacción. Despachos, pasajes y devengos usan la lectura transaccional del conductor y rechazan un perfil en baja, incluso si comparte UID con el directorio. Las escrituras de responsabilidad patrimonial comprueban el perfil dentro de la transacción.
+- **Operaciones y recuperación.** Gestión de usuarios consulta por UID las reservas de baja y eliminación guardadas en Firestore. Otra sesión administrativa puede reintentar el mismo identificador con confirmación y autenticación reciente. El backend también admite consulta por identificador y tipo. La bitácora conserva operador inicial, operador que completó, resultado e identificador. Una respuesta tardía de fallo no degrada una operación completada.
+- **Eliminación de Auth.** Exige perfil dado de baja, identidad deshabilitada si aún existe, cuenta sintética marcada y proyecto `demo-*` con emuladores. Verifica la ausencia de la identidad antes de marcar la operación completada. Conserva perfil y movimientos. Las cuentas técnicas y los administradores están protegidos. Para evaluar activación real quedan pendientes la reconciliación de referencias no verificables por UID, revisión de triggers y datos heredados y autorización expresa.
+- **Verificación final con Node 22.** TypeScript y build aprobados, 73 pruebas unitarias, 175 de Functions y 30 de Firestore Rules. Las pruebas cubrieron bajas simultáneas entre administradores, protección del último administrador, suspensión durante una eliminación, cambio de rol o agencia durante una baja, rechazo de asignaciones nuevas durante una eliminación, fallo parcial, reintento con Auth ya eliminado, cuentas protegidas y acceso sin autorización.
+- **Playwright integral aprobado en Chrome y Firebase Emulator Suite.** El recorrido de `tests/e2e/runUserSecurityJourney.mjs` creó, editó, reasignó, suspendió y reactivó una cuenta, revocó sesiones, comprobó el rechazo por caja abierta y completó la baja. Verificó los filtros de usuario, texto, acción, estado y fechas. Tras inducir una discrepancia entre Auth y Firestore, cerró el navegador, inició sesión con otro administrador y reintentó la eliminación con el mismo identificador. Auth respondió `auth/user-not-found` y se conservaron el perfil, la auditoría y el movimiento financiero.
+- **Estado.** Bloque A cerrado técnicamente en emuladores. La rama permanece local y la eliminación física en producción sigue bloqueada. Commits de implementación y pruebas: `9ab18c6`, `71e28b5`, `a568f54` y `01e04f8`.
+
+Los siguientes párrafos registran los avances anteriores a esta continuación.
+
 Historial: se retiró el ordenamiento Firestore por timestamp, que excluía eventos nuevos con solo timestampIso; la lectura ahora conserva esos eventos y ordena sus fechas ISO. Se muestran motivo, resultado e identificador disponible y se añadieron filtros de texto y fechas en la bitácora del usuario. Build y TypeScript aprobados; falta comprobar estos cambios en Playwright y ejecutar la regresión integral. El Bloque A permanece abierto.
 
 Prueba adicional: dos solicitudes simultáneas con el mismo UID e identificador de eliminación completan coherentemente y conservan la referencia financiera; cinco pruebas dirigidas y build aprobaron. La tabla de usuarios distingue suspensión, baja pendiente, baja completada y eliminación de Auth. No se ejecutó Playwright integral ni se completaron filtros de historial o la revisión total de obligaciones; Bloque A sigue abierto.
@@ -964,7 +976,7 @@ Rama `codex/phase-2-support-center`, creada desde `origin/main` en `c35b620e08e2
 | Tarea | Estado real | Evidencia y trabajo pendiente |
 |---|---|---|
 | EP-13 · Soporte | En curso | Panel independiente con resumen y acceso exclusivo al perfil técnico. Backend exige perfil activo y, fuera de emuladores, segundo factor. Permite modificar y restaurar nombre comercial y teléfonos de las dos agencias con validación, autenticación reciente y auditoría. Los diagnósticos permiten registrar y consultar identificadores técnicos manuales; falta integrar eventos automáticos de cliente, Functions y dispositivos. La activación de una identidad real requiere titular confirmado, MFA, aprovisionamiento IAM y auditoría; no se ha creado ninguna cuenta. Los demás parámetros e integración de impresoras están pendientes. |
-| EP-14 · Usuarios | En curso | Se conserva la gestión y la protección transaccional de Fase 1. Revocar sesiones o suspender, degradar o retirar alcance institucional a un administrador exige motivo, confirmación y autenticación reciente, con auditoría; si la sesión tiene más de cinco minutos hay que volver a iniciar sesión. Faltan baja y borrado seguros, historial completo e idempotencia de revocación. Las nuevas protecciones pasaron pruebas dirigidas y de concurrencia en emuladores; falta E2E del flujo administrativo. No se considera verificada la creación real de usuarios. |
+| EP-14 · Usuarios | Verificado en emuladores | Gestión, revocación y baja lógica con auditoría, recuperación por backend y protección administrativa. Eliminación de identidad limitada a cuentas sintéticas marcadas en emuladores; perfil y operaciones conservados. La verificación y las condiciones de publicación se registran en el Bloque A. |
 | EP-15 · Cuentas antiguas | Pendiente de revisión | Las tres cuentas antiguas fueron deshabilitadas y sus sesiones revocadas. Existen referencias en movimientos, manifiestos y auditoría, así como dos candados históricos de caja; no se han eliminado físicamente perfiles ni registros de negocio. |
 | EP-16 · Limpieza | En curso, solo emulador | Simulación de categorías y dependencias bidireccionales en una colección aislada de registros sintéticos marcados. El backend bloquea producción, exige soporte activo, autenticación reciente y confirmación; verifica cambios desde la simulación y guarda respaldo, auditoría e idempotencia en la misma transacción. La restauración del respaldo sintético también es transaccional, idempotente y evita sobrescribir documentos. No procesa colecciones operativas, no identifica automáticamente datos históricos ni está listo para limpieza real. Faltan el grafo de dependencias de los módulos, revisión de conflictos reales, recuperación de fallos de producción y autorización explícita por conjunto. |
 
@@ -1019,14 +1031,11 @@ Las operaciones sensibles deben requerir permisos específicos.
 
 ### EP-14 · GESTIÓN COMPLETA DE USUARIOS
 
-- [ ] Pendiente
-- Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- [x] Completado y verificado localmente en emuladores.
+- Prioridad: Alta.
+- Implementación local: pantalla de Gestión de usuarios, Functions de seguridad y protecciones transaccionales de asignación.
+- Evidencia: regresión y recorrido de emuladores en el resumen del Bloque A.
+- Dependencias de publicación: revisión de referencias heredadas y triggers, verificación con operadores autorizados y autorización explícita. La eliminación física general permanece deshabilitada.
 
 Agregar:
 
