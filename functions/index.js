@@ -9379,6 +9379,7 @@ export const getSystemConfig = onCall({ cors: true }, async (request) => {
       id: configDoc.id,
       ...(isOperationalAdmin(caller) ? data : {
         documentNotices: data.documentNotices || {},
+        reportPreferences: data.reportPreferences || {},
         company: {
           tradeName: data.company?.tradeName || '',
           logoUrl: data.company?.logoUrl || '',

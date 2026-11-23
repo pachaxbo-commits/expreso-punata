@@ -7,6 +7,7 @@ const groups = {
   Punata: { punataName: 'Nombre de agencia', punataAddress: 'Dirección', punataPhone: 'Teléfono Punata' },
   Pasajes: { passengerNotice: 'Aviso en pasajes' },
   Aportes: { contributionsNotice: 'Aviso en recibos de aporte' },
+  Reportes: { reportDatePreset: 'Período inicial de reportes' },
   Personal: { personnelNotice: 'Aviso en recibos de personal' },
   Inventario: { inventoryNotice: 'Aviso en etiquetas patrimoniales' },
   Cochabamba: { cochabambaName: 'Nombre de agencia', cochabambaAddress: 'Dirección', cochabambaPhone: 'Teléfono Cochabamba' },
@@ -73,7 +74,15 @@ export function InstitutionalSettings() {
             {Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>
           <p>Valor actual: <strong>{config.values[field] || 'Sin establecer'}</strong></p>
-          <label className="block">Nuevo valor<input className={inputClass} type={field === 'logoUrl' ? 'url' : 'text'} value={value} onChange={event => setValue(event.target.value)} /></label>
+          <label className="block">Nuevo valor
+            {field === 'reportDatePreset' ? <select className={inputClass} value={value} onChange={event => setValue(event.target.value)}>
+              <option value="">Configuración predeterminada</option>
+              <option value="today">Hoy</option>
+              <option value="this_week">Esta semana</option>
+              <option value="this_month">Este mes</option>
+              <option value="last_month">Mes anterior</option>
+            </select> : <input className={inputClass} type={field === 'logoUrl' ? 'url' : 'text'} value={value} onChange={event => setValue(event.target.value)} />}
+          </label>
           <label className="block">Motivo<input className={inputClass} required minLength={10} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} /></label>
           <div className="flex flex-wrap gap-2">
             <button type="submit" disabled={busy || reason.trim().length < 10} className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-40">Guardar cambio</button>

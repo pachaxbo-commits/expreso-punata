@@ -165,7 +165,13 @@ export class PrintEngineService {
 
       pdf.setFont('helvetica', 'italic')
       pdf.setFontSize(7.5)
-      pdf.text('DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL', pageWidth / 2, y + 6, { align: 'center' })
+      for (const text of ['DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL', ...(doc.footerNotes || [])]) {
+        for (const line of pdf.splitTextToSize(text, pageWidth - 16) as string[]) {
+          y += 4
+          if (y > pdf.internal.pageSize.getHeight() - 10) { pdf.addPage(); y = 12 }
+          pdf.text(line, pageWidth / 2, y, { align: 'center' })
+        }
+      }
 
       const fileName = `${doc.documentType}_${doc.documentNumber}.pdf`
       pdf.save(fileName)

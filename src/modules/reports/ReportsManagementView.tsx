@@ -83,11 +83,6 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
   const isSecretaria = role === 'secretaria'
 
   const [companyName, setCompanyName] = useState<string>()
-  useEffect(() => {
-    void fetchSystemConfig().then(response => {
-      if (response.status === 'configured' && response.isOfficial) setCompanyName(response.config?.company?.tradeName)
-    })
-  }, [])
   const [activeTab, setActiveTab] = useState<ReportType>(
     isConductor ? 'drivers' : canViewAll ? 'consolidated_dashboard' : 'shipments'
   )
@@ -160,8 +155,16 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
   }, [])
 
   useEffect(() => {
+    let active = true
     applyDatePreset('this_month')
-  }, [applyDatePreset])
+    void fetchSystemConfig().then(response => {
+      if (!active || response.status !== 'configured' || !response.isOfficial) return
+      setCompanyName(response.config?.company?.tradeName)
+      const preset = response.config?.reportPreferences?.datePreset
+      if (preset && !isSecretaria) applyDatePreset(preset)
+    })
+    return () => { active = false }
+  }, [applyDatePreset, isSecretaria])
 
   // Carga de reporte desde backend
   const loadReport = useCallback(async () => {

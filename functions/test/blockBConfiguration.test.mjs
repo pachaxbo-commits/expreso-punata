@@ -29,6 +29,9 @@ test('configuración institucional versiona, resuelve concurrencia y restaura da
   await updateSupportConfiguration.run({ auth: support, data: { ...data, expectedValue: data.value, expectedVersion: 1, restoreHistoryId: saved.id } })
   assert.equal((await visible()).config.branches.punata.name, 'Punata inicial')
   assert.equal((await config.get()).data().branches.punata.code, 'PUN')
+  await updateSupportConfiguration.run({ auth: support, data: { ...data, field: 'reportDatePreset', expectedVersion: 0, expectedValue: '', value: 'today' } })
+  assert.equal((await visible()).config.reportPreferences.datePreset, 'today')
+
 })
 
 test('tarifas y comisiones publicadas operan con vigencia, autorización y preservación histórica', async t => {

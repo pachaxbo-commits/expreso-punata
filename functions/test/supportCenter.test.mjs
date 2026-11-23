@@ -41,7 +41,7 @@ test('configuración institucional valida, audita y restaura sin modificar finan
   const snapshot = await getSupportConfiguration.run({ auth, data: {} })
   assert.equal(snapshot.values.tradeName, 'Nuevo nombre')
   assert.equal(snapshot.history[0].previous, 'Expreso anterior')
-  await update({ field: 'tradeName', value: snapshot.history[0].previous, expectedValue: 'Nuevo nombre' })
+  await update({ field: 'tradeName', restoreHistoryId: snapshot.history[0].id, expectedValue: 'Nuevo nombre', expectedVersion: 1 })
   assert.equal((await ref.get()).data().company.tradeName, 'Expreso anterior')
   assert.equal((await ref.get()).data().commissions.defaultValue, 0)
   assert.equal((await db.collection('audit_logs').get()).size, 2)

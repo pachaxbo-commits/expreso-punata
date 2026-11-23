@@ -15,6 +15,7 @@ const CONFIG_FIELDS = {
   contributionsNotice: 'documentNotices.contributions',
   personnelNotice: 'documentNotices.personnel',
   inventoryNotice: 'documentNotices.inventory',
+  reportDatePreset: 'reportPreferences.datePreset',
   punataName: 'branches.punata.name',
   punataAddress: 'branches.punata.address',
   punataPhone: 'branches.punata.phone',
@@ -28,6 +29,9 @@ function validateInstitutionalValue(field, value, restoring) {
   if (value.length > max || /[\x00-\x1f\x7f]/.test(value)) throw new HttpsError('invalid-argument', `El campo ${field} admite hasta ${max} caracteres en una línea.`)
   if ((field === 'tradeName' || field.endsWith('Name')) && value.length < 2 && !(restoring && !value)) throw new HttpsError('invalid-argument', 'Ingrese un nombre de al menos dos caracteres.')
   if (field.endsWith('Phone') && value && (!/^[+0-9 ()-]+$/.test(value) || value.replace(/\D/g, '').length < 7)) throw new HttpsError('invalid-argument', 'El teléfono debe incluir al menos siete dígitos.')
+  if (field === 'reportDatePreset' && !['', 'today', 'this_week', 'this_month', 'last_month'].includes(value)) {
+    throw new HttpsError('invalid-argument', 'Período de reportes: seleccione un período admitido.')
+  }
   if (field === 'logoUrl' && value) {
     const url = URL.parse(value)
     if (!url || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new HttpsError('invalid-argument', 'El logotipo requiere una URL HTTPS pública sin credenciales ni parámetros.')
@@ -126,7 +130,7 @@ export function createSupportFunctions(db) {
     if (!Number.isFinite(authTime) || Date.now() / 1000 - authTime > 300 || authTime > Date.now() / 1000 + 30) throw new HttpsError('failed-precondition', 'Vuelva a autenticarse para continuar.')
     const { field, value, expectedValue, expectedVersion, reason, confirmation, restoreHistoryId } = request.data || {}
     if (!Object.hasOwn(CONFIG_FIELDS, field) || (!restoreHistoryId && typeof value !== 'string') || typeof expectedValue !== 'string' || typeof reason !== 'string' || reason.trim().length < 10 || reason.trim().length > 500 || confirmation !== true) throw new HttpsError('invalid-argument', 'Confirme la modificación e indique un motivo válido.')
-    if (restoreHistoryId !== undefined && !/^[a-zA-Z0-9]{20}$/.test(String(restoreHistoryId))) throw new HttpsError('invalid-argument', 'Versión histórica inválida.')
+    if (restoreHistoryId !== undefined && (typeof restoreHistoryId !== 'string' || !/^[a-zA-Z0-9]{20}$/.test(restoreHistoryId))) throw new HttpsError('invalid-argument', 'Versión histórica inválida.')
     const configRef = db.collection('system_config').doc('expreso_punata')
     const historyRef = db.collection('support_config_history').doc()
     const auditRef = db.collection('audit_logs').doc()
@@ -136,7 +140,7 @@ export function createSupportFunctions(db) {
       if (!config.exists || config.data()?.status !== 'configured' || config.data()?.isOfficial !== true) throw new HttpsError('failed-precondition', 'No existe una configuración oficial activa.')
       const previous = configValue(config.data(), field)
       const version = config.data().institutionalVersions?.[field] || 0
-      if (previous !== expectedValue || (expectedVersion !== undefined && expectedVersion !== version)) throw new HttpsError('aborted', 'El valor cambió; recargue la configuración.')
+      if (previous !== expectedValue || (expectedVersion ?? 0) !== version) throw new HttpsError('aborted', 'El valor cambió; recargue la configuración.')
       const historical = restoreHistoryId && (await tx.get(db.collection('support_config_history').doc(restoreHistoryId))).data()
       if (restoreHistoryId && historical?.field !== field) throw new HttpsError('not-found', 'No se encontró la versión para este campo.')
       const next = (historical ? historical.previous : value).trim()
