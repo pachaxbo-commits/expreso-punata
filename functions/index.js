@@ -203,6 +203,55 @@ export const createShipment = onCall({ cors: true }, async (request) => {
   const safeIdempotencyKey = idempotencyKey.trim()
 
   const automaticPricingAvailable = process.env.ENABLE_AUTOMATIC_PARCEL_PRICING === 'true'
+  const shipmentRequest = {
+    originBranchId,
+    destinationBranchId,
+    deliveryType,
+    deliveryAddress: deliveryType === 'home' ? (deliveryAddress || '').trim().toLowerCase() : null,
+    sender: {
+      name: sender.name.trim().toLowerCase(),
+      phone: sender.phone.trim(),
+      docNumber: sender.docNumber ? sender.docNumber.trim() : null,
+    },
+    recipient: {
+      name: recipient.name.trim().toLowerCase(),
+      phone: recipient.phone.trim(),
+      docNumber: recipient.docNumber ? recipient.docNumber.trim() : null,
+    },
+    items: items.map(it => ({
+      description: it.description.trim().toLowerCase(),
+      quantity: Number(it.quantity) || 1,
+      weightKg: Number(it.weightKg) || 0,
+      packaging: it.packaging || 'paquete',
+      isFragile: Boolean(it.isFragile),
+      isPerishable: Boolean(it.isPerishable),
+    })),
+    packageCount,
+    totalWeightKg,
+    declaredValueTotal: Number(payload.declaredValueTotal) || 0,
+    paymentTiming,
+    paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : null,
+  }
+  const versionedFingerprint = JSON.stringify({
+    ...shipmentRequest,
+    categories: items.map(item => item.category || 'general'),
+    pricingMode: payload.pricingMode || null,
+    discountCents: Number(discountCents) || 0,
+    agreedAmountCents: payload.agreedAmountCents ?? null,
+    priceAdjustmentReason: payload.priceAdjustmentReason || null,
+    cashShiftId: payload.cashShiftId || null,
+  })
+  const idempotencyDocRef = db.collection('idempotency_keys').doc(safeIdempotencyKey)
+  if (automaticPricingAvailable || payload.pricingMode === 'automatic') {
+    const existing = (await idempotencyDocRef.get()).data()
+    if (existing?.versionedFingerprint) {
+      if (existing.callerUid !== callerUid) throw new HttpsError('permission-denied', 'La clave de idempotencia pertenece a otro usuario.')
+      if (existing.versionedFingerprint !== versionedFingerprint) throw new HttpsError('invalid-argument', 'La clave de idempotencia ya fue utilizada con datos de encomienda diferentes.')
+      const prior = await db.collection('shipments').doc(existing.trackingCode).get()
+      if (!prior.exists) throw new HttpsError('data-loss', 'No se encontró la encomienda registrada con esta clave.')
+      return { success: true, trackingCode: existing.trackingCode, isDuplicate: true, shipment: prior.data() }
+    }
+  }
   const routeSettings = automaticPricingAvailable
     ? (await commercialSettingsRef(db, `${originBranchId}-${destinationBranchId}`).get()).data() : null
   const release = effectiveCommercialRule(routeSettings, localBusinessDay())
@@ -289,39 +338,17 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     }
   }
 
-  // Huella de datos exhaustiva para protección de idempotencia completa
+  // Preserve the original fingerprint for shipments created by earlier versions.
+  const { declaredValueTotal, paymentTiming: timing, paymentMethod: method, ...shipmentIdentity } = shipmentRequest
   const payloadFingerprint = JSON.stringify({
-    originBranchId,
-    destinationBranchId,
-    deliveryType,
-    deliveryAddress: deliveryType === 'home' ? (deliveryAddress || '').trim().toLowerCase() : null,
-    sender: {
-      name: sender.name.trim().toLowerCase(),
-      phone: sender.phone.trim(),
-      docNumber: sender.docNumber ? sender.docNumber.trim() : null,
-    },
-    recipient: {
-      name: recipient.name.trim().toLowerCase(),
-      phone: recipient.phone.trim(),
-      docNumber: recipient.docNumber ? recipient.docNumber.trim() : null,
-    },
-    items: items.map(it => ({
-      description: it.description.trim().toLowerCase(),
-      quantity: Number(it.quantity) || 1,
-      weightKg: Number(it.weightKg) || 0,
-      packaging: it.packaging || 'paquete',
-      isFragile: Boolean(it.isFragile),
-      isPerishable: Boolean(it.isPerishable),
-    })),
-    packageCount,
-    totalWeightKg,
+    ...shipmentIdentity,
     discountCents: safeDiscountCents,
-      suggestedAmountCents,
-      agreedAmountCents: finalAmountCents,
+    suggestedAmountCents,
+    agreedAmountCents: finalAmountCents,
     finalAmountCents,
-    declaredValueTotal: Number(payload.declaredValueTotal) || 0,
-    paymentTiming,
-    paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : null,
+    declaredValueTotal,
+    paymentTiming: timing,
+    paymentMethod: method,
   })
 
   // 12. Regla de cobro seguro y consistencia financiera
@@ -331,7 +358,6 @@ export const createShipment = onCall({ cors: true }, async (request) => {
   const branchCode = originBranchId === 'punata' ? 'PUN' : 'CBB'
   const currentYear = new Date().getFullYear() // 2026
   const counterDocRef = db.collection('counters').doc(`${branchCode}_${currentYear}`)
-  const idempotencyDocRef = db.collection('idempotency_keys').doc(safeIdempotencyKey)
 
   const result = await db.runTransaction(async (transaction) => {
     // A. Comprobar si ya existe la clave de idempotencia
@@ -341,7 +367,10 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       if (idempData.callerUid !== callerUid) {
         throw new HttpsError('permission-denied', 'La clave de idempotencia especificada pertenece a otro usuario.')
       }
-      if (idempData.payloadFingerprint !== payloadFingerprint) {
+      const sameRequest = idempData.versionedFingerprint
+        ? idempData.versionedFingerprint === versionedFingerprint
+        : idempData.payloadFingerprint === payloadFingerprint
+      if (!sameRequest) {
         throw new HttpsError('invalid-argument', 'La clave de idempotencia ya fue utilizada con datos de encomienda diferentes.')
       }
 
@@ -580,6 +609,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       trackingCode,
       callerUid,
       payloadFingerprint,
+      ...(automaticPricingEnabled && release ? { versionedFingerprint } : {}),
       createdAt: FieldValue.serverTimestamp(),
     })
 
