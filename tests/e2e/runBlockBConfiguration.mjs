@@ -71,6 +71,17 @@ try {
   await call(page, 'updateSupportConfiguration', () => button(institutional, 'Guardar cambio').click())
   await institutional.getByText('Agencia actualizada en Chrome', { exact: true }).waitFor()
   assert.equal((await config.get()).data().branches.punata.name, 'Agencia actualizada en Chrome')
+  const client = await signIn(admin, 1280)
+  await client.getByRole('navigation', { name: 'Secciones del sistema' }).waitFor()
+  const documentPreview = () => client.evaluate(async () => {
+    const { printEngine } = await import('/src/services/printing/printEngineService.ts')
+    return printEngine.generatePreviewHtml({
+      documentType: 'test_page', title: 'Comprobante sintético', branchId: 'punata',
+      branchName: 'Valor estático', documentNumber: 'TEST-1', timestampIso: new Date().toISOString(),
+      operatorName: 'Operador de prueba', items: [], footerNotes: [],
+    })
+  })
+  assert.match(await documentPreview(), /Agencia actualizada en Chrome/)
   await institutional.getByLabel('Motivo', { exact: true }).fill('Restauración sintética en Chrome')
   await call(page, 'updateSupportConfiguration', () => button(institutional, 'Restaurar valor anterior').click())
   await institutional.getByText('Agencia inicial', { exact: true }).waitFor()
@@ -79,8 +90,8 @@ try {
   await institutional.getByLabel('Nuevo valor').selectOption('last_month')
   await institutional.getByLabel('Motivo', { exact: true }).fill('Preferencia sintética de reporte')
   await call(page, 'updateSupportConfiguration', () => button(institutional, 'Guardar cambio').click())
-  await institutional.getByText('last_month', { exact: true }).waitFor()
-  const client = await signIn(admin, 1280)
+  await institutional.locator('strong').filter({ hasText: 'Mes anterior' }).waitFor()
+  assert.match(await documentPreview(), /Agencia inicial/)
   await client.getByRole('navigation', { name: 'Secciones del sistema' }).getByRole('button', { name: 'Configuración', exact: true }).click()
   await button(client, 'General').click()
   const commercial = client.locator('section').filter({ has: client.getByRole('heading', { name: 'Configuración comercial', exact: true }) })

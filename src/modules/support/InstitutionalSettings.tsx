@@ -20,6 +20,7 @@ type Config = {
 }
 const readConfig = httpsCallable<void, Config>(functions, 'getSupportConfiguration')
 const writeConfig = httpsCallable(functions, 'updateSupportConfiguration')
+const dateLabels: Record<string, string> = { today: 'Hoy', this_week: 'Esta semana', this_month: 'Este mes', last_month: 'Mes anterior' }
 const inputClass = 'mt-1 block w-full rounded border border-slate-300 p-2'
 
 export function InstitutionalSettings() {
@@ -32,13 +33,16 @@ export function InstitutionalSettings() {
   const [busy, setBusy] = useState(false)
   const labels: Record<string, string> = groups[group]
 
+  const displayValue = (entry: string) => field === 'reportDatePreset' && dateLabels[entry] ? dateLabels[entry] : entry || 'Sin establecer'
+
   async function refresh() {
     setConfig((await readConfig()).data)
   }
   useEffect(() => { void refresh().catch(error => setMessage(error.message)) }, [])
 
   async function save(restoreHistoryId?: string) {
-    if (!config || !window.confirm(`¿Confirma ${restoreHistoryId ? 'restaurar' : 'cambiar'} ${labels[field]} en los próximos comprobantes?`)) return
+    const impact = field === 'reportDatePreset' ? 'al abrir reportes' : 'en los próximos comprobantes'
+    if (!config || !window.confirm(`¿Confirma ${restoreHistoryId ? 'restaurar' : 'cambiar'} ${labels[field]} ${impact}?`)) return
     setBusy(true)
     setMessage('')
     try {
@@ -73,14 +77,11 @@ export function InstitutionalSettings() {
           <label className="block">Campo<select aria-label="Campo" className={inputClass} value={field} onChange={event => { setField(event.target.value); setValue('') }}>
             {Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>
-          <p>Valor actual: <strong>{config.values[field] || 'Sin establecer'}</strong></p>
+          <p>Valor actual: <strong>{displayValue(config.values[field])}</strong></p>
           <label className="block">Nuevo valor
             {field === 'reportDatePreset' ? <select className={inputClass} value={value} onChange={event => setValue(event.target.value)}>
               <option value="">Configuración predeterminada</option>
-              <option value="today">Hoy</option>
-              <option value="this_week">Esta semana</option>
-              <option value="this_month">Este mes</option>
-              <option value="last_month">Mes anterior</option>
+              {Object.entries(dateLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select> : <input className={inputClass} type={field === 'logoUrl' ? 'url' : 'text'} value={value} onChange={event => setValue(event.target.value)} />}
           </label>
           <label className="block">Motivo<input className={inputClass} required minLength={10} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} /></label>
@@ -95,7 +96,7 @@ export function InstitutionalSettings() {
           {config.history.filter(item => item.field === field).map(item => (
             <li key={item.id} className="space-y-1 py-2">
               <p>{new Date(item.createdAtIso).toLocaleString('es-BO', { timeZone: 'America/La_Paz' })} · {item.uid}</p>
-              <p>{item.previous || 'Sin establecer'} → {item.value || 'Sin establecer'}</p>
+              <p>{displayValue(item.previous)} → {displayValue(item.value)}</p>
               <button type="button" disabled={busy || reason.trim().length < 10} className="underline disabled:opacity-40" onClick={() => void save(item.id)}>Restaurar valor anterior</button>
             </li>
           ))}
