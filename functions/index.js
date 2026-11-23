@@ -1118,7 +1118,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
       throw new HttpsError('invalid-argument', 'Use afiliado_admin para asignar la administración de Expreso Punata.')
     }
     const existingProfile = existingDoc.data()
-    if (existingProfile?.syncStatus === 'retiring' || existingProfile?.syncStatus === 'retired') throw new HttpsError('failed-precondition', 'La cuenta está en proceso de baja o ya fue dada de baja.')
+    if (['retiring', 'retired', 'auth_deleted'].includes(existingProfile?.syncStatus)) throw new HttpsError('failed-precondition', 'La cuenta está en proceso de baja o ya fue dada de baja.')
     const syncAgeMs = Date.now() - Date.parse(existingProfile?.updatedAtIso || '')
     if (existingProfile?.syncStatus === 'syncing' && syncAgeMs < 120_000) {
       throw new HttpsError('aborted', 'Ya hay una actualización en curso para esta cuenta.')
@@ -1415,6 +1415,8 @@ export const openCashShift = onCall({ cors: true }, async (request) => {
   const branchCode = branchId === 'punata' ? 'PUN' : 'CBB'
 
   return await db.runTransaction(async (transaction) => {
+    const currentOperator = (await transaction.get(db.collection('users').doc(callerUid))).data()
+    if (currentOperator?.isActive !== true) throw new HttpsError('permission-denied', 'La cuenta está inactiva.')
     // 1. Candado determinístico de operador y sucursal para evitar doble apertura o concurrencia
     const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
     const lockDoc = await transaction.get(lockRef)
@@ -2293,6 +2295,7 @@ const singleTransfer = Symbol('singleTransfer')
 
 async function getOperationalDriver(transaction, uid, allowDirectory = true) {
   const profile = (await transaction.get(db.collection('users').doc(uid))).data()
+  if (['retiring', 'retired', 'auth_deleted'].includes(profile?.syncStatus)) return null
   if (profile?.role === 'conductor') return profile.isActive === true ? profile : null
   if (!allowDirectory) return null
   const directory = (await transaction.get(db.collection('driver_directory').doc(uid))).data()
@@ -3833,6 +3836,8 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
 
   try {
     return await db.runTransaction(async (transaction) => {
+      const currentOperator = (await transaction.get(db.collection('users').doc(callerUid))).data()
+      if (currentOperator?.isActive !== true) throw new HttpsError('permission-denied', 'La cuenta está inactiva.')
       const shipmentRef = db.collection('shipments').doc(shipmentId)
       const shipmentDoc = await transaction.get(shipmentRef)
       if (!shipmentDoc.exists) {
@@ -6296,6 +6301,15 @@ export const registerGeneralExpense = onCall({ cors: true }, async (request) => 
 // ENTREGA 6: INVENTARIO DE BIENES FIJOS (Equipos, Impresoras, Muebles, Balanzas)
 // =========================================================================
 
+async function assertAssetResponsibleAvailable(transaction, uid) {
+  if (!uid) return
+  if (typeof uid !== 'string' || uid.includes('/') || ['.', '..'].includes(uid)) throw new HttpsError('invalid-argument', 'Responsable patrimonial inválido.')
+  const profile = (await transaction.get(db.collection('users').doc(uid))).data()
+  if (['retiring', 'retired', 'auth_deleted'].includes(profile?.syncStatus)) {
+    throw new HttpsError('failed-precondition', 'El responsable patrimonial está dado de baja o en proceso de baja.')
+  }
+}
+
 export const manageFixedAsset = onCall({ cors: true }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para administrar bienes fijos.')
@@ -6364,6 +6378,7 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
         const docs = await Promise.all(ids.map((assetId) => transaction.get(db.collection('fixed_assets').doc(assetId))))
         return docs.filter((doc) => doc.exists).map((doc) => doc.data())
       }
+      await assertAssetResponsibleAvailable(transaction, responsiblePersonUid)
       const [counterSnap, inventorySnap] = await Promise.all([transaction.get(counterRef), transaction.get(inventoryQuery)])
       let next = counterSnap.exists ? Number(counterSnap.data().lastSeq || 0) : 0
       for (const doc of inventorySnap.docs) {
@@ -6462,7 +6477,15 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
       updates.acquisitionCostBob = costCents / 100
     }
 
-    await assetRef.update(updates)
+    await db.runTransaction(async transaction => {
+      const latest = (await transaction.get(assetRef)).data()
+      if (!latest) throw new HttpsError('not-found', 'El activo no existe.')
+      if ((updates.status ?? latest.status) !== 'disposed') {
+        const responsible = updates.responsiblePersonUid === undefined ? latest.responsiblePersonUid : updates.responsiblePersonUid
+        await assertAssetResponsibleAvailable(transaction, responsible)
+      }
+      transaction.update(assetRef, updates)
+    })
 
     // Log en subcolección de auditoría del activo
     await assetRef.collection('audit_logs').add({
@@ -6512,7 +6535,15 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     if (responsiblePersonName) updates.responsiblePersonName = responsiblePersonName.trim()
     if (responsiblePersonUid !== undefined) updates.responsiblePersonUid = responsiblePersonUid
 
-    await assetRef.update(updates)
+    await db.runTransaction(async transaction => {
+      const latest = (await transaction.get(assetRef)).data()
+      if (!latest) throw new HttpsError('not-found', 'El activo no existe.')
+      if ((updates.status ?? latest.status) !== 'disposed') {
+        const responsible = updates.responsiblePersonUid === undefined ? latest.responsiblePersonUid : updates.responsiblePersonUid
+        await assertAssetResponsibleAvailable(transaction, responsible)
+      }
+      transaction.update(assetRef, updates)
+    })
 
     await assetRef.collection('audit_logs').add({
       assetId: id,
@@ -6688,7 +6719,10 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     updatedAtIso: nowIso,
   }
 
-  await newDocRef.set(assetData)
+  await db.runTransaction(async transaction => {
+    await assertAssetResponsibleAvailable(transaction, assetData.responsiblePersonUid)
+    transaction.set(newDocRef, assetData)
+  })
 
   // Subcolección audit_logs
   await newDocRef.collection('audit_logs').add({

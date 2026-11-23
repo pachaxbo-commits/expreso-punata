@@ -53,6 +53,26 @@ export async function retireUser(targetUid: string, reason: string, operationId:
   return (await call({ targetUid, reason, operationId, confirmation: true })).data
 }
 
+export interface UserSecurityOperation {
+  operationId: string
+  status: 'pending' | 'retry_required' | 'completed'
+  reason: string
+}
+
+export interface UserSecurityStatus {
+  retirement: UserSecurityOperation | null
+  deletion: UserSecurityOperation | null
+  deletionBlockedReason: string | null
+}
+
+export async function getUserSecurityStatus(targetUid: string): Promise<UserSecurityStatus> {
+  return (await httpsCallable<{ targetUid: string }, UserSecurityStatus>(functions, 'getUserDeletionStatus')({ targetUid })).data
+}
+
+export async function deleteRetiredUser(targetUid: string, reason: string, operationId: string): Promise<void> {
+  await httpsCallable(functions, 'adminDeleteRetiredUser')({ targetUid, reason, operationId, confirmation: true })
+}
+
 /**
  * Suscripción reactiva al listado de usuarios de Expreso Punata.
  * Solo puede ser consultado por Directiva y Encargados autorizados según Firestore Rules.
@@ -208,16 +228,16 @@ export async function fetchUserAuditLogs(targetUid: string): Promise<UserAuditLo
         entityType: data.entityType || '',
         entityId: data.entityId || '',
         action: data.action || '',
-        performedBy: data.performedBy || data.performedByEmail || data.performedByUid || 'Sistema',
+        performedBy: data.performedBy || data.performedByEmail || data.performedByUid || '',
         performedByUid: data.performedByUid,
         performedByEmail: data.performedByEmail,
-        details: { ...(data.details || {}), reason: data.reason || data.details?.reason || '', result: data.result || '', operationId: data.operationId || (d.id.startsWith('retire-') ? d.id.slice(7) : d.id.startsWith('delete-') ? d.id.slice(7) : '') },
+        details: { ...(data.details || {}), reason: data.reason || data.details?.reason || '', result: data.result || data.details?.result || '', ...(data.completedByUid ? { completedByUid: data.completedByUid } : {}), operationId: data.operationId || (d.id.startsWith('retire-') ? d.id.slice(7) : d.id.startsWith('delete-') ? d.id.slice(7) : '') },
         timestamp: data.timestamp,
-        timestampIso: data.timestampIso || '',
+        timestampIso: data.timestampIso || data.timestamp?.toDate?.().toISOString() || (typeof data.timestamp === 'string' ? data.timestamp : ''),
       } as UserAuditLog
     }).sort((a, b) => (b.timestampIso || '').localeCompare(a.timestampIso || ''))
   } catch (err) {
     console.warn('[userService] Error al consultar audit_logs:', err)
-    return []
+    throw err
   }
 }

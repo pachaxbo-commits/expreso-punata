@@ -22,6 +22,26 @@ test('soporte no puede escribir ni leer respaldos o auditoría directamente', as
   await assertFails(updateDoc(doc(support, 'audit_logs', 'support-log'), { action: 'forged' }))
 })
 
+test('auditoría y reservas de baja y eliminación protegidas frente a clientes administradores', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'users', 'retirement-rules-admin'), { role: 'afiliado_admin', isActive: true, allowedBranchIds: ['punata', 'cochabamba'] })
+    for (const collectionName of ['audit_logs', 'user_retirement_operations', 'user_deletion_operations']) {
+      await setDoc(doc(db, collectionName, 'operation-audit-test'), { status: 'pending' })
+    }
+  })
+  const db = testEnv.authenticatedContext('retirement-rules-admin').firestore()
+  const audit = doc(db, 'audit_logs', 'operation-audit-test')
+  await assertSucceeds(getDoc(audit))
+  await assertFails(updateDoc(audit, { status: 'completed' }))
+  await assertFails(deleteDoc(audit))
+  for (const collectionName of ['user_retirement_operations', 'user_deletion_operations']) {
+    const operation = doc(db, collectionName, 'operation-audit-test')
+    await assertFails(getDoc(operation))
+    await assertFails(setDoc(operation, { status: 'completed' }))
+  }
+})
+
 before(async () => {
   const rules = readFileSync('firestore.rules', 'utf8')
   testEnv = await initializeTestEnvironment({
