@@ -4,7 +4,6 @@ import {
   query,
   where,
   orderBy,
-  limit,
   onSnapshot,
 } from 'firebase/firestore'
 import {
@@ -200,8 +199,6 @@ export async function fetchUserAuditLogs(targetUid: string): Promise<UserAuditLo
     const q = query(
       auditRef,
       where('entityId', '==', targetUid),
-      orderBy('timestamp', 'desc'),
-      limit(50)
     )
     const snapshot = await getDocs(q)
     return snapshot.docs.map((d) => {
@@ -214,11 +211,11 @@ export async function fetchUserAuditLogs(targetUid: string): Promise<UserAuditLo
         performedBy: data.performedBy || data.performedByEmail || data.performedByUid || 'Sistema',
         performedByUid: data.performedByUid,
         performedByEmail: data.performedByEmail,
-        details: data.details || {},
+        details: { ...(data.details || {}), reason: data.reason || data.details?.reason || '', result: data.result || '', operationId: data.operationId || (d.id.startsWith('retire-') ? d.id.slice(7) : d.id.startsWith('delete-') ? d.id.slice(7) : '') },
         timestamp: data.timestamp,
         timestampIso: data.timestampIso || '',
       } as UserAuditLog
-    })
+    }).sort((a, b) => (b.timestampIso || '').localeCompare(a.timestampIso || ''))
   } catch (err) {
     console.warn('[userService] Error al consultar audit_logs:', err)
     return []

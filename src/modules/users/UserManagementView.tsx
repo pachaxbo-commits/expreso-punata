@@ -72,6 +72,9 @@ export const UserManagementView: React.FC = () => {
   const [roleChangeUser, setRoleChangeUser] = useState<UserProfile | null>(null)
   const [newSelectedRole, setNewSelectedRole] = useState<UserRole>('secretaria')
   const [auditUser, setAuditUser] = useState<UserProfile | null>(null)
+  const [auditSearch, setAuditSearch] = useState('')
+  const [auditFrom, setAuditFrom] = useState('')
+  const [auditTo, setAuditTo] = useState('')
   const [auditLogs, setAuditLogs] = useState<UserAuditLog[]>([])
   const [loadingAudit, setLoadingAudit] = useState(false)
 
@@ -733,6 +736,7 @@ export const UserManagementView: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-1 text-xs">
+              <div className="grid gap-2 sm:grid-cols-3"><label>Acción, operador o resultado<input value={auditSearch} onChange={e => setAuditSearch(e.target.value)} className="block w-full rounded border p-2" /></label><label>Desde<input type="date" value={auditFrom} onChange={e => setAuditFrom(e.target.value)} className="block w-full rounded border p-2" /></label><label>Hasta<input type="date" value={auditTo} onChange={e => setAuditTo(e.target.value)} className="block w-full rounded border p-2" /></label></div>
               {loadingAudit ? (
                 <div className="p-8 text-center text-slate-500">
                   <RefreshCw className="w-5 h-5 animate-spin mx-auto text-[#064e3b] mb-2" />
@@ -743,7 +747,7 @@ export const UserManagementView: React.FC = () => {
                   No hay eventos registrados en la bitácora de auditoría para este usuario.
                 </div>
               ) : (
-                auditLogs.map((log, i) => (
+                auditLogs.filter(log => (!auditFrom || (log.timestampIso || '').slice(0, 10) >= auditFrom) && (!auditTo || (log.timestampIso || '').slice(0, 10) <= auditTo) && JSON.stringify({ action: log.action, operator: log.performedBy, details: log.details }).toLowerCase().includes(auditSearch.toLowerCase())).map((log, i) => (
                   <div key={log.id || i} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-slate-800 font-mono text-[11px] bg-slate-200/80 px-2 py-0.5 rounded">

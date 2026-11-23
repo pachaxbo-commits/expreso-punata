@@ -945,6 +945,8 @@ Documenta la deuda heredada y las correcciones verificadas.
 
 ### Bloque A · avance de gestión de usuarios
 
+Historial: se retiró el ordenamiento Firestore por timestamp, que excluía eventos nuevos con solo timestampIso; la lectura ahora conserva esos eventos y ordena sus fechas ISO. Se muestran motivo, resultado e identificador disponible y se añadieron filtros de texto y fechas en la bitácora del usuario. Build y TypeScript aprobados; falta comprobar estos cambios en Playwright y ejecutar la regresión integral. El Bloque A permanece abierto.
+
 Prueba adicional: dos solicitudes simultáneas con el mismo UID e identificador de eliminación completan coherentemente y conservan la referencia financiera; cinco pruebas dirigidas y build aprobaron. La tabla de usuarios distingue suspensión, baja pendiente, baja completada y eliminación de Auth. No se ejecutó Playwright integral ni se completaron filtros de historial o la revisión total de obligaciones; Bloque A sigue abierto.
 
 Eliminación física: implementación inicial exclusivamente para una identidad sintética marcada en proyecto demo con Auth y Firestore Emulator. Registra estado y auditoría persistentes, conserva el perfil y admite reintento tras fallo Auth; las cuentas técnicas y administradores están bloqueados. Producción permanece bloqueada porque aún faltan verificaciones de custodia, pasajes y otras responsabilidades y revisar triggers desplegados. Cinco pruebas dirigidas y build aprobaron antes de añadir la consulta de estado; faltan pruebas de concurrencia y de esa consulta. No está listo para publicación.
