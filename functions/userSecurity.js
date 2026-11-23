@@ -52,6 +52,12 @@ export function createUserSecurityFunctions(db, authAdmin, isOperationalAdmin) {
       if (data.role === 'soporte_pachax') throw new HttpsError('permission-denied', 'La cuenta técnica requiere un procedimiento independiente.')
       const locks = await tx.get(db.collection('cash_shift_active_locks').where('operatorUid', '==', targetUid))
       if (locks.docs.some(doc => doc.data().status === 'open')) throw new HttpsError('failed-precondition', 'La cuenta tiene un candado de caja abierto; resuélvalo antes de la baja.')
+      const shifts = await tx.get(db.collection('cash_shifts').where('operatorUid', '==', targetUid))
+      if (shifts.docs.some(doc => doc.data().status === 'open')) throw new HttpsError('failed-precondition', 'La cuenta tiene un turno de caja abierto.')
+      const manifests = await tx.get(db.collection('manifests').where('driverUid', '==', targetUid))
+      if (manifests.docs.some(doc => ['dispatched', 'in_transit'].includes(doc.data().status))) throw new HttpsError('failed-precondition', 'El conductor tiene un manifiesto o traslado activo.')
+      const commission = await tx.get(db.collection('driver_commission_accounts').doc(targetUid))
+      if (Number(commission.data()?.pendingCents || 0) > 0) throw new HttpsError('failed-precondition', 'El conductor tiene comisiones pendientes de liquidación.')
       if (data.isActive === true && data.role === 'afiliado_admin' && isOperationalAdmin(data)) {
         const admins = await tx.get(db.collection('users').where('role', 'in', ['directiva_admin', 'afiliado_admin']).where('isActive', '==', true))
         if (!admins.docs.some(doc => doc.id !== targetUid && doc.data().role === 'afiliado_admin' && isOperationalAdmin(doc.data()) && !['syncing', 'failed', 'retiring', 'retired'].includes(doc.data().syncStatus))) throw new HttpsError('failed-precondition', 'No se puede retirar al último administrador activo.')
