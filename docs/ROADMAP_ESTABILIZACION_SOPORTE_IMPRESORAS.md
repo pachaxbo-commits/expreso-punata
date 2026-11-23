@@ -945,6 +945,8 @@ Documenta la deuda heredada y las correcciones verificadas.
 
 ### Bloque A · avance de gestión de usuarios
 
+Prueba adicional: dos solicitudes simultáneas con el mismo UID e identificador de eliminación completan coherentemente y conservan la referencia financiera; cinco pruebas dirigidas y build aprobaron. La tabla de usuarios distingue suspensión, baja pendiente, baja completada y eliminación de Auth. No se ejecutó Playwright integral ni se completaron filtros de historial o la revisión total de obligaciones; Bloque A sigue abierto.
+
 Eliminación física: implementación inicial exclusivamente para una identidad sintética marcada en proyecto demo con Auth y Firestore Emulator. Registra estado y auditoría persistentes, conserva el perfil y admite reintento tras fallo Auth; las cuentas técnicas y administradores están bloqueados. Producción permanece bloqueada porque aún faltan verificaciones de custodia, pasajes y otras responsabilidades y revisar triggers desplegados. Cinco pruebas dirigidas y build aprobaron antes de añadir la consulta de estado; faltan pruebas de concurrencia y de esa consulta. No está listo para publicación.
 
 Continuación de backend: la baja comprueba además turnos de caja abiertos, manifiestos despachados o en tránsito asignados al conductor y saldo pendiente de comisiones. Cuatro pruebas dirigidas pasaron en emuladores, incluyendo bloqueo por manifiesto y comisión y conservación de historial. La revisión de custodia, pasajes y otras responsabilidades aún no es completa; no se implementó eliminación física de Auth ni recuperación independiente del navegador. El backend sigue sin estar listo para publicación.

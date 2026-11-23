@@ -89,7 +89,8 @@ test('elimina identidad sintética dada de baja y conserva historial, con reinte
   finally { proto.deleteUser = original }
   assert.equal((await db.collection('user_deletion_operations').doc(req.data.operationId).get()).data().status, 'retry_required')
   assert.equal((await getUserDeletionStatus.run({ auth: callAuth, data: { operationId: req.data.operationId } })).status, 'retry_required')
-  assert.equal((await adminDeleteRetiredUser.run(req)).status, 'completed')
+  const concurrent = await Promise.all([adminDeleteRetiredUser.run(req), adminDeleteRetiredUser.run(req)])
+  assert.ok(concurrent.every(result => result.status === 'completed'))
   assert.equal((await adminDeleteRetiredUser.run(req)).status, 'completed')
   await assert.rejects(() => auth.getUser(target.uid), { code: 'auth/user-not-found' })
   assert.equal((await history.get()).data().operatorUid, target.uid)

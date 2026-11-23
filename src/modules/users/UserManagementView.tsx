@@ -539,7 +539,7 @@ export const UserManagementView: React.FC = () => {
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800">
                             <span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
-                            Suspendido
+                            {String(u.syncStatus) === 'auth_deleted' ? 'Eliminado de Auth' : String(u.syncStatus) === 'retired' ? 'Dado de baja' : String(u.syncStatus) === 'retiring' ? 'Baja pendiente de recuperación' : 'Suspendido'}
                           </span>
                         )}
                       </td>
