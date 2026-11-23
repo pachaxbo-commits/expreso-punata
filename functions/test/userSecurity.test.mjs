@@ -97,7 +97,7 @@ test('baja interrumpida mantiene reserva y se completa con el mismo identificado
   } })
   const [retired, changedRole, changedAgency] = await Promise.allSettled([
     adminRetireUser.run({ ...req, auth: otherAuth }),
-    changeProfile({ role: 'afiliado' }),
+    changeProfile({ role: 'afiliado_admin', allowedBranchIds: ['punata', 'cochabamba'] }),
     changeProfile({ primaryBranchId: 'cochabamba', allowedBranchIds: ['cochabamba'] }),
   ])
   assert.equal(retired.value?.success, true)
@@ -150,7 +150,7 @@ test('elimina identidad sintética dada de baja y conserva historial, con reinte
   } })
   const [deleted, duplicate, ...mutations] = await Promise.allSettled([
     adminDeleteRetiredUser.run(req), adminDeleteRetiredUser.run(req),
-    provision({ isActive: false }), provision({ role: 'afiliado' }),
+    provision({ isActive: false }), provision({ role: 'afiliado_admin', allowedBranchIds: ['punata', 'cochabamba'] }),
     provision({ primaryBranchId: 'cochabamba', allowedBranchIds: ['cochabamba'] }),
   ])
   assert.ok(mutations.every(result => result.status === 'rejected'))
@@ -221,6 +221,10 @@ test('eliminación reservada impide asignar pasajes a un UID compartido con el d
   const deleting = adminDeleteRetiredUser.run(request)
   try {
     await Promise.race([entered, deleting])
+    await assert.rejects(() => adminProvisionUser.run({ auth: authContext, data: {
+      targetUid: driver.uid, fullName: 'Operador sintético', phone: '70000000', role: 'secretaria',
+      primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: false,
+    } }), { code: 'failed-precondition' })
     await assert.rejects(() => createPassengerTicket.run({ auth: authContext, data: {
       idempotencyKey: `ticket-assignment-${suffix}`, branchId: 'punata', originBranchId: 'punata',
       destinationBranchId: 'cochabamba', travelDate: '2026-12-15', driverUid: driver.uid,
