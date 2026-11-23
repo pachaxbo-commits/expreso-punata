@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
+import { createUserSecurityFunctions } from '../userSecurity.js'
 import { adminProvisionUser, adminRevokeUserSessions, adminRetireUser, adminDeleteRetiredUser, getUserDeletionStatus, createPassengerTicket } from '../index.js'
 
 test('revocar sesiones exige administración, autenticación reciente, motivo y auditoría', async () => {
@@ -243,4 +244,18 @@ test('eliminación reservada impide asignar pasajes a un UID compartido con el d
   }
   await assert.rejects(() => auth.getUser(driver.uid), { code: 'auth/user-not-found' })
   assert.equal((await db.collection('driver_directory').doc(driver.uid).get()).exists, true)
+})
+
+test('un administrador legado no puede retirar al último afiliado administrador activo', async () => {
+  const db = getFirestore('last-retirement-admin')
+  const legacy = db.collection('users').doc('legacy-admin')
+  const last = db.collection('users').doc('last-admin')
+  await legacy.set({ role: 'directiva_admin', isActive: true })
+  await last.set({ role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
+  const { adminRetireUser: retire } = createUserSecurityFunctions(db, getAuth(), ({ role }) => ['afiliado_admin', 'directiva_admin'].includes(role))
+  await assert.rejects(() => retire.run({
+    auth: { uid: legacy.id, token: { auth_time: Math.floor(Date.now() / 1000) } },
+    data: { targetUid: last.id, reason: 'Validación del último administrador', confirmation: true, operationId: `last-admin-${randomUUID()}` },
+  }), /último administrador activo/)
+  assert.equal((await last.get()).data().isActive, true)
 })

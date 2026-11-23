@@ -25,7 +25,7 @@ test('soporte no puede escribir ni leer respaldos o auditoría directamente', as
 test('auditoría y reservas de baja y eliminación protegidas frente a clientes administradores', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
     const db = context.firestore()
-    await setDoc(doc(db, 'users', 'retirement-rules-admin'), { role: 'afiliado_admin', isActive: true, allowedBranchIds: ['punata', 'cochabamba'] })
+    await setDoc(doc(db, 'users', 'retirement-rules-admin'), { role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
     for (const collectionName of ['audit_logs', 'user_retirement_operations', 'user_deletion_operations']) {
       await setDoc(doc(db, collectionName, 'operation-audit-test'), { status: 'pending' })
     }
