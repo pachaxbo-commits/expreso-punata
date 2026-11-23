@@ -47,6 +47,24 @@ test('baja conserva historial, bloquea caja abierta y permite reintentos', async
   await assert.rejects(() => adminRetireUser.run({ ...request, data: { ...request.data, targetUid: admin.uid, operationId: `other-${suffix}` } }), { code: 'failed-precondition' })
 })
 
+test('baja interrumpida mantiene reserva y se completa con el mismo identificador', async () => {
+  const db = getFirestore(), auth = getAuth(), suffix = randomUUID()
+  const admin = await auth.createUser({ email: `retry-admin-${suffix}@example.test` })
+  const target = await auth.createUser({ email: `retry-user-${suffix}@example.test` })
+  await db.collection('users').doc(admin.uid).set({ role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
+  await db.collection('users').doc(target.uid).set({ role: 'secretaria', isActive: true, primaryBranchId: 'punata' })
+  const req = { auth: { uid: admin.uid, token: { auth_time: Math.floor(Date.now() / 1000) } }, data: { targetUid: target.uid, reason: 'Baja autorizada de prueba', confirmation: true, operationId: `retry-${suffix}` } }
+  const proto = Object.getPrototypeOf(auth), original = proto.updateUser
+  try {
+    proto.updateUser = async function (uid, ...args) { if (uid === target.uid) throw new Error('fallo sintético'); return original.call(this, uid, ...args) }
+    await assert.rejects(() => adminRetireUser.run(req), { code: 'unavailable' })
+  } finally { proto.updateUser = original }
+  assert.equal((await db.collection('users').doc(target.uid).get()).data().syncStatus, 'retiring')
+  await adminRetireUser.run(req)
+  assert.equal((await auth.getUser(target.uid)).disabled, true)
+  assert.equal((await db.collection('user_retirement_operations').doc(req.data.operationId).get()).data().status, 'completed')
+})
+
 test('suspender a otro administrador exige sesión reciente, confirmación y motivo', async () => {
   const db = getFirestore(), auth = getAuth(), suffix = randomUUID()
   const admin = await auth.createUser({ email: `guard-${suffix}@example.test` })

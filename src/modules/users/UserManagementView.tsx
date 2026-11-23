@@ -29,6 +29,7 @@ import {
 import type { UserProfile, UserRole, UserAuditLog } from '../../types'
 import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig'
 import { getUnionMembersRosterThroughBackend, type UnionRosterMember } from '../../services/unionService.ts'
+import { auth } from '../../firebase/config'
 
 const ROLE_LABELS: Record<UserRole, { label: string; bg: string; text: string }> = {
   soporte_pachax: { label: 'Soporte PACHAX', bg: 'bg-slate-100', text: 'text-slate-800' },
@@ -184,7 +185,18 @@ export const UserManagementView: React.FC = () => {
   }
 
   const handleRetire = async (user: UserProfile) => {
+    if (!auth.currentUser) { alert('Debe iniciar sesión para administrar usuarios.'); return }
+    const storageKey = `ep-retirement:${auth.currentUser.uid}:${user.uid}`
     let attempt = retirementAttempts.current[user.uid]
+    if (!attempt) {
+      try {
+        const stored = localStorage.getItem(storageKey)
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          if (typeof parsed.operationId === 'string' && typeof parsed.reason === 'string') attempt = parsed
+        }
+      } catch { alert('No se pudo consultar la operación pendiente en este dispositivo.'); return }
+    }
     if (!attempt) {
       const reason = window.prompt(`Motivo de la baja de ${user.fullName} (mínimo 10 caracteres):`)
       if (reason === null) return
@@ -192,11 +204,14 @@ export const UserManagementView: React.FC = () => {
       if (!window.confirm(`¿Dar de baja a ${user.fullName} (${user.email || user.uid})? Se retirará el acceso y se conservarán los registros históricos.`)) return
       attempt = { reason: reason.trim(), operationId: crypto.randomUUID() }
       retirementAttempts.current[user.uid] = attempt
+      try { localStorage.setItem(storageKey, JSON.stringify(attempt)) }
+      catch { delete retirementAttempts.current[user.uid]; alert('No se puede guardar el identificador de reintento; no se inició la baja.'); return }
     }
     try {
       setActionLoading(true)
       const result = await retireUser(user.uid, attempt.reason, attempt.operationId)
       delete retirementAttempts.current[user.uid]
+      localStorage.removeItem(storageKey)
       alert(result.message)
     } catch (error: unknown) { alert(error instanceof Error ? error.message : 'No se pudo completar la baja.') }
     finally { setActionLoading(false) }

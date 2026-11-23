@@ -945,6 +945,8 @@ Documenta la deuda heredada y las correcciones verificadas.
 
 ### Bloque A · avance de gestión de usuarios
 
+Continuación: el identificador y motivo de una baja pendiente se guardan en el navegador, separados por administrador y usuario, para reintentar tras cerrar la pantalla en el mismo dispositivo. Una prueba en emulador fuerza un fallo al actualizar Auth y confirma que el mismo identificador completa después la operación. Build y cuatro pruebas dirigidas aprobadas. Sigue pendiente recuperar la operación desde otro dispositivo o tras borrar el almacenamiento, comprobar todas las obligaciones y probar Playwright integral. La eliminación física y el historial con filtros siguen pendientes; este bloque no está cerrado.
+
 Se añadió una baja lógica con autenticación reciente, confirmación, motivo, candado de administración, protección del último administrador, bloqueo ante caja abierta, revocación de acceso, auditoría y reintentos por identificador. Se conserva Auth deshabilitado y el perfil histórico; todavía no existe eliminación física segura ni un inventario completo de custodia y obligaciones. La interfaz permite iniciar la baja y reintentar mientras permanece abierta; la recuperación del identificador tras cerrar la pantalla sigue pendiente. TypeScript y build aprobados; tres pruebas dirigidas de seguridad y 29 pruebas Rules aprobadas. Faltan Playwright del recorrido completo, fallos parciales y concurrencia específica de la baja. No se tocaron usuarios de producción. EP-14 sigue en curso y la baja no está lista para publicación.
 
 ### Avance local · Centro de Soporte
