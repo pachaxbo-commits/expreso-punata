@@ -88,7 +88,11 @@ test('tarifas y comisiones publicadas operan con vigencia, autorización y prese
   assert.equal((await makeShipment('new-release')).shipment.finalAmountCents, 3200)
   await write(route, { effectiveFrom: today }, 3, first, 'restore', { restoreVersion: 1 })
   const settings = await getCommercialSettings.run({ auth: auth(first) })
-  assert.equal(settings.items.find(item => item.key === route).history[0].restoredFrom, 1)
+  const restored = settings.items.find(item => item.key === route)
+  assert.equal(restored.history[0].restoredFrom, 1)
+  assert.equal((await makeShipment('restore-draft-only')).shipment.finalAmountCents, 3200)
+  await write(route, restored.draft, restored.version)
+  assert.equal((await makeShipment('restore-approved')).shipment.finalAmountCents, 2500)
 
   const fixed = { effectiveFrom: today, enabled: true, type: 'fixed_per_shipment', value: 3 }
   const percentage = { effectiveFrom: today, enabled: true, type: 'percentage', value: 12 }
