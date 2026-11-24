@@ -22,6 +22,20 @@ test('soporte no puede escribir ni leer respaldos o auditoría directamente', as
   await assertFails(updateDoc(doc(support, 'audit_logs', 'support-log'), { action: 'forged' }))
 })
 
+test('configuraciones B4 solo se leen y escriben mediante Functions', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'users', 'b4-rules-admin'), { role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
+    await setDoc(doc(db, 'b4_settings', 'reports'), { version: 1, value: { order: 'source' } })
+    await setDoc(doc(db, 'b4_settings', 'reports', 'history', '1'), { version: 1, reason: 'test' })
+  })
+  const db = testEnv.authenticatedContext('b4-rules-admin').firestore()
+  for (const ref of [doc(db, 'b4_settings', 'reports'), doc(db, 'b4_settings', 'reports', 'history', '1')]) {
+    await assertFails(getDoc(ref))
+    await assertFails(setDoc(ref, { version: 2 }))
+  }
+})
+
 test('auditoría y reservas de baja y eliminación protegidas frente a clientes administradores', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
     const db = context.firestore()

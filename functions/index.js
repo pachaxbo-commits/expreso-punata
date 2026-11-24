@@ -7,6 +7,7 @@ import { getStorage } from 'firebase-admin/storage'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { createSupportFunctions } from './supportCenter.js'
 import { createUserSecurityFunctions } from './userSecurity.js'
+import { createB4SettingsFunctions } from './b4Settings.js'
 
 if (getApps().length === 0) {
   initializeApp()
@@ -19,6 +20,7 @@ const storageAdmin = getStorage()
 import { commercialSettingsRef, createCommercialFunctions, effectiveCommercialRule, localBusinessDay } from './commercialSettings.js'
 
 export const { getCommercialSettings, updateCommercialSettings } = createCommercialFunctions(db)
+export const { getB4Settings, updateB4Settings } = createB4SettingsFunctions(db)
 export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db)
 export const { adminRevokeUserSessions, adminRetireUser, adminDeleteRetiredUser, getUserDeletionStatus } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
@@ -5109,6 +5111,13 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
 
   const warnings = []
 
+  // Published contribution policies are snapshotted only into newly issued dues.
+  // Existing due documents and their balances are never recalculated.
+  const contributionConfig = (await db.collection('b4_settings').doc('contributions').get()).data() || {}
+  const contributionPolicy = (contributionConfig.releases || [])
+    .filter(policy => policy.enabled && policy.effectiveFrom <= `${period}-01`)
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0] || null
+
   try {
     const membersSnap = await db.collection('union_members')
       .where('status', '==', 'active')
@@ -5157,13 +5166,17 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
       }
 
       // Eliminar el fallback ficticio de 5000: si no tiene cuota válida, omitir y alertar
-      const feeCents = member.monthlyFeeCents || Math.round((member.monthlyFeeBob || 0) * 100) || 0
+      const memberBranch = member.branchId || caller.primaryBranchId || 'punata'
+      const policyApplies = contributionPolicy
+        && contributionPolicy.branchIds.includes(memberBranch)
+        && (contributionPolicy.category === 'all' || contributionPolicy.category === member.category)
+      const feeCents = policyApplies ? contributionPolicy.amountCents : (member.monthlyFeeCents || Math.round((member.monthlyFeeBob || 0) * 100) || 0)
       if (!feeCents || feeCents <= 0) {
         skippedCount++
         warnings.push({
           memberId: mDoc.id,
-          memberNumber: member.memberNumber,
-          memberName: member.fullName,
+          memberNumber: member.memberNumber || mDoc.id,
+          memberName: member.fullName || 'Afiliado',
           reason: 'Socio sin cuota mensual configurada (monthlyFeeCents <= 0). Omitido.',
         })
         continue
@@ -5172,12 +5185,12 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
 
       const dueData = {
         id: dueId,
-        dueNumber: `CUO-${period}-${member.memberNumber}`,
+        dueNumber: `CUO-${period}-${member.memberNumber || mDoc.id}`,
         memberId: mDoc.id,
-        memberNumber: member.memberNumber,
-        memberName: member.fullName,
-        memberCategory: member.category,
-        branchId: member.branchId || caller.primaryBranchId || 'punata',
+        memberNumber: member.memberNumber || mDoc.id,
+        memberName: member.fullName || 'Afiliado',
+        memberCategory: member.category ?? null,
+        branchId: memberBranch,
         period,
         periodLabel,
         amountBob: feeBob,
@@ -5189,7 +5202,9 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
         balanceBob: feeBob,
         balanceCents: feeCents,
         paymentsCount: 0,
-        notes: notes || `Cuota ordinaria de ${periodLabel}`,
+        concept: policyApplies ? contributionPolicy.concept : 'Cuota ordinaria',
+        contributionPolicyVersion: policyApplies ? contributionPolicy.version : null,
+        notes: notes || (policyApplies ? contributionPolicy.concept : `Cuota ordinaria de ${periodLabel}`),
         createdAtIso: nowIso,
         createdByUid: callerUid,
         createdByName: caller.fullName || 'Operador',
@@ -5819,6 +5834,8 @@ export const manageWorker = onCall({ cors: true }, async (request) => {
   if (!ci || typeof ci !== 'string' || ci.trim().length < 2) {
     throw new HttpsError('invalid-argument', 'El documento de identidad (CI) es obligatorio.')
   }
+  const workerCatalog = (await db.collection('b4_settings').doc('catalogs').get()).data()?.value?.workerRoles
+  if (workerCatalog && !workerCatalog.some(option => option.id === role && option.active)) throw new HttpsError('failed-precondition', 'El cargo está desactivado para nuevas altas.')
 
   const cleanFullName = fullName.trim()
   const cleanCi = ci.trim()
@@ -6396,6 +6413,8 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 200) throw new HttpsError('invalid-argument', 'La cantidad debe ser un entero entre 1 y 200.')
     if (category === 'inmuebles' && quantity !== 1) throw new HttpsError('invalid-argument', 'Los inmuebles deben registrarse individualmente, con cantidad 1.')
     if (!['computacion', 'muebles', 'herramientas', 'comunicacion', 'balanzas_pesaje', 'oficina', 'inmuebles', 'otro'].includes(category)) throw new HttpsError('invalid-argument', 'La categoría patrimonial no es válida.')
+    const categoryCatalog = (await db.collection('b4_settings').doc('catalogs').get()).data()?.value?.fixedAssetCategories
+    if (categoryCatalog && !categoryCatalog.some(option => option.id === category && option.active)) throw new HttpsError('failed-precondition', 'La categoría patrimonial está desactivada para nuevas altas.')
     if (!name || typeof name !== 'string' || name.trim().length < 2) throw new HttpsError('invalid-argument', 'El nombre del bien es obligatorio.')
     if (!batchRequestId || typeof batchRequestId !== 'string' || batchRequestId.length < 12 || batchRequestId.length > 100) throw new HttpsError('invalid-argument', 'La clave de lote no es válida.')
     const cleanCategory = category === 'inmuebles' ? 'inmuebles' : category
@@ -6708,6 +6727,8 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
   if (!responsiblePersonName || typeof responsiblePersonName !== 'string' || responsiblePersonName.trim().length < 2) {
     throw new HttpsError('invalid-argument', 'El responsable asignado es obligatorio.')
   }
+  const fixedCategoryCatalog = (await db.collection('b4_settings').doc('catalogs').get()).data()?.value?.fixedAssetCategories
+  if (fixedCategoryCatalog && !fixedCategoryCatalog.some(option => option.id === category && option.active)) throw new HttpsError('failed-precondition', 'La categoría patrimonial está desactivada para nuevas altas.')
 
   const cleanBranch = branchId === 'cochabamba' ? 'cochabamba' : 'punata'
   const branchPrefix = cleanBranch === 'cochabamba' ? 'CBB' : 'PUN'
@@ -8801,6 +8822,8 @@ export const manageConsumable = onCall({ cors: true }, async (request) => {
     if (!code || !name || !category || !branchId) {
       throw new HttpsError('invalid-argument', 'Código, nombre, categoría y sucursal son obligatorios.')
     }
+    const categoryCatalog = (await db.collection('b4_settings').doc('catalogs').get()).data()?.value?.consumableCategories
+    if (categoryCatalog && !categoryCatalog.some(option => option.id === category && option.active)) throw new HttpsError('failed-precondition', 'La categoría de insumo está desactivada para nuevas altas.')
 
     const docRef = db.collection('branch_consumables').doc()
     const cleanCode = String(code).trim().toUpperCase()
