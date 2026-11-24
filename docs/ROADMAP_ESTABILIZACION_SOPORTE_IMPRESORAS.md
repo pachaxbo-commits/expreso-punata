@@ -1285,14 +1285,14 @@ No ejecutar ninguna limpieza de datos de producción sin autorización expresa d
 
 ### EP-17 · AUDITAR LO QUE YA EXISTE
 
-- [ ] Pendiente
+- [x] Completado en rama local de Fase 3.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: los perfiles del navegador solo guardan preferencias locales; no seleccionan el dispositivo USB de Windows ni controlan/confirmar el cortador. `afterprint` solo sirve para limpiar el iframe.
+- Archivos afectados: `PrinterSettingsView.tsx`, `printerProfiles.ts`, `browserDialogPrinterAdapter.ts`, `printEngineService.ts`.
+- Solución realizada: documentado en la interfaz que el driver de Windows controla papel y corte; el estado físico queda “pendiente de prueba”.
+- Pruebas, resultado y evidencias: typecheck y build pasan; revisión automatizada de perfiles y editor añadida en EP-22.
+- Commit: `257b723`.
+- Dependencias y bloqueos: verificar la Rongta física en una estación Windows.
 
 Actualmente hay componentes de impresión, como:
 
@@ -1310,14 +1310,14 @@ Comprueba qué opciones son reales y cuáles solamente aparecen en la interfaz.
 
 ### EP-18 · IMPRESORAS USB EN WINDOWS
 
-- [ ] Pendiente
+- [ ] Implementación parcial; pendiente validación física.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: el navegador abre el diálogo estándar; no ofrece selección silenciosa ni control USB específico.
+- Archivos afectados: `PrinterOperationsView.tsx`, `RongtaPrintTestPage.tsx`, `PrinterSettingsView.tsx` y adaptador browser.
+- Solución realizada: página de calibración con pruebas sintéticas 58/80 mm, QR, dos trabajos secuenciales, observaciones locales, modelo y driver. No se añadió un servicio de impresión local.
+- Pruebas, resultado y evidencias: Playwright valida el panel y el registro sintético; la impresión y el cortador requieren estación Windows con hardware.
+- Commit: `257b723`.
+- Dependencias y bloqueos: seleccionar Rongta en el diálogo de Windows y registrar resultados observados.
 
 El cliente utilizará impresoras térmicas conectadas por USB a las computadoras.
 
@@ -1342,14 +1342,14 @@ No prometas impresión silenciosa o control ESC/POS directo si el navegador y el
 
 ### EP-19 · EDITOR VISUAL DE TICKETS
 
-- [ ] Pendiente
+- [x] Editor universal implementado en la rama de Fase 3; la activación productiva depende de publicar Functions y completar las puertas de producción.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: el motor anterior no permitía configurar campos/orden/versiones con un editor visual.
+- Archivos afectados: `DocumentTemplateCenter.tsx`, `documentTemplates.ts`, `documentTemplateService.ts`, `documentTemplateRenderer.ts`, `printCatalog.ts`, `functions/ticketTemplates.js`, `PassengerTicketsView.tsx` y adaptadores de impresión.
+- Solución realizada: Centro de Plantillas común por secciones y esquemas de campos reales por documento; edita visibilidad, orden, alineación, tamaño, márgenes, separadores, logo y contacto institucional por copia. La empresa, NIT, contactos oficiales, datos de clientes y finanzas no se editan aquí. Avisos oficiales obligatorios quedan protegidos. Versiones/restauraciones conservan reautenticación reciente, permiso de rol, control de concurrencia y auditoría.
+- Pruebas, resultado y evidencias: regresión actual en “EP-22 · PRUEBAS”. Reportes A4 siguen en su salida convencional; tipos sin un punto de impresión operativo no se inventan como tickets.
+- Commit: `ebcbdb3`.
+- Dependencias y bloqueos: la rama debe desplegarse en Preview/Production tras la revisión y las puertas de respaldo. No hay hardware de impresión conectado para validar papel o cortador.
 
 El Centro de Soporte tendrá un editor completo con dos paneles:
 
@@ -1399,14 +1399,14 @@ Mantener los datos y textos necesarios para identificación, trazabilidad y cump
 
 ### EP-20 · DOS COPIAS POR ENCOMIENDA
 
-- [ ] Pendiente
+- [x] Implementado para guías y configurable por tipo; validación física y reimpresión autorizada siguen pendientes.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: no existía configuración para segunda copia.
+- Archivos afectados: `documentTemplates.ts`, `documentTemplateRenderer.ts`, Centro de Plantillas, adaptadores Browser y RawBT.
+- Solución realizada: copias independientes con número de guía común. La copia de agencia predeterminada es compacta, omite dirección/teléfono, QR y avisos opcionales, pero esos bloques se pueden habilitar manualmente. Browser usa un solo diálogo y salto de página/continuidad; RawBT compone ambas copias en un único trabajo. Imprimir no llama a operaciones de negocio.
+- Pruebas, resultado y evidencias: unitarias y Playwright confirman vista de ambas copias, número compartido, 58/80 mm y ausencia de escrituras a encomiendas/caja; ver EP-22.
+- Commit: `ebcbdb3`.
+- Dependencias y bloqueos: verificar separación/corte con driver y completar reimpresión autorizada en fase posterior.
 
 Configurar:
 
@@ -1431,14 +1431,14 @@ Imprimir dos comprobantes nunca debe registrar dos guías ni generar dos cobros.
 
 ### EP-21 · AUTOCORTE
 
-- [ ] Pendiente
+- [x] Control ESC/POS configurado para RawBT; corte Windows todavía depende del driver y requiere prueba física.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: el adaptador browser ignora `cutPaperOnFinish`; no envía ESC/POS a la Rongta USB.
+- Archivos afectados: `PrinterSettingsView.tsx`, `printerProfiles.ts`, `RongtaPrintTestPage.tsx`.
+- Solución realizada: separación continua/salto de página en Browser no se presenta como confirmación de corte. RawBT puede emitir corte parcial o completo y corte intermedio/final usando comandos ESC/POS. Ningún flujo interpreta `afterprint` como confirmación física.
+- Pruebas, resultado y evidencias: la prueba unitaria inspecciona el trabajo ESC/POS y la pantalla Rongta conserva su formulario de observaciones; no se observó el comportamiento de una impresora real.
+- Commit: `ebcbdb3`.
+- Dependencias y bloqueos: verificar modelo/driver Rongta; mantener el corte como pendiente hasta la observación física.
 
 Cuando la impresora sea compatible:
 
@@ -1454,14 +1454,14 @@ La opción de autocorte debe estar condicionada por las capacidades reales del h
 
 ### EP-22 · PRUEBAS
 
-- [ ] Pendiente
+- [x] Regresión automatizada del editor y salidas incluidas ejecutada; siguen pendientes únicamente pruebas de hardware físico.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: no había pruebas dedicadas al editor/renderer ni una página de prueba Rongta con datos sintéticos.
+- Archivos afectados: `tests/unit/ticketTemplates.test.ts`, `functions/test/ticketTemplates.test.mjs`, `tests/e2e/runTicketTemplateEditor.mjs`.
+- Solución realizada: cobertura de normalización/campos obligatorios, escape HTML, QR, 58/80 mm, alineación, copias, orden y comandos de corte; Functions valida autorización, autenticación reciente, allowlist por documento, concurrencia, auditoría y restauración.
+- Pruebas, resultado y evidencias (24-11-2026): typecheck y build pasan; unitarias 83/83; `ticketTemplates.test.mjs` en Functions Emulator 3/3; Firestore Rules 34/34; Playwright de Chrome pasa Centro, versiones, guía, recibo, pasaje, vista 58/80, copia compacta, impresión sintética sin escrituras de negocio y viewport móvil 390 px. No se validaron físicamente impresión, papel, QR/corte Rongta ni impresora desconectada.
+- Commit: `5b1fa50`.
+- Dependencias y bloqueos: el backend de plantillas requiere Functions de Fase 3. La evidencia automatizada no sustituye la revisión independiente de PR ni el respaldo exigido para publicación. No hubo cambios a credenciales o configuración productiva.
 
 Validar:
 

@@ -55,7 +55,8 @@ import { DispatchManifestView } from '../modules/dispatch/DispatchManifestView'
 import { StorageManagementView } from '../modules/storage/StorageManagementView'
 import { UserManagementView } from '../modules/users/UserManagementView'
 import { UserProfileModal } from '../modules/users/UserProfileModal'
-import { PrinterSettingsView } from '../modules/admin/printers/PrinterSettingsView'
+import { PrinterOperationsView } from '../modules/admin/printers/PrinterOperationsView.tsx'
+import { viteEnv } from '../config/viteEnv.ts'
 import { DriverCommissionsView } from '../modules/dispatch/DriverCommissionsView'
 import { PassengerTicketsView } from '../modules/tickets/PassengerTicketsView'
 import { ConsumablesManagementView } from '../modules/assets/ConsumablesManagementView'
@@ -73,8 +74,8 @@ interface MainDashboardProps {
 
 export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => {
   const { signOut, currentBranchId, switchBranch, hasRole } = useAuth()
-  const simpleTransferEnabled = import.meta.env.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
-  const advancedContingency = import.meta.env.VITE_ADVANCED_DISPATCH === 'true'
+  const simpleTransferEnabled = viteEnv.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
+  const advancedContingency = viteEnv.VITE_ADVANCED_DISPATCH === 'true'
   const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && isOperationalAdmin(userProfile))
   const [counterDispatchOpen, setCounterDispatchOpen] = useState(false)
   const [requestedTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
@@ -695,7 +696,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             )}
 
             {configSubTab === 'printers' && (
-              <PrinterSettingsView
+              <PrinterOperationsView
                 currentBranchId={currentBranchId}
                 operatorName={userProfile.fullName || 'Operador'}
               />

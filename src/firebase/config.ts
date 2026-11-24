@@ -3,6 +3,7 @@ import { getAuth, connectAuthEmulator } from 'firebase/auth'
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
 import { getStorage, connectStorageEmulator } from 'firebase/storage'
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions'
+import { viteEnv } from '../config/viteEnv.ts'
 
 /**
  * Control de conexión a Emuladores:
@@ -17,11 +18,13 @@ const isLocalhost = Boolean(
 )
 
 const shouldConnectEmulators =
-  import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' ||
-  (import.meta.env.VITE_USE_FIREBASE_EMULATORS === undefined && (import.meta.env.DEV || isLocalhost))
+  viteEnv.VITE_USE_FIREBASE_EMULATORS === 'true' ||
+  (viteEnv.VITE_USE_FIREBASE_EMULATORS === undefined && (
+    viteEnv.DEV === true || isLocalhost || (viteEnv.DEV === undefined && typeof window === 'undefined')
+  ))
 
 export const isEmulatedEnvironment = shouldConnectEmulators
-export const isPublicDemo = import.meta.env.DEV && shouldConnectEmulators && import.meta.env.VITE_PUBLIC_DEMO === 'true'
+export const isPublicDemo = viteEnv.DEV === true && shouldConnectEmulators && viteEnv.VITE_PUBLIC_DEMO === 'true'
 
 // Lista de variables de entorno obligatorias para conectar a Firebase Cloud
 const REQUIRED_CLOUD_VARS = [
@@ -46,19 +49,19 @@ if (shouldConnectEmulators) {
   // En entorno de emuladores locales, usamos las variables del entorno si existen,
   // o valores sintéticos 'demo-*' de aislamiento total para garantizar que ningún dato toque la nube.
   firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'demo-api-key-expreso-punata',
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'localhost',
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'demo-expreso-punata',
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'demo-expreso-punata.appspot.com',
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '123456789012',
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:123456789012:web:demo-local',
+    apiKey: String(viteEnv.VITE_FIREBASE_API_KEY || 'demo-api-key-expreso-punata'),
+    authDomain: String(viteEnv.VITE_FIREBASE_AUTH_DOMAIN || 'localhost'),
+    projectId: String(viteEnv.VITE_FIREBASE_PROJECT_ID || 'demo-expreso-punata'),
+    storageBucket: String(viteEnv.VITE_FIREBASE_STORAGE_BUCKET || 'demo-expreso-punata.appspot.com'),
+    messagingSenderId: String(viteEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '123456789012'),
+    appId: String(viteEnv.VITE_FIREBASE_APP_ID || '1:123456789012:web:demo-local'),
   }
 } else {
   // En entornos de nube desplegados (Vercel Preview, Vercel Production, o pruebas en la nube):
   // FAIL-CONTROLLED: Comprobar que NINGUNA variable requerida falte.
   // Prohibido utilizar valores de respaldo hardcodeados que oculten desconfiguraciones.
   const missingVars = REQUIRED_CLOUD_VARS.filter((varName) => {
-    const val = import.meta.env[varName]
+    const val = viteEnv[varName]
     return !val || typeof val !== 'string' || val.trim() === ''
   })
 
@@ -104,12 +107,12 @@ if (shouldConnectEmulators) {
   }
 
   firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID as string,
+    apiKey: viteEnv.VITE_FIREBASE_API_KEY as string,
+    authDomain: viteEnv.VITE_FIREBASE_AUTH_DOMAIN as string,
+    projectId: viteEnv.VITE_FIREBASE_PROJECT_ID as string,
+    storageBucket: viteEnv.VITE_FIREBASE_STORAGE_BUCKET as string,
+    messagingSenderId: viteEnv.VITE_FIREBASE_MESSAGING_SENDER_ID as string,
+    appId: viteEnv.VITE_FIREBASE_APP_ID as string,
   }
 }
 
@@ -122,10 +125,10 @@ export const functions = getFunctions(app, 'us-central1')
 if (shouldConnectEmulators) {
   const emulatorHost = '127.0.0.1'
   const emulatorPorts = {
-    auth: Number(import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_PORT || 9099),
-    firestore: Number(import.meta.env.VITE_FIREBASE_FIRESTORE_EMULATOR_PORT || 8080),
-    storage: Number(import.meta.env.VITE_FIREBASE_STORAGE_EMULATOR_PORT || 9199),
-    functions: Number(import.meta.env.VITE_FIREBASE_FUNCTIONS_EMULATOR_PORT || 5001),
+    auth: Number(viteEnv.VITE_FIREBASE_AUTH_EMULATOR_PORT || 9099),
+    firestore: Number(viteEnv.VITE_FIREBASE_FIRESTORE_EMULATOR_PORT || 8080),
+    storage: Number(viteEnv.VITE_FIREBASE_STORAGE_EMULATOR_PORT || 9199),
+    functions: Number(viteEnv.VITE_FIREBASE_FUNCTIONS_EMULATOR_PORT || 5001),
   }
   try {
     // Solo conectar si no han sido conectados previamente

@@ -1,0 +1,33 @@
+import QRCode from 'qrcode'
+import type { PaperFormat, UnifiedDocumentPayload } from '../../types/printing.ts'
+import { normalizeDocumentTemplate, templateFieldValue, TEMPLATE_FIELD_CATALOG, type DocumentPrintTemplate, type TemplateFieldId } from '../../services/printing/documentTemplates.ts'
+
+const e = (value: unknown) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
+const labels = new Map(TEMPLATE_FIELD_CATALOG.map(field => [field.id, field.label]))
+
+export async function buildDocumentTemplateHtml(doc: UnifiedDocumentPayload, paper: Extract<PaperFormat, '58mm' | '80mm'>, input: DocumentPrintTemplate, options: { includeQr?: boolean; includeLogo?: boolean } = {}): Promise<string> {
+  const template = normalizeDocumentTemplate(doc.documentType, input)
+  const qrContent = doc.qrContent || (doc.trackingCode ? `EXPRESO-PUNATA:${doc.trackingCode}` : '')
+  let qr = ''
+  if (options.includeQr !== false && qrContent && template.copies.some(copy => copy.visibleFields.includes('qr'))) {
+    try { qr = await QRCode.toDataURL(qrContent, { width: 180, margin: 1, errorCorrectionLevel: 'M' }) } catch {}
+  }
+  const width = paper === '58mm' ? 58 : 80
+  const font = template.fontSize === 'compact' ? '10.5px' : template.fontSize === 'large' ? '13px' : '12px'
+  const separator = template.separator === 'none' ? 'none' : template.separator === 'solid' ? '1px solid #555' : '1px dashed #777'
+  const renderCopy = (copy: DocumentPrintTemplate['copies'][number], index: number) => {
+    const fields: TemplateFieldId[] = copy.order.filter(id => copy.visibleFields.includes(id))
+    return `<section class="copy ${index === 1 ? 'agency' : ''}" style="--copy-pad:${copy.compact ? '1mm' : '2mm'}">
+      ${options.includeLogo && copy.showLogo && doc.logoUrl?.startsWith('https://') ? `<img class="logo" src="${e(doc.logoUrl)}" alt="Logo institucional">` : ''}
+      <header><strong class="company">${e(doc.companyName || 'EXPRESO PUNATA')}</strong><div>${e(doc.branchName || doc.branchId)}</div>${(doc.documentType === 'passenger_ticket' || (doc.documentType === 'shipment_guide' && index === 1)) ? `<b class="copy-label">${e(copy.label)}</b>` : ''}${copy.showBranchContact && (doc.branchAddress || doc.branchPhone) ? `<div class="institution-detail">${e(doc.branchAddress || '')}${doc.branchPhone ? ` · ${e(doc.branchPhone)}` : ''}</div>` : ''}</header>
+      <div class="separator"></div>
+      ${fields.map(id => id === 'qr' ? (qr ? `<div class="qr"><img src="${qr}" alt="QR"><small>Escanee para seguimiento</small></div>` : '') : `<div class="field" style="text-align:${copy.fieldStyles[id]?.alignment || (id === 'financials' ? 'right' : 'center')};${copy.fieldStyles[id]?.bold || ['title','number','tracking','financials'].includes(id) ? 'font-weight:700;' : ''}"><span>${e(labels.get(id) || id)}:</span> ${e(templateFieldValue(id, doc))}</div>`).join('')}
+    </section>`
+  }
+  const copies = template.secondCopyEnabled ? template.copies.map(renderCopy).join(template.cutBetweenCopies === 'page_break' ? '<div class="page-break"></div>' : '<div class="continuous-gap"></div>') : renderCopy(template.copies[0], 0)
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${e(doc.title)} · ${e(doc.documentNumber)}</title><style>
+    @page{size:${width}mm auto;margin:${template.marginsMm}mm}*{box-sizing:border-box}body{width:${width}mm;margin:0 auto;font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:${font};line-height:1.3;color:#111;padding-bottom:2mm}
+    .copy{width:100%;padding:0 1mm var(--copy-pad);break-inside:avoid}header{text-align:center;margin-bottom:2mm}.company{display:block;font-size:1.2em;letter-spacing:.1px}.institution-detail{font-size:.85em}.copy-label{display:block;font-size:1.05em;margin-top:1mm}.logo{display:block;max-width:34mm;max-height:14mm;margin:0 auto 1mm}.separator{border-top:${separator};margin:2mm 0}.field{margin:1.2mm 0;overflow-wrap:anywhere}.field span{font-weight:500}.qr{text-align:center;margin:2mm}.qr img{width:28mm;height:28mm;display:block;margin:auto}.qr small{font-size:.8em}.page-break{break-after:page;height:0}.continuous-gap{height:2mm;border-top:1px dashed #aaa;margin:2mm 0}
+    @media screen{body{border:1px solid #ddd;padding:3mm}.page-break{border-top:2px dashed #aaa;height:5mm}}
+  </style></head><body>${copies}</body></html>`
+}

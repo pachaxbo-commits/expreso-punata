@@ -8,6 +8,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { createSupportFunctions } from './supportCenter.js'
 import { createUserSecurityFunctions } from './userSecurity.js'
 import { createB4SettingsFunctions } from './b4Settings.js'
+import { createTicketTemplateFunctions } from './ticketTemplates.js'
 
 if (getApps().length === 0) {
   initializeApp()
@@ -21,6 +22,7 @@ import { commercialSettingsRef, createCommercialFunctions, effectiveCommercialRu
 
 export const { getCommercialSettings, updateCommercialSettings } = createCommercialFunctions(db, authAdmin)
 export const { getB4Settings, updateB4Settings } = createB4SettingsFunctions(db, authAdmin)
+export const { getShipmentTicketTemplate, saveShipmentTicketTemplate, getDocumentPrintTemplate, saveDocumentPrintTemplate } = createTicketTemplateFunctions(db, authAdmin, isOperationalAdmin)
 export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, reportClientDiagnostic, updateSupportDiagnostic, getSupportCleanupInventory, simulateSupportCleanup, getSupportCleanupPlan, listSupportCleanupOperations, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db, authAdmin)
 export const { adminRevokeUserSessions, adminRetireUser, adminDeleteRetiredUser, getUserDeletionStatus } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
