@@ -952,7 +952,19 @@ Documenta la deuda heredada y las correcciones verificadas.
 | C · Limpieza y recuperación | Verificado en emuladores | Recorrido Playwright de inventario, simulación, ejecución y restauración de registros sintéticos con procedencia. No hubo limpieza de datos reales. |
 | D · Diagnóstico, seguridad, regresión e integración | Verificado localmente | 73 pruebas unitarias, 188 Functions, 34 reglas Firestore y tres recorridos Playwright de soporte, configuración y usuarios; Node 22. |
 
-Los cambios de A–D están únicamente en la rama local `codex/phase-2-support-center`. No se publicaron cambios, no se creó una identidad real de soporte y no se modificaron cuentas o datos de producción. El alta de una identidad real requiere el procedimiento de [acceso a soporte](PROCEDIMIENTO_ACCESO_SOPORTE.md), responsable designado, MFA y aprobación operativa. La validación en emuladores no acredita la configuración MFA de producción.
+### Integración GitHub y producción · actualización 2026-11-24
+
+| Etapa | Estado | Evidencia o condición pendiente |
+|---|---|---|
+| Desarrollo local | Terminado | Bloques A–D y pruebas locales indicadas arriba. |
+| Integración GitHub | PR [#64](https://github.com/pachaxbo-commits/expreso-punata/pull/64) abierta hacia `main`; mergeable | Rama `codex/phase-2-support-center`, HEAD `94cc9041e0e89e82e16a0da14d1fe9fcd0fd64a0`, 29 commits desde el SHA base `c35b620e08e2af32196b900bdaa8c12d55004e8b`. Check de Vercel: success. Preview: READY. |
+| Despliegue | No realizado; bloqueado | No fusionar ni desplegar mientras no haya respaldo recuperable y recuperación comprobada. |
+| Respaldo Firebase | No disponible | Proyecto `expreso-punata-dev`, Firestore `(default)` en `nam5`: no se encontraron backups ni agenda de backups; PITR está desactivado. |
+| Verificación de producción | Parcial, no funcional | Vercel Production está READY en `c35b620…`; `/` responde 200 y `/demo` redirige 307 a `/`. No se probó el inicio de sesión ni las operaciones reales de Nelson. |
+| Cuenta real SOPORTE | No activada | No se creó identidad; faltan titular autorizado, MFA y prueba de acceso real conforme al [procedimiento](PROCEDIMIENTO_ACCESO_SOPORTE.md). |
+| Fase 3 | No iniciada | Mantener pendiente hasta cerrar y verificar en producción la integración de Fase 2. |
+
+Las reglas de Firestore, reglas de Storage e índices no cambian en esta PR. Se debe publicar el código de Functions del codebase `default` y el frontend Vercel una vez levantados los bloqueos. No se hicieron cambios de producción, no se creó una identidad real de soporte y no se modificaron cuentas o datos. El alta real requiere responsable designado, MFA y aprobación operativa; la validación en emuladores no acredita MFA de producción.
 
 ### Bloque A · avance de gestión de usuarios
 
@@ -1015,8 +1027,8 @@ Rama `codex/phase-2-support-center`, creada desde `origin/main` en `c35b620e08e2
 - Archivos afectados: `functions/supportCenter.js`, `functions/supportAccess.js`, `src/firebase/observedCallable.ts`, `src/firebase/observedFirestore.ts`, `src/firebase/globalDiagnostics.ts`, `src/modules/support/SupportCenter.tsx` y puntos de integración en servicios y vistas.
 - Solución realizada: recepción limitada y retenida de diagnósticos; lista, filtros, detalle y revisión con auditoría; sesión de soporte verificada; procedimiento de provisión y revocación documentado.
 - Pruebas y resultado: 73 unitarias, 188 Functions, 34 reglas Firestore; recorridos de soporte, configuración y seguridad de usuarios aprobados con Node 22 y Firebase Emulator Suite.
-- Commit: cierre local en la rama de Fase 2; no publicado.
-- Bloqueos de producción: titular y MFA reales, aprobación operativa, publicación/deploy y validación post despliegue. Sin cambios en producción.
+- Commit: publicado en la rama `codex/phase-2-support-center`; incluido en PR #64 abierta.
+- Bloqueos de producción: respaldo Firestore recuperable (actualmente no existe respaldo ni agenda y PITR está apagado), ensayo aislado de restauración, permisos y revisiones anteriores, verificación humana de la cuenta de Nelson, titular/MFA reales de SOPORTE, autorización de despliegue y validación posterior. Sin cambios en producción.
 
 Crear un panel profesional, separado de la administración del cliente.
 
