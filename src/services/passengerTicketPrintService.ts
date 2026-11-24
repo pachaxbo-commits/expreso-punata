@@ -1,6 +1,8 @@
 import QRCode from 'qrcode'
 import { formatCurrencyBob } from '../domain/parcelEngine.ts'
 import type { PassengerTicketOperation } from '../types/index.ts'
+import { buildDocumentTemplateHtml } from '../adapters/printing/documentTemplateRenderer.ts'
+import type { DocumentPrintTemplate } from './printing/documentTemplates.ts'
 
 export type PassengerTicketPaperWidth = 58 | 80
 export type PassengerTicketPresentation = { companyName?: string; branchName?: string; notice?: string }
@@ -18,12 +20,32 @@ const formatDateTime = (value?: string | null) => value
 
 export async function buildPassengerTicketPairHtml(
   operation: PassengerTicketOperation,
-  options: PassengerTicketPresentation & { paperWidth?: PassengerTicketPaperWidth; reprint?: boolean } = {},
+  options: PassengerTicketPresentation & { paperWidth?: PassengerTicketPaperWidth; reprint?: boolean; documentTemplate?: DocumentPrintTemplate } = {},
 ) {
   if (operation.paymentStatus !== 'paid_verified' || operation.paymentVerificationStatus !== 'verified' || !operation.paymentVerifiedAtIso) {
     throw new Error('Solo se imprimen pasajes con pago verificado en el servidor.')
   }
   const paperWidth = options.paperWidth ?? 80
+  if (options.documentTemplate) {
+    const origin = operation.originBranchId === 'punata' ? 'Punata' : 'Cochabamba'
+    const destination = operation.destinationBranchId === 'cochabamba' ? 'Cochabamba' : 'Punata'
+    const vehicle = operation.vehiclePlate ? `${operation.vehiclePlate}${operation.vehicleMobileNumber ? ` · Móvil ${operation.vehicleMobileNumber}` : ''}` : 'No registrado'
+    return buildDocumentTemplateHtml({
+      documentType: 'passenger_ticket', title: options.reprint ? 'REIMPRESIÓN · PASAJE PAGADO' : 'PASAJE PAGADO',
+      subtitle: `${origin} → ${destination}`, branchId: operation.branchId,
+      branchName: options.branchName || (operation.branchId === 'punata' ? 'Punata' : 'Cochabamba'), companyName: options.companyName,
+      documentNumber: operation.operationNumber, trackingCode: operation.ticketCode, qrContent: operation.ticketCode,
+      timestampIso: operation.createdAtIso, operatorName: operation.createdByName,
+      financials: { subtotalBob: operation.totalAmountCents / 100, totalBob: operation.totalAmountCents / 100, amountCents: operation.totalAmountCents, paymentTiming: 'origin_paid', paymentStatus: 'paid', paymentMethod: 'qr' },
+      footerNotes: [options.reprint ? 'DUPLICADO · REIMPRESIÓN' : '', 'PAGO QR VERIFICADO', options.notice || '', 'Validez consultable en el registro digital.'].filter(Boolean),
+      metadata: {
+        passengerName: operation.passengerName || 'No registrado', travelDate: operation.travelDate, vehicle,
+        quantity: String(operation.quantity), fare: `Bs ${(operation.unitAmountCents / 100).toFixed(2)} c/u · Total Bs ${(operation.totalAmountCents / 100).toFixed(2)}`,
+        paymentVerification: `QR VERIFICADO · ${formatDateTime(operation.paymentVerifiedAtIso)}`,
+        settlement: operation.settlementStatus === 'delivered' ? 'ENTREGADO AL CONDUCTOR' : 'PENDIENTE DE ENTREGA AL CONDUCTOR',
+      },
+    }, `${paperWidth}mm`, options.documentTemplate, { includeLogo: false })
+  }
   const ticketCode = escapeHtml(operation.ticketCode)
   const qrDataUrl = await QRCode.toDataURL(operation.ticketCode, { width: 180, margin: 1, errorCorrectionLevel: 'M' })
   const route = `${operation.originBranchId === 'punata' ? 'Punata' : 'Cochabamba'} → ${operation.destinationBranchId === 'cochabamba' ? 'Cochabamba' : 'Punata'}`

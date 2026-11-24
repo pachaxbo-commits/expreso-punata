@@ -13,6 +13,8 @@ import type { Shipment, CashShift, FinancialMovement, DispatchManifest } from '.
 import { reportObservedError } from '../../firebase/observedCallable.ts'
 import { loadShipmentTicketTemplate } from './ticketTemplateService.ts'
 import type { ShipmentTicketTemplate } from './ticketTemplates.ts'
+import { loadDocumentPrintTemplate } from './documentTemplateService.ts'
+import type { DocumentPrintTemplate } from './documentTemplates.ts'
 
 export class PrintEngineService {
   private static instance: PrintEngineService
@@ -42,6 +44,7 @@ export class PrintEngineService {
       cutPaper: boolean
       kickDrawer: boolean
       ticketTemplate?: ShipmentTicketTemplate
+      documentTemplate?: DocumentPrintTemplate
     } = {
       fontSize: effectivePrinter.capabilities.fontSize,
       marginsMm: effectivePrinter.capabilities.marginsMm,
@@ -52,20 +55,30 @@ export class PrintEngineService {
     }
 
     try {
-      if (doc.documentType === 'shipment_guide' && effectivePrinter.connectionType === 'browser_dialog') {
+      if (effectivePrinter.connectionType === 'browser_dialog' || effectivePrinter.connectionType === 'rawbt_intent') {
         try {
-          const saved = await loadShipmentTicketTemplate()
-          if (saved.template) options.ticketTemplate = saved.template
+          const saved = await loadDocumentPrintTemplate(doc.documentType)
+          if (saved.template) options.documentTemplate = saved.template
+          else if (doc.documentType === 'shipment_guide') {
+            const legacy = await loadShipmentTicketTemplate()
+            if (legacy.template) options.ticketTemplate = legacy.template
+          }
         } catch {
-          // Preserve the existing print flow if the optional template service is unavailable.
+          // If Fase 3 Functions is not deployed yet, preserve the previously versioned guide template when available.
+          if (doc.documentType === 'shipment_guide') {
+            try {
+              const legacy = await loadShipmentTicketTemplate()
+              if (legacy.template) options.ticketTemplate = legacy.template
+            } catch { /* The legacy print path remains the safe fallback. */ }
+          }
         }
       }
       let result: PrintResult
       if (effectivePrinter.connectionType === 'virtual_pdf') result = await this.downloadVirtualPdf(doc, paperFormat)
       else {
         const documentWithPresentation = await this.withOfficialPresentation(doc)
-        if (effectivePrinter.connectionType === 'rawbt_intent') result = await printViaRawBt(documentWithPresentation, paperFormat, options)
-        else result = await printViaBrowserDialog(documentWithPresentation, options.ticketTemplate?.paperFormat || paperFormat, options)
+        if (effectivePrinter.connectionType === 'rawbt_intent') result = await printViaRawBt(documentWithPresentation, options.documentTemplate?.paperFormat || paperFormat, options)
+        else result = await printViaBrowserDialog(documentWithPresentation, options.documentTemplate?.paperFormat || options.ticketTemplate?.paperFormat || paperFormat, options)
       }
       if (!result.success) {
         const incidentId = await reportObservedError({ code: 'print_failed' }, { module: 'printing', operation: 'printDocument' })
@@ -246,8 +259,10 @@ export class PrintEngineService {
     doc: UnifiedDocumentPayload,
     paperFormat: PaperFormat = '80mm',
     ticketTemplate?: ShipmentTicketTemplate,
+    documentTemplate?: DocumentPrintTemplate,
+    presentationOptions: { includeLogo?: boolean; includeQr?: boolean } = {},
   ): Promise<string> {
-    return await buildDocumentHtml(await this.withOfficialPresentation(doc), paperFormat, { includeLogo: true, ticketTemplate })
+    return await buildDocumentHtml(await this.withOfficialPresentation(doc), paperFormat, { includeLogo: presentationOptions.includeLogo ?? true, includeQr: presentationOptions.includeQr, ticketTemplate, documentTemplate })
   }
 
   /**

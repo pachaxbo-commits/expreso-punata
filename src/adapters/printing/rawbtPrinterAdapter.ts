@@ -4,6 +4,7 @@ import {
   type PrintResult,
   resolvePaymentConditionLabel,
 } from '../../types/printing.ts'
+import { templateFieldValue, normalizeDocumentTemplate, type DocumentPrintTemplate } from '../../services/printing/documentTemplates.ts'
 
 /**
  * Constructor de comandos ESC/POS para impresoras térmicas (58mm y 80mm).
@@ -85,9 +86,9 @@ export class EscPosBuilder {
     return this
   }
 
-  cut(): this {
-    // GS V 66 0: Corte parcial con avance de papel
-    this.buffer.push(0x1d, 0x56, 0x42, 0x00)
+  cut(mode: 'partial' | 'full' = 'partial'): this {
+    // GS V: corte parcial (66,0) o completo (0,0), según la preferencia configurada.
+    this.buffer.push(0x1d, 0x56, ...(mode === 'full' ? [0x00, 0x00] : [0x42, 0x00]))
     return this
   }
 
@@ -266,13 +267,17 @@ export async function printViaRawBt(
   options: {
     cutPaper?: boolean
     kickDrawer?: boolean
+    includeQr?: boolean
+    documentTemplate?: DocumentPrintTemplate
   } = {}
 ): Promise<PrintResult> {
   const jobId = `rawbt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
   const nowIso = new Date().toISOString()
 
   try {
-    const builder = buildEscPosDocument(doc, paperFormat, options)
+    const builder = options.documentTemplate
+      ? buildEscPosTemplateDocument(doc, paperFormat, options.documentTemplate, options)
+      : buildEscPosDocument(doc, paperFormat, options)
     const base64Data = builder.toBase64()
 
     if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -328,6 +333,39 @@ export async function printViaRawBt(
       dispatchedAtIso: nowIso,
     }
   }
+}
+
+export function buildEscPosTemplateDocument(doc: UnifiedDocumentPayload, paperFormat: PaperFormat, input: DocumentPrintTemplate, options: { cutPaper?: boolean; kickDrawer?: boolean; includeQr?: boolean } = {}): EscPosBuilder {
+  const template = normalizeDocumentTemplate(doc.documentType, input)
+  const width = paperFormat === '58mm' ? 32 : 44
+  const builder = new EscPosBuilder()
+  if (options.kickDrawer) builder.kickDrawer()
+  const copies = template.secondCopyEnabled ? template.copies : [template.copies[0]]
+  copies.forEach((copy, index) => {
+    builder.align('center').bold(true).doubleSize(true).line(doc.companyName || 'EXPRESO PUNATA').doubleSize(false).bold(false)
+    if (doc.branchName) builder.line(doc.branchName)
+    if (copy.showBranchContact && doc.branchAddress) builder.line(doc.branchAddress)
+    if (copy.showBranchContact && doc.branchPhone) builder.line(`Tel: ${doc.branchPhone}`)
+    if ((doc.documentType === 'passenger_ticket') || (index === 1 && doc.documentType === 'shipment_guide')) builder.bold(true).line(copy.label).bold(false)
+    builder.separator(template.separator === 'solid' ? '=' : '-', width)
+    for (const id of copy.order.filter(field => copy.visibleFields.includes(field))) {
+      if (id === 'qr') {
+        const content = doc.qrContent || (doc.trackingCode ? `EXPRESO-PUNATA:${doc.trackingCode}` : '')
+        if (options.includeQr !== false && content) builder.align('center').qrCode(content)
+        continue
+      }
+      const align = copy.fieldStyles[id]?.alignment || (id === 'financials' ? 'right' : 'center')
+      builder.align(align).bold(copy.fieldStyles[id]?.bold === true || ['title', 'number', 'tracking', 'financials'].includes(id))
+      builder.line(`${id === 'title' ? '' : `${id.toUpperCase()}: `}${templateFieldValue(id, doc)}`)
+    }
+    if (index < copies.length - 1) {
+      builder.feed(3)
+      if (template.cutBetweenCopies === 'page_break') builder.cut(template.cutPreference)
+    }
+  })
+  if (template.cutAtEnd === 'driver' && options.cutPaper !== false) builder.feed(3).cut(template.cutPreference)
+  else builder.feed(2)
+  return builder
 }
 
 /**

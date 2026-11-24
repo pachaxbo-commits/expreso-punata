@@ -27,6 +27,7 @@ export type DocumentPrintType =
   | 'commission_voucher'      // Vale oficial de liquidación de comisión de conductor
   | 'fixed_asset_label'     // Etiqueta térmica de activo fijo
   | 'test_page'             // Página de prueba y diagnóstico
+  | 'passenger_ticket'      // Par de comprobantes de pasajes verificados
 
 export type ErrorClassification = 'safeToRetry' | 'unsafeToRetry' | 'requiresOperatorDecision'
 
