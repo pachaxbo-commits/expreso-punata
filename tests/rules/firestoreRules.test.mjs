@@ -22,6 +22,34 @@ test('soporte no puede escribir ni leer respaldos o auditoría directamente', as
   await assertFails(updateDoc(doc(support, 'audit_logs', 'support-log'), { action: 'forged' }))
 })
 
+test('procedencia, planes, operaciones y restauraciones de limpieza son exclusivos de Admin SDK', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'users', 'cleanup-direct-test'), { role: 'soporte_pachax', isActive: true })
+    for (const path of [
+      'support_cleanup_provenance/record-proof',
+      'support_cleanup_plans/plan-proof',
+      'support_cleanup_plans/plan-proof/records/record-proof',
+      'support_cleanup_operations/op-proof',
+      'support_cleanup_backups/op-proof/records/record-proof',
+      'support_cleanup_restores/op-proof',
+    ]) await setDoc(doc(db, path), { sensitive: true })
+  })
+  const support = testEnv.authenticatedContext('cleanup-direct-test').firestore()
+  for (const path of [
+    'support_cleanup_provenance/record-proof',
+    'support_cleanup_plans/plan-proof',
+    'support_cleanup_plans/plan-proof/records/record-proof',
+    'support_cleanup_operations/op-proof',
+    'support_cleanup_backups/op-proof/records/record-proof',
+    'support_cleanup_restores/op-proof',
+  ]) {
+    await assertFails(getDoc(doc(support, path)))
+    await assertFails(setDoc(doc(support, path), { sensitive: false }))
+    await assertFails(deleteDoc(doc(support, path)))
+  }
+})
+
 test('configuraciones B4 solo se leen y escriben mediante Functions', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
     const db = context.firestore()

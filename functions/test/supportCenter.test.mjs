@@ -1,17 +1,18 @@
 import { beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } from '../index.js'
+import { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, getSupportCleanupInventory, simulateSupportCleanup, getSupportCleanupPlan, listSupportCleanupOperations, executeSupportCleanup, restoreSupportCleanup } from '../index.js'
+import { registerSyntheticTestRecord } from '../../tests/helpers/supportCleanupProvenance.mjs'
 
 const db = getFirestore()
 const uid = 'support-test'
 const auth = { uid, token: { auth_time: Math.floor(Date.now() / 1000) } }
-const marker = 'pachax-emulator-fixture-v1'
-const request = categories => ({ auth, data: { categories } })
+const request = data => ({ auth, data })
+const suffix = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 beforeEach(async () => {
-  for (const name of ['users', 'support_cleanup_fixtures', 'support_cleanup_backups', 'support_cleanup_operations', 'support_cleanup_restores', 'support_config_history', 'support_diagnostics', 'audit_logs', 'system_config']) {
+  for (const name of ['users', 'support_cleanup_provenance', 'support_cleanup_plans', 'support_cleanup_backups', 'support_cleanup_operations', 'support_cleanup_restores', 'support_config_history', 'support_diagnostics', 'audit_logs', 'system_config']) {
     const docs = await db.collection(name).get()
-    if (!docs.empty) { const batch = db.batch(); docs.forEach(doc => batch.delete(doc.ref)); await batch.commit() }
+    for (const doc of docs.docs) await db.recursiveDelete(doc.ref)
   }
   await db.collection('users').doc(uid).set({ role: 'soporte_pachax', isActive: true })
 })
@@ -68,53 +69,180 @@ test('fuera de emuladores soporte exige segundo factor', async () => {
   } finally { process.env.FUNCTIONS_EMULATOR = prev }
 })
 
-test('simulación incluye padres y dependientes sin modificar documentos', async () => {
-  await db.collection('support_cleanup_fixtures').doc('guide').set({ category: 'encomiendas', testMarker: marker, dependsOn: [], amountCents: 100, branchId: 'punata' })
-  await db.collection('support_cleanup_fixtures').doc('payment').set({ category: 'cobros', testMarker: marker, dependsOn: ['guide'], amountCents: 200, branchId: 'punata' })
-  const plan = await simulateSupportCleanup.run(request(['encomiendas']))
-  assert.deepEqual(plan.records.map(x => x.id), ['guide', 'payment'])
-  assert.equal(plan.amountCents, 300)
-  assert.equal((await db.collection('support_cleanup_fixtures').get()).size, 2)
+test('inventario muestra colecciones operativas y clasifica libros protegidos', async () => {
+  const result = await getSupportCleanupInventory.run(request({}))
+  const byCollection = Object.fromEntries(result.categories.map(item => [item.collection, item]))
+  assert.equal(byCollection.shipments.deletable, true)
+  assert.equal(byCollection.manifests.deletable, true)
+  for (const name of ['financial_movements', 'cash_shifts', 'passenger_ticket_operations', 'union_dues', 'union_loans', 'union_fines', 'users', 'audit_logs']) assert.equal(byCollection[name].deletable, false, `${name} protegida`)
+  assert.ok(result.relations.manifestShipments.fields.includes('shipmentIds[]'))
+  await assert.rejects(() => simulateSupportCleanup.run(request({ categories: ['inventado'] })), { code: 'invalid-argument' })
 })
 
-test('bloquea vínculos sin marca verificable y categorías arbitrarias', async () => {
-  await db.collection('support_cleanup_fixtures').doc('guide').set({ category: 'encomiendas', testMarker: marker, dependsOn: ['real'] })
-  await db.collection('support_cleanup_fixtures').doc('real').set({ category: 'cobros', dependsOn: [] })
-  await assert.rejects(() => simulateSupportCleanup.run(request(['encomiendas'])), { code: 'failed-precondition' })
-  await assert.rejects(() => simulateSupportCleanup.run(request(['users'])), { code: 'invalid-argument' })
+test('procedencia faltante aparece como desconocida y no se vuelve elegible', async () => {
+  const id = `PUN-UNKNOWN-${suffix()}`
+  await db.collection('shipments').doc(id).set({ trackingCode: id, originBranchId: 'punata', destinationBranchId: 'cochabamba', status: 'received', paymentStatus: 'pending', createdAtIso: '2026-01-01T10:00:00.000Z' })
+  const plan = await simulateSupportCleanup.run(request({ categories: ['encomiendas'], ids: [id] }))
+  assert.equal(plan.state, 'bloqueado')
+  assert.equal(plan.records.length, 0)
+  assert.equal(plan.exclusions[0].origin, 'Origen no verificado')
+  assert.match(plan.exclusions[0].reason, /procedencia registrada/)
+  assert.equal((await db.collection('shipments').doc(id).get()).exists, true)
 })
 
-test('limpieza transaccional requiere reautenticación, respaldo, auditoría e idempotencia', async () => {
-  const ref = db.collection('support_cleanup_fixtures').doc('guide')
-  await ref.set({ category: 'encomiendas', testMarker: marker, dependsOn: [] })
-  const plan = await simulateSupportCleanup.run(request(['encomiendas']))
-  const data = { categories: ['encomiendas'], digest: plan.digest, operationId: 'operation-test-1234', confirmation: 'LIMPIAR' }
+test('auditoría global vinculada a una guía se muestra y bloquea el borrado', async () => {
+  const id = `PUN-AUDIT-${suffix()}`
+  const data = { id, trackingCode: id, originBranchId: 'punata', destinationBranchId: 'cochabamba', status: 'received', paymentStatus: 'pending' }
+  await db.collection('shipments').doc(id).set(data)
+  await registerSyntheticTestRecord(db, 'shipments', id, data, `audit-${suffix()}`)
+  const auditId = `audit-shipment-${id}`
+  await db.collection('audit_logs').doc(auditId).set({ entityType: 'shipment', entityId: id, action: 'shipment_created' })
+  const plan = await simulateSupportCleanup.run(request({ categories: ['encomiendas'], ids: [id] }))
+  assert.equal(plan.state, 'bloqueado')
+  assert.ok(plan.exclusions.some(item => item.path === `audit_logs/${auditId}` && item.protected))
+  assert.ok(plan.conflicts.some(item => item.path === `audit_logs/${auditId}` && /inmutable/.test(item.reason)))
+})
+
+test('referencia de manifiesto huérfana bloquea la guía sintética', async () => {
+  const id = `PUN-ORPHAN-${suffix()}`
+  const data = { id, trackingCode: id, originBranchId: 'punata', destinationBranchId: 'cochabamba', status: 'received', paymentStatus: 'pending', manifestId: `missing-manifest-${id}` }
+  await db.collection('shipments').doc(id).set(data)
+  await registerSyntheticTestRecord(db, 'shipments', id, data, `orphan-${suffix()}`)
+  const plan = await simulateSupportCleanup.run(request({ categories: ['encomiendas'], ids: [id] }))
+  assert.equal(plan.state, 'bloqueado')
+  assert.ok(plan.conflicts.some(conflict => conflict.path === `manifests/${data.manifestId}` && /huérfana/.test(conflict.reason)))
+})
+
+test('grafo incluye guía y manifiesto sintéticos relacionados sin modificar en simulación', async () => {
+  const tag = suffix(); const shipmentId = `PUN-CLEAN-${tag}`; const manifestId = `MAN-CLEAN-${tag}`
+  const shipment = { id: shipmentId, trackingCode: shipmentId, originBranchId: 'punata', destinationBranchId: 'cochabamba', status: 'received', paymentStatus: 'pending', finalAmountCents: 1200, createdAtIso: '2026-02-03T10:00:00.000Z', manifestId }
+  const manifest = { id: manifestId, manifestNumber: manifestId, originBranchId: 'punata', destinationBranchId: 'cochabamba', shipmentIds: [shipmentId], shipmentSummaries: [{ shipmentId }], status: 'dispatched', totalCodAmountCents: 1200, createdAtIso: '2026-02-03T10:00:00.000Z' }
+  await db.collection('shipments').doc(shipmentId).set(shipment); await registerSyntheticTestRecord(db, 'shipments', shipmentId, shipment, `suite-${tag}`)
+  await db.collection('manifests').doc(manifestId).set(manifest); await registerSyntheticTestRecord(db, 'manifests', manifestId, manifest, `suite-${tag}`)
+  const plan = await simulateSupportCleanup.run(request({ categories: ['encomiendas'], ids: [shipmentId], branchId: 'punata', from: '2026-02-01', to: '2026-02-28', origin: 'verified' }))
+  assert.equal(plan.state, 'simulado')
+  assert.deepEqual(plan.records.map(record => record.path).sort(), [`manifests/${manifestId}`, `shipments/${shipmentId}`].sort())
+  assert.equal(plan.autoIncludedCount, 1)
+  assert.equal(plan.amountCents, 2400)
+  assert.equal((await db.collection('shipments').doc(shipmentId).get()).exists, true)
+  const saved = await getSupportCleanupPlan.run(request({ planId: plan.planId }))
+  assert.equal(saved.digest, plan.digest)
+  assert.equal(saved.records.length, 2)
+})
+
+test('manifiesto compartido con guía de origen desconocido bloquea toda la componente', async () => {
+  const tag = suffix(); const firstId = `PUN-MIX-A-${tag}`; const secondId = `PUN-MIX-B-${tag}`; const manifestId = `MAN-MIX-${tag}`
+  const first = { id: firstId, trackingCode: firstId, originBranchId: 'punata', destinationBranchId: 'cochabamba', status: 'received', paymentStatus: 'pending', manifestId }
+  const second = { id: secondId, trackingCode: secondId, originBranchId: 'punata', destinationBranchId: 'cochabamba', status: 'in_transit', manifestId }
+  const manifest = { id: manifestId, manifestNumber: manifestId, originBranchId: 'punata', destinationBranchId: 'cochabamba', shipmentIds: [firstId, secondId], status: 'dispatched' }
+  await db.collection('shipments').doc(firstId).set(first); await registerSyntheticTestRecord(db, 'shipments', firstId, first, `suite-${tag}`)
+  await db.collection('shipments').doc(secondId).set(second)
+  await db.collection('manifests').doc(manifestId).set(manifest); await registerSyntheticTestRecord(db, 'manifests', manifestId, manifest, `suite-${tag}`)
+  const plan = await simulateSupportCleanup.run(request({ categories: ['encomiendas'], ids: [firstId] }))
+  assert.equal(plan.state, 'bloqueado')
+  assert.equal(plan.ready, false)
+  assert.ok(plan.records.some(record => record.path === `shipments/${firstId}`), 'muestra el conjunto sintético candidato')
+  assert.ok(plan.records.some(record => record.path === `manifests/${manifestId}`), 'muestra el manifiesto compartido candidato')
+  assert.ok(plan.conflicts.some(conflict => conflict.path === `shipments/${secondId}` && /procedencia/.test(conflict.reason)))
+})
+
+test('dependencias de cobro enlazadas a movimientos y caja quedan protegidas', async () => {
+  const tag = suffix(); const shipmentId = `PUN-CASH-${tag}`
+  const shipment = { id: shipmentId, trackingCode: shipmentId, originBranchId: 'punata', destinationBranchId: 'cochabamba', status: 'received', paymentStatus: 'paid', cashShiftId: `shift-${tag}`, financialMovementId: `movement-${tag}` }
+  await db.collection('shipments').doc(shipmentId).set(shipment); await registerSyntheticTestRecord(db, 'shipments', shipmentId, shipment, `suite-${tag}`)
+  await db.collection('cash_shifts').doc(`shift-${tag}`).set({ branchId: 'punata', status: 'closed', expectedCashCents: 1000 })
+  await db.collection('financial_movements').doc(`movement-${tag}`).set({ shiftId: `shift-${tag}`, amountCents: 1000, type: 'shipment_income' })
+  const plan = await simulateSupportCleanup.run(request({ categories: ['encomiendas'], ids: [shipmentId] }))
+  assert.equal(plan.state, 'bloqueado')
+  assert.equal(plan.ready, false)
+  assert.ok(plan.conflicts.some(conflict => conflict.path === `financial_movements/movement-${tag}`))
+  assert.ok(plan.exclusions.some(record => record.path === `cash_shifts/shift-${tag}`), 'también identifica el turno compartido, sin incluirlo')
+})
+
+test('afiliado, cuotas, pagos de préstamo, multa, saldos de caja y subdocumentos se muestran protegidos', async () => {
+  const tag = suffix(); const memberId = `member-${tag}`; const loanId = `loan-${tag}`; const fineId = `fine-${tag}`; const dueId = `due-${tag}`; const userId = `member-user-${tag}`
+  await Promise.all([
+    db.collection('union_members').doc(memberId).set({ id: memberId, memberNumber: tag, fullName: 'Fixture', branchId: 'punata', status: 'active' }),
+    db.collection('union_dues').doc(dueId).set({ memberId, amountCents: 1200, balanceCents: 400, status: 'partial' }),
+    db.collection('union_loans').doc(loanId).set({ memberId, loanNumber: loanId, principalCents: 12000, balanceCents: 8000, status: 'active' }),
+    db.collection('union_fines').doc(fineId).set({ memberId, fineNumber: fineId, amountCents: 900, balanceCents: 900, status: 'pending' }),
+    db.collection('users').doc(userId).set({ role: 'afiliado', isActive: true, unionMemberId: memberId }),
+    db.collection('financial_movements').doc(`movement-due-${tag}`).set({ dueId, memberId, shiftId: `shift-${tag}`, amountCents: 800 }),
+    db.collection('financial_movements').doc(`movement-loan-${tag}`).set({ loanId, memberId, shiftId: `shift-${tag}`, amountCents: -12000 }),
+    db.collection('financial_movements').doc(`movement-fine-${tag}`).set({ fineId, memberId, shiftId: `shift-${tag}`, amountCents: 900 }),
+    db.collection('cash_shifts').doc(`shift-${tag}`).set({ branchId: 'punata', status: 'closed', expectedCashCents: 0 }),
+  ])
+  await db.collection('union_loans').doc(loanId).collection('installments').doc('001').set({ loanId, sequence: 1, amountCents: 4000, balanceCents: 4000, status: 'pending' })
+  await db.collection('union_loans').doc(loanId).collection('payments').doc('payment-1').set({ loanId, receiptNumber: 'R-1', amountCents: 4000, paidAtIso: '2026-02-03' })
+  await db.collection('union_fines').doc(fineId).collection('payments').doc('payment-1').set({ fineId, amountCents: 250, paidAtIso: '2026-02-04' })
+  await db.collection('union_dues').doc(dueId).collection('payments').doc('payment-1').set({ dueId, memberId, amountCents: 800, paidAtIso: '2026-02-05' })
+  const plan = await simulateSupportCleanup.run(request({ categories: ['afiliados'], ids: [memberId] }))
+  assert.equal(plan.state, 'bloqueado')
+  const paths = new Set(plan.exclusions.map(record => record.path))
+  for (const path of [`users/${userId}`, `union_dues/${dueId}`, `union_dues/${dueId}/payments/payment-1`, `union_loans/${loanId}`, `union_loans/${loanId}/installments/001`, `union_loans/${loanId}/payments/payment-1`, `union_fines/${fineId}`, `union_fines/${fineId}/payments/payment-1`, `financial_movements/movement-loan-${tag}`, `cash_shifts/shift-${tag}`]) assert.ok(paths.has(path), `${path} visible in protected dependency preview`)
+  assert.equal(plan.records.length, 0)
+})
+
+test('pasaje detecta validaciones, cobro y turno; no ofrece una eliminación financiera', async () => {
+  const tag = suffix(); const ticketId = `PJE-${tag.replace(/[^A-F0-9]/gi, '').toUpperCase().padEnd(20, 'A').slice(0, 20)}`; const opNumber = `PAS-${tag}`
+  await db.collection('passenger_ticket_operations').doc(ticketId).set({ id: ticketId, ticketCode: ticketId, operationNumber: opNumber, paymentStatus: 'paid_verified', paymentShiftId: `ticket-shift-${tag}`, paymentMovementId: `ticket-move-${tag}`, branchId: 'punata' })
+  await db.collection('passenger_ticket_validations').doc(`validation-${tag}`).set({ id: `validation-${tag}`, operationId: ticketId, ticketCode: ticketId })
+  await db.collection('financial_movements').doc(`ticket-move-${tag}`).set({ shiftId: `ticket-shift-${tag}`, amountCents: 2400 })
+  await db.collection('cash_shifts').doc(`ticket-shift-${tag}`).set({ branchId: 'punata', status: 'closed', expectedCashCents: 2400 })
+  const plan = await simulateSupportCleanup.run(request({ categories: ['pasajes'], ids: [ticketId], dependencyType: 'financiera' }))
+  assert.equal(plan.state, 'bloqueado')
+  const paths = new Set([...plan.exclusions.map(record => record.path), ...plan.conflicts.map(conflict => conflict.path)])
+  for (const path of [`passenger_ticket_validations/validation-${tag}`, `financial_movements/ticket-move-${tag}`, `cash_shifts/ticket-shift-${tag}`]) assert.ok(paths.has(path), `${path} detected`)
+})
+
+test('mutación posterior al plan invalida la ejecución; exige ID, huella y segundo factor reciente', async () => {
+  const tag = suffix(); const shipmentId = `PUN-STALE-${tag}`
+  const record = { id: shipmentId, trackingCode: shipmentId, originBranchId: 'punata', destinationBranchId: 'cochabamba', status: 'received', paymentStatus: 'pending' }
+  const ref = db.collection('shipments').doc(shipmentId)
+  await ref.set(record); await registerSyntheticTestRecord(db, 'shipments', shipmentId, record, `suite-${tag}`)
+  const plan = await simulateSupportCleanup.run(request({ categories: ['encomiendas'], ids: [shipmentId] }))
+  const operationId = `cleanup-${tag}`
+  const data = { planId: plan.planId, digest: plan.digest, operationId, confirmation: `LIMPIAR ${plan.planId}` }
   await assert.rejects(() => executeSupportCleanup.run({ auth: { uid, token: { auth_time: 1 } }, data }), { code: 'failed-precondition' })
-  const results = await Promise.all([executeSupportCleanup.run({ auth, data }), executeSupportCleanup.run({ auth, data })])
-  assert.deepEqual(results[0], results[1])
-  assert.equal((await ref.get()).exists, false)
-  assert.equal((await db.collection('support_cleanup_backups').doc(data.operationId).get()).data().records.length, 1)
-  assert.equal((await db.collection('audit_logs').get()).size, 1)
-  const restore = { auth, data: { operationId: data.operationId, confirmation: 'RESTAURAR' } }
-  await ref.set({ category: 'encomiendas', testMarker: marker, dependsOn: [], existing: true })
-  await assert.rejects(() => restoreSupportCleanup.run(restore), { code: 'already-exists' })
-  assert.equal((await ref.get()).data().existing, true)
-  await ref.delete()
-  const restored = await Promise.all([restoreSupportCleanup.run(restore), restoreSupportCleanup.run(restore)])
-  assert.deepEqual(restored[0], restored[1])
-  assert.equal((await ref.get()).exists, true)
-  assert.equal((await db.collection('audit_logs').get()).size, 2)
-})
-
-test('cambio después de simular invalida ejecución y producción queda bloqueada', async () => {
-  const ref = db.collection('support_cleanup_fixtures').doc('guide')
-  await ref.set({ category: 'encomiendas', testMarker: marker, dependsOn: [] })
-  const plan = await simulateSupportCleanup.run(request(['encomiendas']))
-  await ref.update({ branchId: 'punata' })
-  const data = { categories: ['encomiendas'], digest: plan.digest, operationId: 'operation-test-1234', confirmation: 'LIMPIAR' }
+  await ref.update({ destinationBranchId: 'punata' })
   await assert.rejects(() => executeSupportCleanup.run({ auth, data }), { code: 'aborted' })
+  assert.equal((await ref.get()).exists, true)
+  const saved = await db.collection('support_cleanup_plans').doc(plan.planId).get()
+  assert.equal(saved.data().state, 'invalidado')
   const prev = process.env.FUNCTIONS_EMULATOR
   try { process.env.FUNCTIONS_EMULATOR = 'false'; await assert.rejects(() => executeSupportCleanup.run({ auth: { uid, token: { ...auth.token, firebase: { sign_in_second_factor: 'phone' } } }, data }), { code: 'failed-precondition' }) }
   finally { process.env.FUNCTIONS_EMULATOR = prev }
-  assert.equal((await ref.get()).exists, true)
+})
+
+test('respaldo íntegro, limpieza idempotente por lotes y restauración sin sobrescritura', async () => {
+  const tag = suffix(); const docs = []
+  for (let index = 0; index < 151; index++) {
+    const id = `PUN-BATCH-${tag}-${String(index).padStart(3, '0')}`
+    const data = { id, trackingCode: id, originBranchId: 'punata', destinationBranchId: 'cochabamba', status: 'received', paymentStatus: 'pending', createdAtIso: '2026-02-03T10:00:00.000Z' }
+    const ref = db.collection('shipments').doc(id); await ref.set(data); await registerSyntheticTestRecord(db, 'shipments', id, data, `batch-${tag}`); docs.push({ id, ref, data })
+  }
+  const plan = await simulateSupportCleanup.run(request({ categories: ['encomiendas'], ids: docs.map(doc => doc.id) }))
+  assert.equal(plan.records.length, 151)
+  const operationId = `batch-${tag}`
+  const data = { planId: plan.planId, digest: plan.digest, operationId, confirmation: `LIMPIAR ${plan.planId}` }
+  const result = await executeSupportCleanup.run({ auth, data })
+  assert.equal(result.state, 'completada'); assert.equal(result.count, 151)
+  assert.equal((await Promise.all(docs.map(doc => doc.ref.get()))).filter(doc => doc.exists).length, 0)
+  const backup = await db.collection('support_cleanup_backups').doc(operationId).collection('records').get()
+  assert.equal(backup.size, 151)
+  const operation = await db.collection('support_cleanup_operations').doc(operationId).get()
+  assert.equal(operation.data().processed, 151)
+  assert.deepEqual(await executeSupportCleanup.run({ auth, data }), result)
+  await db.collection('shipments').doc(docs[0].id).set({ colliding: true })
+  await assert.rejects(() => restoreSupportCleanup.run({ auth, data: { operationId, confirmation: `RESTAURAR ${operationId}` } }), { code: 'already-exists' })
+  assert.deepEqual((await db.collection('shipments').doc(docs[0].id).get()).data(), { colliding: true })
+  await db.collection('shipments').doc(docs[0].id).delete()
+  const restoreRequest = { auth, data: { operationId, confirmation: `RESTAURAR ${operationId}` } }
+  const concurrentRestores = await Promise.all([restoreSupportCleanup.run(restoreRequest), restoreSupportCleanup.run(restoreRequest)])
+  const restored = concurrentRestores.find(result => result.state === 'restaurada') || concurrentRestores[0]
+  assert.equal(restored.count, 151)
+  assert.ok(concurrentRestores.every(result => ['en_ejecucion', 'restaurada'].includes(result.state)))
+  assert.deepEqual((await db.collection('shipments').doc(docs[0].id).get()).data(), docs[0].data)
+  assert.deepEqual(await restoreSupportCleanup.run({ auth, data: { operationId, confirmation: `RESTAURAR ${operationId}` } }), restored)
+  assert.equal((await listSupportCleanupOperations.run(request({}))).operations[0].operationId, operationId)
 })
