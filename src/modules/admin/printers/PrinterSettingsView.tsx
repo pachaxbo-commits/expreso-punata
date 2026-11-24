@@ -145,7 +145,9 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
     setIsTesting(true)
     try {
       const result = await printEngine.printTestTicket(selectedBranchId, operatorName, profile)
-      if (result.success) {
+      if (result.status === 'dialog_opened') {
+        setStatusMessage({ type: 'success', text: 'Diálogo de impresión abierto. Confirma el destino e inspecciona físicamente la impresión; la app no confirma el corte.' })
+      } else if (result.success) {
         setStatusMessage({
           type: 'success',
           text: result.message || `Ticket de prueba emitido exitosamente mediante ${result.connectionType.toUpperCase()}.`,
@@ -470,7 +472,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                         <Monitor className="w-3.5 h-3.5 text-slate-600" />
                       )}
                       {profile.connectionType === 'browser_dialog'
-                        ? 'Windows USB / Spooler'
+                        ? 'Chrome/Edge → driver Windows'
                         : profile.connectionType === 'rawbt_intent'
                         ? 'Android RawBT'
                         : profile.connectionType === 'network_tcp'
@@ -484,9 +486,9 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
               {/* Capacidades activadas */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[11px] space-y-1.5 text-slate-600">
                 <div className="flex items-center justify-between">
-                  <span>Corte automático de papel:</span>
-                  <span className={profile.cutPaperOnFinish ? 'font-bold text-emerald-700' : 'text-slate-400'}>
-                    {profile.cutPaperOnFinish ? 'Activo' : 'No'}
+                  <span>Corte físico:</span>
+                  <span className={profile.capabilities.cutVerified ? 'font-bold text-emerald-700' : 'text-amber-700'}>
+                    {profile.capabilities.cutVerified ? 'Verificado' : profile.connectionType === 'browser_dialog' ? 'Driver Windows · pendiente de prueba' : 'No verificado'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -618,7 +620,7 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                     }
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl font-semibold bg-white text-slate-800 outline-none"
                   >
-                    <option value="browser_dialog">Windows USB / Controlador del Sistema</option>
+                    <option value="browser_dialog">Chrome/Edge → diálogo del driver Windows</option>
                     <option value="rawbt_intent">Android RawBT (ru.a402d.rawbtprinter)</option>
                     <option value="network_tcp">Red LAN / WiFi (Vía driver de Windows)</option>
                     <option value="virtual_pdf">PDF Virtual Descargable</option>
@@ -654,14 +656,17 @@ export const PrinterSettingsView: React.FC<PrinterSettingsViewProps> = ({
                   <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={editingProfile.cutPaperOnFinish}
+                      checked={editingProfile.connectionType !== 'browser_dialog' && editingProfile.connectionType !== 'network_tcp' && editingProfile.cutPaperOnFinish}
+                      disabled={editingProfile.connectionType === 'browser_dialog' || editingProfile.connectionType === 'network_tcp'}
                       onChange={(e) =>
                         setEditingProfile({ ...editingProfile, cutPaperOnFinish: e.target.checked })
                       }
                       className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
                     />
-                    <span className="font-medium text-slate-700">Cortar papel al terminar</span>
+                    <span className="font-medium text-slate-700">Corte por comando ESC/POS (RawBT)</span>
                   </label>
+
+                  {(editingProfile.connectionType === 'browser_dialog' || editingProfile.connectionType === 'network_tcp') && <p className="col-span-2 text-xs text-amber-800">En Windows el corte se configura y valida en las preferencias del driver Rongta. Este perfil no puede ordenar ni confirmar el corte.</p>}
 
                   <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
                     <input

@@ -32,6 +32,8 @@ export type ErrorClassification = 'safeToRetry' | 'unsafeToRetry' | 'requiresOpe
 
 export interface PrinterCapabilities {
   supportsPaperCut: boolean
+  cutControlMode?: 'driver_managed' | 'escpos_command' | 'unavailable'
+  cutVerified?: boolean
   supportsCashDrawerKick: boolean
   supportsQrCode: boolean
   supportsLogo: boolean

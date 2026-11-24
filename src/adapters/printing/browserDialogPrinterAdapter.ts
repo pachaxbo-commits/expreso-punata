@@ -1,4 +1,6 @@
 import QRCode from 'qrcode'
+import { buildShipmentTicketTemplateHtml } from './shipmentTicketTemplateRenderer.ts'
+import type { ShipmentTicketTemplate } from '../../services/printing/ticketTemplates.ts'
 import {
   type UnifiedDocumentPayload,
   type PaperFormat,
@@ -26,8 +28,12 @@ export async function buildDocumentHtml(
     marginsMm?: number
     includeQr?: boolean
     includeLogo?: boolean
+    ticketTemplate?: ShipmentTicketTemplate
   } = {}
 ): Promise<string> {
+  if (doc.documentType === 'shipment_guide' && options.ticketTemplate && (paperFormat === '58mm' || paperFormat === '80mm')) {
+    return buildShipmentTicketTemplateHtml(doc, paperFormat, options.ticketTemplate, options)
+  }
   const isThermal = paperFormat === '58mm' || paperFormat === '80mm'
   const contentWidth = paperFormat === '58mm' ? '48mm' : paperFormat === '80mm' ? '72mm' : '100%'
   const marginMm = options.marginsMm ?? (isThermal ? 2 : 15)
@@ -287,6 +293,7 @@ export async function printViaBrowserDialog(
     marginsMm?: number
     includeQr?: boolean
     includeLogo?: boolean
+    ticketTemplate?: ShipmentTicketTemplate
   } = {}
 ): Promise<PrintResult> {
   const jobId = `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
