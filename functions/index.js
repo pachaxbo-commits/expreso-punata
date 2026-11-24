@@ -21,7 +21,7 @@ import { commercialSettingsRef, createCommercialFunctions, effectiveCommercialRu
 
 export const { getCommercialSettings, updateCommercialSettings } = createCommercialFunctions(db)
 export const { getB4Settings, updateB4Settings } = createB4SettingsFunctions(db)
-export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, simulateSupportCleanup, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db)
+export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, getSupportCleanupInventory, simulateSupportCleanup, getSupportCleanupPlan, listSupportCleanupOperations, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db)
 export const { adminRevokeUserSessions, adminRetireUser, adminDeleteRetiredUser, getUserDeletionStatus } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
 // Transitional access for legacy profiles. New administrators require both agencies.
