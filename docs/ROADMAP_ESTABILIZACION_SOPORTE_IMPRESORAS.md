@@ -957,7 +957,7 @@ Documenta la deuda heredada y las correcciones verificadas.
 | Etapa | Estado | Evidencia o condición pendiente |
 |---|---|---|
 | Desarrollo local | Terminado | Bloques A–D y pruebas locales indicadas arriba. |
-| Integración GitHub | PR [#64](https://github.com/pachaxbo-commits/expreso-punata/pull/64) abierta hacia `main`; mergeable | Rama `codex/phase-2-support-center`, HEAD `94cc9041e0e89e82e16a0da14d1fe9fcd0fd64a0`, 29 commits desde el SHA base `c35b620e08e2af32196b900bdaa8c12d55004e8b`. Check de Vercel: success. Preview: READY. |
+| Integración GitHub | PR [#64](https://github.com/pachaxbo-commits/expreso-punata/pull/64) abierta hacia `main`; sin conflictos | Rama `codex/phase-2-support-center` publicada desde el SHA base `c35b620e08e2af32196b900bdaa8c12d55004e8b`. Check de Vercel: success; Preview de la revisión más reciente: READY. La revisión actualizada se ve en la PR. |
 | Despliegue | No realizado; bloqueado | No fusionar ni desplegar mientras no haya respaldo recuperable y recuperación comprobada. |
 | Respaldo Firebase | No disponible | Proyecto `expreso-punata-dev`, Firestore `(default)` en `nam5`: no se encontraron backups ni agenda de backups; PITR está desactivado. |
 | Verificación de producción | Parcial, no funcional | Vercel Production está READY en `c35b620…`; `/` responde 200 y `/demo` redirige 307 a `/`. No se probó el inicio de sesión ni las operaciones reales de Nelson. |
