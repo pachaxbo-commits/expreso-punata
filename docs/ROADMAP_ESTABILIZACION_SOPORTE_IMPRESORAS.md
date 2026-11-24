@@ -1285,14 +1285,14 @@ No ejecutar ninguna limpieza de datos de producción sin autorización expresa d
 
 ### EP-17 · AUDITAR LO QUE YA EXISTE
 
-- [ ] Pendiente
+- [x] Completado en rama local de Fase 3.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: los perfiles del navegador solo guardan preferencias locales; no seleccionan el dispositivo USB de Windows ni controlan/confirmar el cortador. `afterprint` solo sirve para limpiar el iframe.
+- Archivos afectados: `PrinterSettingsView.tsx`, `printerProfiles.ts`, `browserDialogPrinterAdapter.ts`, `printEngineService.ts`.
+- Solución realizada: documentado en la interfaz que el driver de Windows controla papel y corte; el estado físico queda “pendiente de prueba”.
+- Pruebas, resultado y evidencias: typecheck y build pasan; revisión automatizada de perfiles y editor añadida en EP-22.
+- Commit: pendiente; no se ha creado commit.
+- Dependencias y bloqueos: verificar la Rongta física en una estación Windows.
 
 Actualmente hay componentes de impresión, como:
 
@@ -1310,14 +1310,14 @@ Comprueba qué opciones son reales y cuáles solamente aparecen en la interfaz.
 
 ### EP-18 · IMPRESORAS USB EN WINDOWS
 
-- [ ] Pendiente
+- [ ] Implementación parcial; pendiente validación física.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: el navegador abre el diálogo estándar; no ofrece selección silenciosa ni control USB específico.
+- Archivos afectados: `PrinterOperationsView.tsx`, `RongtaPrintTestPage.tsx`, `PrinterSettingsView.tsx` y adaptador browser.
+- Solución realizada: página de calibración con pruebas sintéticas 58/80 mm, QR, dos trabajos secuenciales, observaciones locales, modelo y driver. No se añadió un servicio de impresión local.
+- Pruebas, resultado y evidencias: Playwright valida el panel y el registro sintético; la impresión y el cortador requieren estación Windows con hardware.
+- Commit: pendiente; no se ha creado commit.
+- Dependencias y bloqueos: seleccionar Rongta en el diálogo de Windows y registrar resultados observados.
 
 El cliente utilizará impresoras térmicas conectadas por USB a las computadoras.
 
@@ -1342,14 +1342,14 @@ No prometas impresión silenciosa o control ESC/POS directo si el navegador y el
 
 ### EP-19 · EDITOR VISUAL DE TICKETS
 
-- [ ] Pendiente
+- [ ] Primera implementación lista; alcance restante pendiente.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: el motor anterior no permitía configurar campos/orden/versiones con un editor visual.
+- Archivos afectados: `TicketTemplateEditor.tsx`, `ticketTemplates.ts`, `ticketTemplateService.ts`, `shipmentTicketTemplateRenderer.ts`, `functions/ticketTemplates.js`.
+- Solución realizada: editor de campos permitidos, orden, estilo, papel, márgenes, tipografía, separadores, espaciado, textos adicionales y previsualización con los mismos datos/HTML del diálogo. Guardado versionado, duplicado y restauración con permisos, reautenticación, control de concurrencia y auditoría. Valores oficiales y aviso legal no son editables.
+- Pruebas, resultado y evidencias: 4 pruebas unitarias, 2 pruebas Functions Emulator, Playwright de editor/versiones y previsualización; typecheck y build pasan.
+- Commit: pendiente; no se ha creado commit.
+- Dependencias y bloqueos: completar controles de logo/firma y otros campos solo si el alcance funcional lo requiere; no inventar datos institucionales (NIT ausente).
 
 El Centro de Soporte tendrá un editor completo con dos paneles:
 
@@ -1399,14 +1399,14 @@ Mantener los datos y textos necesarios para identificación, trazabilidad y cump
 
 ### EP-20 · DOS COPIAS POR ENCOMIENDA
 
-- [ ] Pendiente
+- [ ] Parcial; pendiente validar impresión física y reimpresión autorizada.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: no existía configuración para segunda copia.
+- Archivos afectados: `ticketTemplates.ts`, `shipmentTicketTemplateRenderer.ts`, editor de guías.
+- Solución realizada: cliente y agencia tienen plantillas distintas y comparten número de guía. Se imprimen en un único trabajo, con separación continua o salto de página; no se realizan dos acciones de negocio. El driver puede ignorar el corte entre copias.
+- Pruebas, resultado y evidencias: pruebas unitarias y Playwright confirman campos diferentes entre copias, mismo número de guía y segundo ticket en un solo trabajo.
+- Commit: pendiente; no se ha creado commit.
+- Dependencias y bloqueos: verificar separación/corte con driver y completar reimpresión autorizada en fase posterior.
 
 Configurar:
 
@@ -1431,14 +1431,14 @@ Imprimir dos comprobantes nunca debe registrar dos guías ni generar dos cobros.
 
 ### EP-21 · AUTOCORTE
 
-- [ ] Pendiente
+- [ ] Pendiente de verificación física; corte Windows administrado por driver.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: el adaptador browser ignora `cutPaperOnFinish`; no envía ESC/POS a la Rongta USB.
+- Archivos afectados: `PrinterSettingsView.tsx`, `printerProfiles.ts`, `RongtaPrintTestPage.tsx`.
+- Solución realizada: no se representa el corte como activo ni verificado en Windows; la opción de comando ESC/POS se limita a RawBT.
+- Pruebas, resultado y evidencias: pantalla de prueba recoge observaciones separadas para corte al final y entre trabajos; no hay resultado físico disponible en este entorno.
+- Commit: pendiente; no se ha creado commit.
+- Dependencias y bloqueos: verificar modelo/driver Rongta; mantener el corte como pendiente hasta la observación física.
 
 Cuando la impresora sea compatible:
 
@@ -1454,14 +1454,14 @@ La opción de autocorte debe estar condicionada por las capacidades reales del h
 
 ### EP-22 · PRUEBAS
 
-- [ ] Pendiente
+- [ ] Parcial; faltan escenarios de hardware y módulos ajenos a esta primera implementación.
 - Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- Diagnóstico: no había pruebas dedicadas al editor/renderer ni una página de prueba Rongta con datos sintéticos.
+- Archivos afectados: `tests/unit/ticketTemplates.test.ts`, `functions/test/ticketTemplates.test.mjs`, `tests/e2e/runTicketTemplateEditor.mjs`.
+- Solución realizada: tests de normalización/campos obligatorios, escape de HTML, QR, anchos, visibilidad, copias; Functions cubre autorización, auth reciente, concurrencia, auditoría y restauración; Playwright verifica navegación y previsualización.
+- Pruebas, resultado y evidencias: `npm run typecheck`, `npm run build`, `npm run test:unit` (77/77), `npm run test:functions` (190/190), `npm run test:rules` (34/34) y Playwright pasan. Playwright verifica versiones, las dos copias y su guía común, el preview 58/80 mm y que el diálogo sintético no cree encomiendas ni movimientos financieros. La impresión/corte físicos siguen pendientes.
+- Commit: pendiente; no se ha creado commit.
+- Dependencias y bloqueos: Vite proporciona `import.meta.env`; Node nativo no lo inicializa. `viteEnv.ts` devuelve entorno vacío para tests y los comandos de emulador fijan un ID demo. No se tocaron credenciales ni configuración productiva. No se validaron físicamente corte, papel, alineación ni impresora desconectada; tampoco se probaron recibos/pasajes de otros módulos.
 
 Validar:
 
