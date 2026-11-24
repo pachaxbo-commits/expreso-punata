@@ -943,6 +943,17 @@ Documenta la deuda heredada y las correcciones verificadas.
 
 ## Fase 2
 
+### Cierre local de Fase 2 · Bloques A–D · 2026-11-24
+
+| Bloque | Estado local | Evidencia de cierre |
+|---|---|---|
+| A · Gestión de usuarios | Verificado en emuladores | TypeScript, build, regresión y recorrido Playwright de ciclo de vida, revocación, recuperación y eliminación de Auth sintética. Sin publicación ni eliminación real. |
+| B · Configuraciones operativas y comerciales | Verificado en emuladores | TypeScript, build y recorrido Playwright de configuraciones B4, comerciales e institucionales; valores sintéticos. No se cambiaron fórmulas comerciales de producción. |
+| C · Limpieza y recuperación | Verificado en emuladores | Recorrido Playwright de inventario, simulación, ejecución y restauración de registros sintéticos con procedencia. No hubo limpieza de datos reales. |
+| D · Diagnóstico, seguridad, regresión e integración | Verificado localmente | 73 pruebas unitarias, 188 Functions, 34 reglas Firestore y tres recorridos Playwright de soporte, configuración y usuarios; Node 22. |
+
+Los cambios de A–D están únicamente en la rama local `codex/phase-2-support-center`. No se publicaron cambios, no se creó una identidad real de soporte y no se modificaron cuentas o datos de producción. El alta de una identidad real requiere el procedimiento de [acceso a soporte](PROCEDIMIENTO_ACCESO_SOPORTE.md), responsable designado, MFA y aprobación operativa. La validación en emuladores no acredita la configuración MFA de producción.
+
 ### Bloque A · avance de gestión de usuarios
 
 #### Continuación desde `c8187ba`
@@ -985,27 +996,27 @@ Rama `codex/phase-2-support-center`, creada desde `origin/main` en `c35b620e08e2
 
 | Tarea | Estado real | Evidencia y trabajo pendiente |
 |---|---|---|
-| EP-13 · Soporte | En curso | Panel independiente con resumen y acceso exclusivo al perfil técnico. Backend exige perfil activo y, fuera de emuladores, segundo factor. La configuración institucional y comercial versionada se describe en el Bloque B. Los diagnósticos permiten registrar y consultar identificadores técnicos manuales; falta integrar eventos automáticos de cliente, Functions y dispositivos. La activación de una identidad real requiere titular confirmado, MFA, aprovisionamiento IAM y auditoría; no se ha creado ninguna cuenta. La ampliación de impresoras sigue pendiente. |
+| EP-13 · Soporte | Implementado y verificado localmente | Panel independiente con resumen, filtros, detalle y revisión auditada de diagnósticos. Cliente clasifica fallos observados de Functions, Firestore, autenticación, red y errores globales con correlación; backend limita frecuencia, guarda campos permitidos y expira reportes. Ver recorrido Playwright móvil y pruebas D. Las fallas de inicio de sesión sin usuario autenticado no se reportan centralmente; tampoco se detecta el resultado físico de impresión. La identidad real de soporte no fue creada. |
 | EP-14 · Usuarios | Verificado en emuladores | Gestión, revocación y baja lógica con auditoría, recuperación por backend y protección administrativa. Eliminación de identidad limitada a cuentas sintéticas marcadas en emuladores; perfil y operaciones conservados. La verificación y las condiciones de publicación se registran en el Bloque A. |
 | EP-15 · Cuentas antiguas | Pendiente de revisión | Las tres cuentas antiguas fueron deshabilitadas y sus sesiones revocadas. Existen referencias en movimientos, manifiestos y auditoría, así como dos candados históricos de caja; no se han eliminado físicamente perfiles ni registros de negocio. |
 | EP-16 · Limpieza | Implementado y verificado en emuladores; producción bloqueada | Centro de limpieza sobre las colecciones operativas inventariadas. La procedencia firmada por el helper de seeding y el hash del contenido son obligatorios; sólo `shipments` y `manifests` pueden ser candidatos. Finanzas, auditorías, usuarios y demás colecciones quedan protegidas. El grafo, los planes persistentes, el respaldo verificable, la ejecución idempotente por lotes, la recuperación y el bloqueo fuera de Firebase Emulator Suite se probaron localmente. No se ejecutó ni habilitó ninguna limpieza real. |
 
-**Identidad técnica futura:** el propietario de PACHAX debe identificar al titular y configurar autenticación multifactor en Firebase Auth. Un operador IAM autorizado deberá preparar el perfil técnico y sus permisos mediante un procedimiento revisado y auditado, sin credenciales en Git. El administrador del cliente no puede crear ni modificar el rol de soporte. Esta descripción no habilita una cuenta ni sustituye un procedimiento de aprovisionamiento probado.
+**Identidad técnica futura:** el procedimiento local está documentado en [`docs/PROCEDIMIENTO_ACCESO_SOPORTE.md`](PROCEDIMIENTO_ACCESO_SOPORTE.md) y automatizado por `scripts/supportIdentity.mjs`. Exige proyecto explícito, aprobación registrada, titular preexistente con MFA, ejecución interactiva y auditoría; permite revocar el acceso. El administrador del cliente no puede crear ni modificar el rol de soporte. No se ha creado una cuenta real ni se ha validado MFA de producción.
 
-**Limitaciones:** las tarjetas de usuarios, mantenimiento e impresoras son indicadores de trabajo pendiente; no representan herramientas terminadas. Los diagnósticos no capturan eventos automáticamente y no hay detección infalible de secretos en identificadores introducidos manualmente. Las opciones configurables y sus pendientes se registran en el Bloque B. El antiguo `internal 0` sigue sin causa confirmada. Se preserva la política comercial: no se propone ninguna tarifa de comisión. El alcance de Fase 3 permanece intacto.
+**Limitaciones:** las tarjetas de mantenimiento e impresoras son indicadores de trabajo pendiente; no representan herramientas terminadas. Los reportes automáticos cubren los errores observados por cliente, no errores ocurridos antes de autenticar ni el éxito físico de una impresora. El servidor no recibe trazas crudas, mensajes originales o datos de solicitud; la limpieza de reportes vencidos es por lotes al consultar o registrar. El antiguo `internal 0` sigue sin causa confirmada. No se propone ninguna tarifa de comisión. El alcance de Fase 3 permanece intacto.
 
-**Pruebas locales con Node 22:** build y TypeScript aprobados; 73 unitarias, 167 Functions en la regresión previa a la restauración sintética y al refuerzo de administradores, y 29 reglas Firestore aprobadas. Después de esos cambios pasaron 23 pruebas dirigidas de administración, soporte y revocación; tras añadir diagnósticos pasaron diez pruebas dirigidas. Playwright en viewport móvil verificó sesión de soporte sintética, edición y restauración de nombre comercial, registro manual de diagnóstico, simulación, dependencias, ejecución y restauración de respaldo en emuladores. No se han completado los recorridos E2E de gestión avanzada de usuarios ni de los demás parámetros de configuración.
+**Pruebas locales con Node 22:** `npm run typecheck` y `npm run build` aprobados; suite unitaria 73/73, Functions 188/188 y Firestore Rules 34/34. Playwright aprobado para `tests/e2e/runSupportCenter.mjs` (diagnóstico y limpieza móvil), `tests/e2e/runBlockBConfiguration.mjs` (configuración móvil/escritorio) y `tests/e2e/runUserSecurityJourney.mjs` (gestión y seguridad de usuarios). Los tres recorridos usaron datos sintéticos y emuladores. No se hizo verificación real de cuenta/MFA, despliegue ni producción.
 
 ### EP-13 · CENTRO DE SOPORTE PACHAX
 
-- [ ] Pendiente
-- Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- [x] Implementado y verificado localmente en emuladores.
+- Prioridad: Alta.
+- Diagnóstico: errores observados en cliente clasificados y correlacionados; información sensible cruda excluida del reporte.
+- Archivos afectados: `functions/supportCenter.js`, `functions/supportAccess.js`, `src/firebase/observedCallable.ts`, `src/firebase/observedFirestore.ts`, `src/firebase/globalDiagnostics.ts`, `src/modules/support/SupportCenter.tsx` y puntos de integración en servicios y vistas.
+- Solución realizada: recepción limitada y retenida de diagnósticos; lista, filtros, detalle y revisión con auditoría; sesión de soporte verificada; procedimiento de provisión y revocación documentado.
+- Pruebas y resultado: 73 unitarias, 188 Functions, 34 reglas Firestore; recorridos de soporte, configuración y seguridad de usuarios aprobados con Node 22 y Firebase Emulator Suite.
+- Commit: cierre local en la rama de Fase 2; no publicado.
+- Bloqueos de producción: titular y MFA reales, aprobación operativa, publicación/deploy y validación post despliegue. Sin cambios en producción.
 
 Crear un panel profesional, separado de la administración del cliente.
 
