@@ -34,6 +34,7 @@ import {
 } from '../../services/expenseService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
 import { subscribeActiveCashShift } from '../../services/cashService.ts'
+import { getB4Setting } from '../../services/b4SettingsService.ts'
 
 interface WorkersAndExpensesViewProps {
   currentBranchId: string
@@ -70,8 +71,10 @@ export const WorkersAndExpensesView: React.FC<WorkersAndExpensesViewProps> = ({
 
   // Estado Trabajadores
   const [workers, setWorkers] = useState<Worker[]>([])
+  const [configuredWorkerRoles, setConfiguredWorkerRoles] = useState(Object.entries(WORKER_ROLE_LABELS).map(([id, label]) => ({ id, label, active: true })))
   const [payments, setPayments] = useState<WorkerPayment[]>([])
   const [loadingWorkers, setLoadingWorkers] = useState(true)
+  useEffect(() => { void getB4Setting('catalogs').then(setting => { if (setting?.value?.workerRoles) setConfiguredWorkerRoles(setting.value.workerRoles) }).catch(() => {}) }, [])
 
   // Estado Egresos Generales
   const [expenses, setExpenses] = useState<GeneralExpense[]>([])
@@ -247,7 +250,7 @@ export const WorkersAndExpensesView: React.FC<WorkersAndExpensesViewProps> = ({
         ci: newWorkerForm.ci.trim(),
         phone: newWorkerForm.phone.trim(),
         role: newWorkerForm.role,
-        roleLabel: WORKER_ROLE_LABELS[newWorkerForm.role],
+        roleLabel: configuredWorkerRoles.find(option => option.id === newWorkerForm.role)?.label || WORKER_ROLE_LABELS[newWorkerForm.role],
         branchId: newWorkerForm.branchId,
         salaryType: newWorkerForm.salaryType,
         baseSalaryBob: salaryBob,
@@ -637,7 +640,7 @@ export const WorkersAndExpensesView: React.FC<WorkersAndExpensesViewProps> = ({
                         </td>
                         <td className="py-2.5 px-3">
                           <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
-                            {WORKER_ROLE_LABELS[w.role] || w.role}
+                            {w.roleLabel || WORKER_ROLE_LABELS[w.role] || w.role}
                           </span>
                         </td>
                         <td className="py-2.5 px-3 capitalize text-slate-700 font-medium">
@@ -993,7 +996,7 @@ export const WorkersAndExpensesView: React.FC<WorkersAndExpensesViewProps> = ({
                     onChange={(e) => setNewWorkerForm({ ...newWorkerForm, role: e.target.value as any })}
                     className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#064e3b]"
                   >
-                    {Object.entries(WORKER_ROLE_LABELS).map(([rol, label]) => (
+                    {configuredWorkerRoles.filter(option => option.active || option.id === newWorkerForm.role).map(({ id: rol, label }) => (
                       <option key={rol} value={rol}>
                         {label}
                       </option>
@@ -1121,7 +1124,7 @@ export const WorkersAndExpensesView: React.FC<WorkersAndExpensesViewProps> = ({
                     .filter((w) => w.status === 'active')
                     .map((w) => (
                       <option key={w.id} value={w.id}>
-                        {w.workerCode} — {w.fullName} ({WORKER_ROLE_LABELS[w.role] || w.role})
+                        {w.workerCode} — {w.fullName} ({w.roleLabel || WORKER_ROLE_LABELS[w.role] || w.role})
                       </option>
                     ))}
                 </select>

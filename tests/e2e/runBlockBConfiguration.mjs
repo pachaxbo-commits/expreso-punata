@@ -5,9 +5,11 @@ import { initializeApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
 
-assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /^(localhost|127\.0\.0\.1):8080$/)
-assert.match(process.env.FIREBASE_AUTH_EMULATOR_HOST || '', /^(localhost|127\.0\.0\.1):9099$/)
-const project = 'demo-expreso-punata-block-b-browser'
+const firestorePort = process.env.VITE_FIREBASE_FIRESTORE_EMULATOR_PORT || '8080'
+const authPort = process.env.VITE_FIREBASE_AUTH_EMULATOR_PORT || '9099'
+assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', new RegExp(`^(localhost|127\\.0\\.0\\.1):${firestorePort}$`))
+assert.match(process.env.FIREBASE_AUTH_EMULATOR_HOST || '', new RegExp(`^(localhost|127\\.0\\.0\\.1):${authPort}$`))
+const project = process.env.B4_PROJECT_ID || 'demo-expreso-punata-block-b-browser'
 const app = initializeApp({ projectId: project })
 const db = getFirestore(app)
 const auth = getAuth(app)
@@ -62,8 +64,31 @@ try {
   browser = await chromium.launch({ channel: 'chrome' })
   const page = await signIn(support, 390)
   await page.getByRole('heading', { name: 'Centro de Soporte PACHAX' }).waitFor()
-  await page.getByText('La administración del cliente autoriza y publica las reglas comerciales.').waitFor()
+  await page.getByRole('heading', { name: 'Configuración comercial', exact: true }).waitFor()
   assert.equal(await button(page, 'Autorizar y publicar').count(), 0)
+  const b4 = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Configuraciones operativas B4', exact: true }) })
+  await b4.getByLabel('Área').selectOption('reports')
+  await b4.locator('fieldset').filter({ hasText: 'Afiliados' }).getByLabel('fullName').uncheck()
+  await b4.getByLabel('Motivo del cambio').fill('Preferencia sintética de columnas')
+  await call(page, 'updateB4Settings', () => button(b4, 'Guardar configuración').click())
+  assert.equal((await db.collection('b4_settings').doc('reports').get()).data().value.optionalColumns.members.includes('fullName'), false)
+  await b4.getByLabel('Motivo del cambio').fill('Segunda preferencia para prueba de restauración')
+  await b4.getByLabel('Orden de columnas').selectOption('alphabetical')
+  await call(page, 'updateB4Settings', () => button(b4, 'Guardar configuración').click())
+  await b4.getByLabel('Motivo del cambio').fill('Restauración sintética de columnas')
+  await call(page, 'updateB4Settings', () => button(b4, 'Restaurar versión').nth(1).click())
+  assert.equal((await db.collection('b4_settings').doc('reports').get()).data().value.order, 'source')
+  await b4.getByLabel('Área').selectOption('notifications')
+  await b4.getByLabel('Mostrar avisos de encomienda registrada').uncheck()
+  await b4.getByLabel('Motivo del cambio').fill('Ocultar aviso informativo sintético')
+  await call(page, 'updateB4Settings', () => button(b4, 'Guardar configuración').click())
+  assert.equal((await db.collection('b4_settings').doc('notifications').get()).data().value.shipmentRegisteredVisible, false)
+  await b4.getByLabel('Área').selectOption('catalogs')
+  await b4.getByRole('combobox').nth(1).selectOption('fixedAssetCategories')
+  await b4.getByLabel('oficina').fill('Oficina verificada por navegador')
+  await b4.getByLabel('Motivo del cambio').fill('Etiqueta sintética de catálogo')
+  await call(page, 'updateB4Settings', () => button(b4, 'Guardar configuración').click())
+  assert.equal((await db.collection('b4_settings').doc('catalogs').get()).data().value.fixedAssetCategories.find(option => option.id === 'oficina').label, 'Oficina verificada por navegador')
   const institutional = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Configuración institucional', exact: true }) })
   await button(institutional, 'Punata').click()
   await institutional.getByLabel('Nuevo valor').fill('Agencia actualizada en Chrome')
@@ -116,7 +141,20 @@ try {
   assert.equal((await db.collection('commercial_settings').doc('punata-cochabamba').get()).data().releases[0].baseFeeCents, 1600)
   await client.getByRole('navigation', { name: 'Secciones del sistema' }).getByRole('button', { name: 'Reportes & Estadísticas', exact: true }).click()
   await button(client, 'Mes Anterior').and(client.locator('button.bg-emerald-900')).waitFor()
-  console.log('Playwright: edición de agencia, restauración, separación de roles, publicación de tarifas y comisiones, historial y período de reportes verificados.')
+  const reportMonth = new Date()
+  reportMonth.setUTCDate(1)
+  reportMonth.setUTCMonth(reportMonth.getUTCMonth() - 1)
+  await db.collection('union_members').doc('b4-chrome-report-member').set({
+    id: 'b4-chrome-report-member', memberNumber: 'B4-CHROME', fullName: 'Afiliado sintético de reporte', category: 'socio_general',
+    branchId: 'punata', status: 'active', monthlyFeeCents: 4200, createdAtIso: `${reportMonth.toISOString().slice(0, 7)}-15T12:00:00.000Z`,
+  })
+  await button(client, 'Afiliados y obligaciones').click()
+  const reportTable = client.locator('table').filter({ hasText: 'B4-CHROME' })
+  await reportTable.waitFor()
+  const headers = (await reportTable.locator('thead th').allTextContents()).map(header => header.replace(/\s/g, '').toLowerCase())
+  assert.ok(headers.includes('membernumber'))
+  assert.equal(headers.includes('fullname'), false, 'la preferencia guardada se refleja en la tabla del reporte real')
+  console.log('Playwright: configuraciones B4, restauración de columnas, visibilidad de avisos, etiquetas de catálogos, edición institucional, tarifas, comisiones y período de reportes verificados.')
 } finally {
   await browser?.close()
   vite.kill()

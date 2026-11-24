@@ -27,6 +27,7 @@ import {
 } from '../../services/assetService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
 import { downloadFixedAssetLabelsPdf } from '../../services/fixedAssetLabelsPdfService.ts'
+import { getB4Setting } from '../../services/b4SettingsService.ts'
 
 interface FixedAssetsViewProps {
   currentBranchId: string
@@ -61,6 +62,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
   userProfile,
 }) => {
   const [assets, setAssets] = useState<FixedAsset[]>([])
+  const [configuredCategories, setConfiguredCategories] = useState(Object.entries(CATEGORY_LABELS).map(([id, label]) => ({ id, label, active: true })))
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
@@ -139,6 +141,8 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
     )
     return () => unsubscribe()
   }, [assetBranchScope])
+
+  useEffect(() => { void getB4Setting('catalogs').then(setting => { if (setting?.value?.fixedAssetCategories) setConfiguredCategories(setting.value.fixedAssetCategories) }).catch(() => {}) }, [])
 
   // Suscripción a logs de auditoría cuando se abre el modal
   useEffect(() => {
@@ -471,8 +475,8 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
             className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-1 focus:ring-[#064e3b]"
           >
             <option value="all">Todas las Categorías</option>
-            {Object.entries(CATEGORY_LABELS).map(([cat, label]) => (
-              <option key={cat} value={cat}>
+            {configuredCategories.map(({ id, label }) => (
+              <option key={id} value={id}>
                 {label}
               </option>
             ))}
@@ -550,7 +554,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
                   {/* Nombre y categoría */}
                   <h4 className="text-sm font-bold text-slate-900 mt-2 line-clamp-1">{asset.name}</h4>
                   <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold block">
-                    {CATEGORY_LABELS[asset.category] || asset.category}
+                    {configuredCategories.find(option => option.id === asset.category)?.label || CATEGORY_LABELS[asset.category] || asset.category}
                   </span>
 
                   {asset.description && (
@@ -698,7 +702,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
                     onChange={(e) => setNewAsset({ ...newAsset, category: e.target.value as any, quantity: e.target.value === 'inmuebles' ? '1' : newAsset.quantity })}
                     className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#064e3b]"
                   >
-                    {Object.entries(CATEGORY_LABELS).map(([cat, label]) => (
+                    {configuredCategories.filter(item => item.active || item.id === newAsset.category).map(({ id: cat, label }) => (
                       <option key={cat} value={cat}>
                         {label}
                       </option>
@@ -1073,7 +1077,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({
           <form onSubmit={handleEditAsset} className="bg-white rounded-2xl max-w-xl w-full p-5 space-y-3 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center"><div><h3 className="font-bold text-sm">Editar ficha patrimonial</h3><p className="font-mono text-xs text-[#064e3b]">{selectedAssetForEdit.assetCode} · QR estable</p></div><button type="button" onClick={() => setSelectedAssetForEdit(null)}><X className="w-4 h-4"/></button></div>
             <input required minLength={2} value={editForm.name || ''} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} placeholder="Nombre del bien" className="w-full p-2.5 border rounded-lg text-sm"/>
-            <div className="grid grid-cols-2 gap-2"><select value={editForm.category || 'otro'} onChange={(event) => setEditForm({ ...editForm, category: event.target.value as FixedAssetCategory })} className="p-2.5 border rounded-lg text-sm">{Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select value={editForm.patrimonialLocationId || 'oficina_punata'} onChange={(event) => setEditForm({ ...editForm, patrimonialLocationId: event.target.value as PatrimonialLocationId })} className="p-2.5 border rounded-lg text-sm">{Object.entries(LOCATION_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></div>
+            <div className="grid grid-cols-2 gap-2"><select value={editForm.category || 'otro'} onChange={(event) => setEditForm({ ...editForm, category: event.target.value as FixedAssetCategory })} className="p-2.5 border rounded-lg text-sm">{configuredCategories.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}</select><select value={editForm.patrimonialLocationId || 'oficina_punata'} onChange={(event) => setEditForm({ ...editForm, patrimonialLocationId: event.target.value as PatrimonialLocationId })} className="p-2.5 border rounded-lg text-sm">{Object.entries(LOCATION_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></div>
             <textarea rows={2} value={editForm.description || ''} onChange={(event) => setEditForm({ ...editForm, description: event.target.value })} placeholder="Descripción" className="w-full p-2.5 border rounded-lg text-sm"/>
             {editForm.category === 'inmuebles' && <div className="grid grid-cols-2 gap-2"><input value={editForm.propertyType || ''} onChange={(event) => setEditForm({ ...editForm, propertyType: event.target.value })} placeholder="Tipo de inmueble" className="p-2.5 border rounded-lg text-sm"/><input value={editForm.address || ''} onChange={(event) => setEditForm({ ...editForm, address: event.target.value })} placeholder="Dirección" className="p-2.5 border rounded-lg text-sm"/></div>}
             <div className="grid grid-cols-2 gap-2"><label className="text-xs">Fecha de adquisición/incorporación<input type="date" value={editForm.acquisitionDate || ''} onChange={(event) => setEditForm({ ...editForm, acquisitionDate: event.target.value })} className="mt-1 w-full p-2 border rounded text-sm"/></label><label className="text-xs">Valor registrado (Bs)<input type="number" min="0" step="0.01" value={editForm.acquisitionCostBob || 0} onChange={(event) => setEditForm({ ...editForm, acquisitionCostBob: Number(event.target.value) })} className="mt-1 w-full p-2 border rounded text-sm"/></label></div>

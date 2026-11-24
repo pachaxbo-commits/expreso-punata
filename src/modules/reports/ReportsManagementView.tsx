@@ -35,6 +35,7 @@ import {
 import type { UserProfile, Branch } from '../../types/index.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
 import { isEmulatedEnvironment } from '../../firebase/config.ts'
+import { getB4Setting } from '../../services/b4SettingsService.ts'
 
 interface ReportsManagementViewProps {
   currentUser: UserProfile
@@ -48,6 +49,16 @@ const GENERIC_REPORT_LABELS: Record<string, string> = {
   members: 'Afiliados y obligaciones', loans: 'Préstamos', fines: 'Multas y sanciones',
   sports: 'Deportes y asistencia', physical_inventory: 'Patrimonio y documentos',
   commissions: 'Comisiones de conductores', consumables: 'Almacén logístico', incidents: 'Incidencias de encomiendas',
+}
+const REPORT_OPTIONAL_ALLOWED: Record<string, string[]> = {
+  members: ['memberNumber', 'fullName', 'category', 'branchId', 'status'],
+  loans: ['loanNumber', 'memberNumber', 'memberName', 'status', 'disbursementStatus'],
+  fines: ['fineNumber', 'memberNumber', 'memberName', 'category', 'status'],
+  sports: ['memberNumber', 'memberName', 'eventName', 'status', 'attendanceStatus'],
+  physical_inventory: ['assetCode', 'name', 'category', 'branchId', 'status'],
+  commissions: ['driverName', 'branchId', 'status', 'period'],
+  consumables: ['code', 'name', 'category', 'unit', 'branchId'],
+  incidents: ['trackingCode', 'status', 'originBranchId', 'destinationBranchId', 'createdAtIso'],
 }
 const genericReportRecords = (data: any) => [
   ...(Array.isArray(data?.records) ? data.records.map((record: any) => ({ ...record, tipoRegistro: data.reportType })) : []),
@@ -66,6 +77,15 @@ const dashboardExportRows = (dashboard: any) => Object.entries(dashboard || {}).
 const genericReportColumns = (records: any[]) => Array.from(new Set(records.flatMap((record) => Object.entries(record)
   .filter(([, value]) => value === null || ['string', 'number', 'boolean'].includes(typeof value))
   .map(([key]) => key))))
+const configuredReportColumns = (records: any[], report: string, preferences: any) => {
+  const available = genericReportColumns(records)
+  if (!preferences) return available
+  const optional = new Set(preferences?.optionalColumns?.[report] || [])
+  const allowedOptional = new Set(REPORT_OPTIONAL_ALLOWED[report] || [])
+  const selectedOptional = optional
+  const columns = available.filter(key => !allowedOptional.has(key) || selectedOptional.has(key))
+  return preferences?.order === 'alphabetical' ? columns.sort((a, b) => a.localeCompare(b)) : columns
+}
 const genericReportCell = (value: any) => value === null || value === undefined ? '' : typeof value === 'number' ? value : String(value)
 const laPazDateParts = () => Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -83,6 +103,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
   const isSecretaria = role === 'secretaria'
 
   const [companyName, setCompanyName] = useState<string>()
+  const [reportPreferences, setReportPreferences] = useState<any>()
   const [activeTab, setActiveTab] = useState<ReportType>(
     isConductor ? 'drivers' : canViewAll ? 'consolidated_dashboard' : 'shipments'
   )
@@ -163,6 +184,9 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
       const preset = response.config?.reportPreferences?.datePreset
       if (preset && !isSecretaria) applyDatePreset(preset)
     })
+    void getB4Setting('reports').then(setting => {
+      if (active && setting?.value) setReportPreferences(setting.value)
+    }).catch(() => {})
     return () => { active = false }
   }, [applyDatePreset, isSecretaria])
 
@@ -295,7 +319,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
 
     if (GENERIC_REPORTS.includes(activeTab)) {
       const records = genericReportRecords(reportData)
-      const headers = genericReportColumns(records)
+      const headers = configuredReportColumns(records, activeTab, reportPreferences)
       const rows = records.map((record) => headers.map((key) => genericReportCell(record[key])))
       const summary = reportData.summary || {}
       const kpiCards = Object.entries(summary).filter(([key, value]) => typeof value === 'number' && !key.endsWith('Bob'))
@@ -534,7 +558,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
     }
     if (GENERIC_REPORTS.includes(activeTab)) {
       const records = genericReportRecords(reportData)
-      const headers = genericReportColumns(records)
+      const headers = configuredReportColumns(records, activeTab, reportPreferences)
       const rows = records.map((record) => headers.map((key) => genericReportCell(record[key])))
       const filename = `Expreso_Punata_${activeTab}_${startDate || 'periodo'}`
       const additionalSheets = activeTab === 'physical_inventory' ? [
@@ -1045,7 +1069,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
 
           {GENERIC_REPORTS.includes(activeTab) && (() => {
             const records = genericReportRecords(reportData)
-            const columns = genericReportColumns(records)
+            const columns = configuredReportColumns(records, activeTab, reportPreferences)
             const metrics = Object.entries(reportData.summary || {}).filter(([key, value]) => typeof value === 'number' && !key.endsWith('Bob'))
             return <section className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">{metrics.map(([key, value]) => <article key={key} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm"><div className="text-[11px] text-slate-500 capitalize">{key.replace(/([A-Z])/g, ' $1').replace(/Cents$/, ' (centavos)')}</div><div className="text-lg font-black text-slate-900 mt-1">{key.endsWith('Cents') ? formatCurrencyBob(Number(value), true) : Number(value).toLocaleString('es-BO')}</div></article>)}</div>

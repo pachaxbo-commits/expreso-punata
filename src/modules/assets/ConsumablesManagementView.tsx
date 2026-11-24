@@ -25,6 +25,7 @@ import {
   recordConsumableAdjustment,
 } from '../../services/consumableService.ts'
 import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig.ts'
+import { getB4Setting } from '../../services/b4SettingsService.ts'
 
 interface ConsumablesManagementViewProps {
   currentUser: UserProfile
@@ -48,6 +49,8 @@ export const ConsumablesManagementView: React.FC<ConsumablesManagementViewProps>
   const canReadAllBranches = hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria'])
   const [selectedBranchId, setSelectedBranchId] = useState<string>(canReadAllBranches ? 'all' : currentBranch.id)
   const [items, setItems] = useState<ConsumableItem[]>([])
+  const [configuredCategories, setConfiguredCategories] = useState(Object.entries(CATEGORY_LABELS).map(([id, label]) => ({ id, label, active: true })))
+  const [configuredUnits, setConfiguredUnits] = useState<string[]>(['unidades', 'rollos', 'cajas', 'paquetes', 'sobres', 'metros', 'litros', 'pares'])
   const [movements, setMovements] = useState<ConsumableMovement[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [_loading, setLoading] = useState(true)
@@ -94,12 +97,17 @@ export const ConsumablesManagementView: React.FC<ConsumablesManagementViewProps>
     loadData()
   }, [selectedBranchId])
 
+  useEffect(() => { void getB4Setting('catalogs').then(setting => {
+    if (setting?.value?.consumableCategories) setConfiguredCategories(setting.value.consumableCategories)
+    if (setting?.value?.consumableUnits) setConfiguredUnits(setting.value.consumableUnits.filter((entry: { active: boolean }) => entry.active).map((entry: { label: string }) => entry.label))
+  }).catch(() => {}) }, [])
+
   const filteredItems = items.filter((it) => {
     const q = searchQuery.toLowerCase()
     return (
       it.code.toLowerCase().includes(q) ||
       it.name.toLowerCase().includes(q) ||
-      CATEGORY_LABELS[it.category]?.toLowerCase().includes(q)
+      (configuredCategories.find(option => option.id === it.category)?.label || CATEGORY_LABELS[it.category])?.toLowerCase().includes(q)
     )
   })
 
@@ -458,7 +466,7 @@ export const ConsumablesManagementView: React.FC<ConsumablesManagementViewProps>
                             </span>
                           )}
                         </td>
-                        <td className="p-2.5 text-slate-600 text-[11px]">{CATEGORY_LABELS[it.category] || it.category}</td>
+                        <td className="p-2.5 text-slate-600 text-[11px]">{configuredCategories.find(option => option.id === it.category)?.label || CATEGORY_LABELS[it.category] || it.category}</td>
                         <td className="p-2.5 text-slate-500 text-[11px]">{branchObj ? branchObj.name : it.branchId}</td>
                         <td className="p-2.5 text-center font-black font-mono text-sm">
                           <span
@@ -555,7 +563,7 @@ export const ConsumablesManagementView: React.FC<ConsumablesManagementViewProps>
                     onChange={(e) => setNewCategory(e.target.value as any)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl"
                   >
-                    {Object.entries(CATEGORY_LABELS).map(([catKey, label]) => (
+                    {configuredCategories.filter(option => option.active || option.id === newCategory).map(({ id: catKey, label }) => (
                       <option key={catKey} value={catKey}>
                         {label}
                       </option>
@@ -585,8 +593,10 @@ export const ConsumablesManagementView: React.FC<ConsumablesManagementViewProps>
                     value={newUnit}
                     onChange={(e) => setNewUnit(e.target.value)}
                     required
+                    list="b4-consumable-units"
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl"
                   />
+                  <datalist id="b4-consumable-units">{configuredUnits.map(unit => <option key={unit} value={unit} />)}</datalist>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Stock Inicial</label>
