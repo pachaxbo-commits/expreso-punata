@@ -1291,7 +1291,7 @@ No ejecutar ninguna limpieza de datos de producción sin autorización expresa d
 - Archivos afectados: `PrinterSettingsView.tsx`, `printerProfiles.ts`, `browserDialogPrinterAdapter.ts`, `printEngineService.ts`.
 - Solución realizada: documentado en la interfaz que el driver de Windows controla papel y corte; el estado físico queda “pendiente de prueba”.
 - Pruebas, resultado y evidencias: typecheck y build pasan; revisión automatizada de perfiles y editor añadida en EP-22.
-- Commit: pendiente; no se ha creado commit.
+- Commit: `257b723`.
 - Dependencias y bloqueos: verificar la Rongta física en una estación Windows.
 
 Actualmente hay componentes de impresión, como:
@@ -1316,7 +1316,7 @@ Comprueba qué opciones son reales y cuáles solamente aparecen en la interfaz.
 - Archivos afectados: `PrinterOperationsView.tsx`, `RongtaPrintTestPage.tsx`, `PrinterSettingsView.tsx` y adaptador browser.
 - Solución realizada: página de calibración con pruebas sintéticas 58/80 mm, QR, dos trabajos secuenciales, observaciones locales, modelo y driver. No se añadió un servicio de impresión local.
 - Pruebas, resultado y evidencias: Playwright valida el panel y el registro sintético; la impresión y el cortador requieren estación Windows con hardware.
-- Commit: pendiente; no se ha creado commit.
+- Commit: `257b723`.
 - Dependencias y bloqueos: seleccionar Rongta en el diálogo de Windows y registrar resultados observados.
 
 El cliente utilizará impresoras térmicas conectadas por USB a las computadoras.
@@ -1342,14 +1342,14 @@ No prometas impresión silenciosa o control ESC/POS directo si el navegador y el
 
 ### EP-19 · EDITOR VISUAL DE TICKETS
 
-- [ ] Primera implementación lista; alcance restante pendiente.
+- [x] Editor universal implementado en la rama de Fase 3; la activación productiva depende de publicar Functions y completar las puertas de producción.
 - Prioridad: Programada.
 - Diagnóstico: el motor anterior no permitía configurar campos/orden/versiones con un editor visual.
-- Archivos afectados: `TicketTemplateEditor.tsx`, `ticketTemplates.ts`, `ticketTemplateService.ts`, `shipmentTicketTemplateRenderer.ts`, `functions/ticketTemplates.js`.
-- Solución realizada: editor de campos permitidos, orden, estilo, papel, márgenes, tipografía, separadores, espaciado, textos adicionales y previsualización con los mismos datos/HTML del diálogo. Guardado versionado, duplicado y restauración con permisos, reautenticación, control de concurrencia y auditoría. Valores oficiales y aviso legal no son editables.
-- Pruebas, resultado y evidencias: 4 pruebas unitarias, 2 pruebas Functions Emulator, Playwright de editor/versiones y previsualización; typecheck y build pasan.
-- Commit: pendiente; no se ha creado commit.
-- Dependencias y bloqueos: completar controles de logo/firma y otros campos solo si el alcance funcional lo requiere; no inventar datos institucionales (NIT ausente).
+- Archivos afectados: `DocumentTemplateCenter.tsx`, `documentTemplates.ts`, `documentTemplateService.ts`, `documentTemplateRenderer.ts`, `printCatalog.ts`, `functions/ticketTemplates.js`, `PassengerTicketsView.tsx` y adaptadores de impresión.
+- Solución realizada: Centro de Plantillas común por secciones y esquemas de campos reales por documento; edita visibilidad, orden, alineación, tamaño, márgenes, separadores, logo y contacto institucional por copia. La empresa, NIT, contactos oficiales, datos de clientes y finanzas no se editan aquí. Avisos oficiales obligatorios quedan protegidos. Versiones/restauraciones conservan reautenticación reciente, permiso de rol, control de concurrencia y auditoría.
+- Pruebas, resultado y evidencias: regresión actual en “EP-22 · PRUEBAS”. Reportes A4 siguen en su salida convencional; tipos sin un punto de impresión operativo no se inventan como tickets.
+- Commit: `ebcbdb3`.
+- Dependencias y bloqueos: la rama debe desplegarse en Preview/Production tras la revisión y las puertas de respaldo. No hay hardware de impresión conectado para validar papel o cortador.
 
 El Centro de Soporte tendrá un editor completo con dos paneles:
 
@@ -1399,13 +1399,13 @@ Mantener los datos y textos necesarios para identificación, trazabilidad y cump
 
 ### EP-20 · DOS COPIAS POR ENCOMIENDA
 
-- [ ] Parcial; pendiente validar impresión física y reimpresión autorizada.
+- [x] Implementado para guías y configurable por tipo; validación física y reimpresión autorizada siguen pendientes.
 - Prioridad: Programada.
 - Diagnóstico: no existía configuración para segunda copia.
-- Archivos afectados: `ticketTemplates.ts`, `shipmentTicketTemplateRenderer.ts`, editor de guías.
-- Solución realizada: cliente y agencia tienen plantillas distintas y comparten número de guía. Se imprimen en un único trabajo, con separación continua o salto de página; no se realizan dos acciones de negocio. El driver puede ignorar el corte entre copias.
-- Pruebas, resultado y evidencias: pruebas unitarias y Playwright confirman campos diferentes entre copias, mismo número de guía y segundo ticket en un solo trabajo.
-- Commit: pendiente; no se ha creado commit.
+- Archivos afectados: `documentTemplates.ts`, `documentTemplateRenderer.ts`, Centro de Plantillas, adaptadores Browser y RawBT.
+- Solución realizada: copias independientes con número de guía común. La copia de agencia predeterminada es compacta, omite dirección/teléfono, QR y avisos opcionales, pero esos bloques se pueden habilitar manualmente. Browser usa un solo diálogo y salto de página/continuidad; RawBT compone ambas copias en un único trabajo. Imprimir no llama a operaciones de negocio.
+- Pruebas, resultado y evidencias: unitarias y Playwright confirman vista de ambas copias, número compartido, 58/80 mm y ausencia de escrituras a encomiendas/caja; ver EP-22.
+- Commit: `ebcbdb3`.
 - Dependencias y bloqueos: verificar separación/corte con driver y completar reimpresión autorizada en fase posterior.
 
 Configurar:
@@ -1431,13 +1431,13 @@ Imprimir dos comprobantes nunca debe registrar dos guías ni generar dos cobros.
 
 ### EP-21 · AUTOCORTE
 
-- [ ] Pendiente de verificación física; corte Windows administrado por driver.
+- [x] Control ESC/POS configurado para RawBT; corte Windows todavía depende del driver y requiere prueba física.
 - Prioridad: Programada.
 - Diagnóstico: el adaptador browser ignora `cutPaperOnFinish`; no envía ESC/POS a la Rongta USB.
 - Archivos afectados: `PrinterSettingsView.tsx`, `printerProfiles.ts`, `RongtaPrintTestPage.tsx`.
-- Solución realizada: no se representa el corte como activo ni verificado en Windows; la opción de comando ESC/POS se limita a RawBT.
-- Pruebas, resultado y evidencias: pantalla de prueba recoge observaciones separadas para corte al final y entre trabajos; no hay resultado físico disponible en este entorno.
-- Commit: pendiente; no se ha creado commit.
+- Solución realizada: separación continua/salto de página en Browser no se presenta como confirmación de corte. RawBT puede emitir corte parcial o completo y corte intermedio/final usando comandos ESC/POS. Ningún flujo interpreta `afterprint` como confirmación física.
+- Pruebas, resultado y evidencias: la prueba unitaria inspecciona el trabajo ESC/POS y la pantalla Rongta conserva su formulario de observaciones; no se observó el comportamiento de una impresora real.
+- Commit: `ebcbdb3`.
 - Dependencias y bloqueos: verificar modelo/driver Rongta; mantener el corte como pendiente hasta la observación física.
 
 Cuando la impresora sea compatible:
@@ -1454,14 +1454,14 @@ La opción de autocorte debe estar condicionada por las capacidades reales del h
 
 ### EP-22 · PRUEBAS
 
-- [ ] Parcial; faltan escenarios de hardware y módulos ajenos a esta primera implementación.
+- [x] Regresión automatizada del editor y salidas incluidas ejecutada; siguen pendientes únicamente pruebas de hardware físico.
 - Prioridad: Programada.
 - Diagnóstico: no había pruebas dedicadas al editor/renderer ni una página de prueba Rongta con datos sintéticos.
 - Archivos afectados: `tests/unit/ticketTemplates.test.ts`, `functions/test/ticketTemplates.test.mjs`, `tests/e2e/runTicketTemplateEditor.mjs`.
-- Solución realizada: tests de normalización/campos obligatorios, escape de HTML, QR, anchos, visibilidad, copias; Functions cubre autorización, auth reciente, concurrencia, auditoría y restauración; Playwright verifica navegación y previsualización.
-- Pruebas, resultado y evidencias: `npm run typecheck`, `npm run build`, `npm run test:unit` (77/77), `npm run test:functions` (190/190), `npm run test:rules` (34/34) y Playwright pasan. Playwright verifica versiones, las dos copias y su guía común, el preview 58/80 mm y que el diálogo sintético no cree encomiendas ni movimientos financieros. La impresión/corte físicos siguen pendientes.
-- Commit: pendiente; no se ha creado commit.
-- Dependencias y bloqueos: Vite proporciona `import.meta.env`; Node nativo no lo inicializa. `viteEnv.ts` devuelve entorno vacío para tests y los comandos de emulador fijan un ID demo. No se tocaron credenciales ni configuración productiva. No se validaron físicamente corte, papel, alineación ni impresora desconectada; tampoco se probaron recibos/pasajes de otros módulos.
+- Solución realizada: cobertura de normalización/campos obligatorios, escape HTML, QR, 58/80 mm, alineación, copias, orden y comandos de corte; Functions valida autorización, autenticación reciente, allowlist por documento, concurrencia, auditoría y restauración.
+- Pruebas, resultado y evidencias (24-11-2026): typecheck y build pasan; unitarias 83/83; `ticketTemplates.test.mjs` en Functions Emulator 3/3; Firestore Rules 34/34; Playwright de Chrome pasa Centro, versiones, guía, recibo, pasaje, vista 58/80, copia compacta, impresión sintética sin escrituras de negocio y viewport móvil 390 px. No se validaron físicamente impresión, papel, QR/corte Rongta ni impresora desconectada.
+- Commit: `5b1fa50`.
+- Dependencias y bloqueos: el backend de plantillas requiere Functions de Fase 3. La evidencia automatizada no sustituye la revisión independiente de PR ni el respaldo exigido para publicación. No hubo cambios a credenciales o configuración productiva.
 
 Validar:
 
