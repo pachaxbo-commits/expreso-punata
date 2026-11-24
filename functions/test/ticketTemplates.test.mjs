@@ -1,7 +1,7 @@
 import { beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getShipmentTicketTemplate, saveShipmentTicketTemplate } from '../index.js'
+import { getShipmentTicketTemplate, saveShipmentTicketTemplate, getDocumentPrintTemplate, saveDocumentPrintTemplate } from '../index.js'
 
 const db = getFirestore()
 const uid = `ticket-template-${process.pid}`
@@ -50,4 +50,32 @@ test('reads require active profile; saves require current authentication and adm
   await assert.rejects(() => saveShipmentTicketTemplate.run(request({ template: template(), expectedVersion: 0 })), { code: 'permission-denied' })
   await db.collection('users').doc(uid).set({ role: 'directiva_admin', isActive: true })
   await assert.rejects(() => saveShipmentTicketTemplate.run({ ...request({ template: template(), expectedVersion: 0 }), auth: { uid, token: { auth_time: 1 } } }), { code: 'failed-precondition' })
+})
+
+test('universal document templates are scoped to existing types and versioned with audit', async () => {
+  const ref = db.doc('ticket_templates/payment_receipt')
+  await db.recursiveDelete(ref).catch(() => {})
+  const initial = await getDocumentPrintTemplate.run(request({ documentType: 'payment_receipt' }))
+  assert.equal(initial.template, null)
+  const input = {
+    documentType: 'payment_receipt', expectedVersion: 0,
+    template: { documentType: 'payment_receipt', version: 0, paperFormat: '58mm', marginsMm: 2, fontSize: 'normal', separator: 'dashed', secondCopyEnabled: false,
+      cutBetweenCopies: 'page_break', cutAtEnd: 'driver', cutPreference: 'partial', copies: [
+        { visibleFields: ['title', 'number', 'timestamp', 'financials', 'unknown'], fieldStyles: { financials: { alignment: 'right', bold: true } } },
+        { visibleFields: ['number'], fieldStyles: {} },
+      ] },
+  }
+  const saved = await saveDocumentPrintTemplate.run(request(input))
+  assert.equal(saved.version, 1)
+  assert.ok(!saved.template.copies[0].visibleFields.includes('unknown'))
+  assert.ok(saved.template.copies[0].visibleFields.includes('timestamp'))
+  const read = await getDocumentPrintTemplate.run(request({ documentType: 'payment_receipt' }))
+  assert.equal(read.version, 1)
+  assert.equal(read.template.paperFormat, '58mm')
+  await assert.rejects(() => getDocumentPrintTemplate.run(request({ documentType: 'unregistered' })), { code: 'invalid-argument' })
+  await assert.rejects(() => saveDocumentPrintTemplate.run(request({ ...input, expectedVersion: 0 })), { code: 'aborted' })
+  const restored = await saveDocumentPrintTemplate.run(request({ documentType: 'payment_receipt', action: 'restore', expectedVersion: 1, restoreVersion: 1 }))
+  assert.equal(restored.version, 2)
+  assert.equal((await db.collection('audit_logs').where('uid', '==', uid).get()).size, 2)
+  await db.recursiveDelete(ref).catch(() => {})
 })
