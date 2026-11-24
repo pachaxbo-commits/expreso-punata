@@ -1,4 +1,5 @@
 import { httpsCallable as firebaseHttpsCallable, type Functions, type HttpsCallableOptions, type HttpsCallableResult } from 'firebase/functions'
+import { viteEnv } from '../config/viteEnv.ts'
 
 type DiagnosticPayload = { module: string; operation: string; code: string; category: string; correlationId: string; frontendVersion: string }
 type DiagnosticContext = { module: string; operation: string }
@@ -40,7 +41,7 @@ export async function reportObservedError(error: unknown, context: DiagnosticCon
   try {
     const { functions } = await import('./config.ts')
     const diagnosticCall = firebaseHttpsCallable<DiagnosticPayload, { success: boolean; correlationId: string }>(functions, 'reportClientDiagnostic')
-    const result = await diagnosticCall({ module: context.module, operation: context.operation, code, category, correlationId: id, frontendVersion: import.meta.env.VITE_APP_VERSION || '1.0.0' })
+    const result = await diagnosticCall({ module: context.module, operation: context.operation, code, category, correlationId: id, frontendVersion: String(viteEnv.VITE_APP_VERSION || '1.0.0') })
     return result.data.correlationId
   } catch {
     return null
