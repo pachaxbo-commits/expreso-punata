@@ -1,4 +1,5 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { verifySupportSession } from './supportAccess.js'
 
 const KINDS = ['contributions', 'catalogs', 'reports', 'notifications']
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
@@ -86,14 +87,13 @@ const defaults = {
   notifications: { value: { shipmentRegisteredVisible: true, unreadShipmentAlertsVisible: true } },
 }
 
-export function createB4SettingsFunctions(db) {
+export function createB4SettingsFunctions(db, authAdmin = null) {
   const getB4Settings = onCall({ cors: true }, async request => {
     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión.')
     const profile = (await db.collection('users').doc(request.auth.uid).get()).data()
     const readOperational = profile?.isActive === true && ['directiva_admin', 'tesoreria', 'encargado_agencia', 'secretaria'].includes(profile.role)
     if (!ADMIN(profile) && !SUPPORT(profile) && !readOperational) throw new HttpsError('permission-denied', 'Sin acceso a configuraciones del Centro de Soporte.')
-    if (SUPPORT(profile) && !(process.env.FUNCTIONS_EMULATOR === 'true' && process.env.FIRESTORE_EMULATOR_HOST && (process.env.GCLOUD_PROJECT || '').startsWith('demo-'))
-      && !request.auth.token?.firebase?.sign_in_second_factor) throw new HttpsError('permission-denied', 'El acceso de Soporte requiere autenticación multifactor.')
+    if (SUPPORT(profile)) await verifySupportSession(authAdmin, request)
     const snapshots = await Promise.all(KINDS.map(kind => db.collection('b4_settings').doc(kind).get()))
     const items = await Promise.all(KINDS.map(async (kind, i) => {
       if (kind === 'contributions' && !ADMIN(profile)) return { kind, version: 0, draft: null, effective: null, releases: [], history: [], canEdit: false }
@@ -108,6 +108,8 @@ export function createB4SettingsFunctions(db) {
     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión.')
     const authTime = request.auth.token?.auth_time
     if (!Number.isFinite(authTime) || Date.now() / 1000 - authTime > 300 || authTime > Date.now() / 1000 + 30) throw new HttpsError('failed-precondition', 'Vuelva a autenticarse para continuar.')
+    const callerProfile = (await db.collection('users').doc(request.auth.uid).get()).data()
+    if (SUPPORT(callerProfile)) await verifySupportSession(authAdmin, request, true)
     const { kind, action, value, expectedVersion, reason, restoreVersion, confirmation } = request.data || {}
     if (!KINDS.includes(kind) || !['save', 'publish', 'restore'].includes(action) || !Number.isSafeInteger(expectedVersion) || expectedVersion < 0
       || typeof reason !== 'string' || reason.trim().length < 10 || reason.trim().length > 500 || confirmation !== true

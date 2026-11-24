@@ -1,4 +1,4 @@
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import { functions } from '../firebase/config'
 
 type B4Response = { items: { kind: string; value?: any; effective?: any; version: number }[] }

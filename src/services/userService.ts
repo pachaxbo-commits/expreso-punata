@@ -1,16 +1,10 @@
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-} from 'firebase/firestore'
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore'
+import { getDocs } from '../firebase/observedFirestore.ts'
 import {
   sendPasswordResetEmail,
   updatePassword,
 } from 'firebase/auth'
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import { db, auth, functions } from '../firebase/config'
 import type { UserProfile, UserRole, UserAuditLog } from '../types'
 

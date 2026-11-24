@@ -1,5 +1,6 @@
-import { httpsCallable } from 'firebase/functions'
-import { doc, getDoc } from 'firebase/firestore'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
+import { doc } from 'firebase/firestore'
+import { getDoc } from '../firebase/observedFirestore.ts'
 import { functions, db } from '../firebase/config.ts'
 import type { SystemConfig, SystemConfigResponse } from '../types/index.ts'
 

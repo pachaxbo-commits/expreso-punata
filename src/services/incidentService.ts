@@ -1,12 +1,7 @@
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import {
-  collection,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  limit,
-} from 'firebase/firestore'
+  collection, query, where, orderBy, limit } from 'firebase/firestore'
+import { getDocs } from '../firebase/observedFirestore.ts'
 import { functions, db } from '../firebase/config.ts'
 import type {
   ShipmentIncident,

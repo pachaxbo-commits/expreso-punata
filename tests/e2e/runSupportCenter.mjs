@@ -21,6 +21,26 @@ const email = `support-${suffix}@example.test`
 const password = 'LocalSupportOnly!234'
 const user = await auth.createUser({ email, password })
 await db.collection('users').doc(user.uid).set({ uid: user.uid, email, fullName: 'Soporte local', role: 'soporte_pachax', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true })
+const operatorEmail = `operator-${suffix}@example.test`
+const operator = await auth.createUser({ email: operatorEmail, password })
+await db.collection('users').doc(operator.uid).set({ uid: operator.uid, email: operatorEmail, fullName: 'Operador sintético', role: 'secretaria', primaryBranchId: 'punata', allowedBranchIds: ['punata'], isActive: true })
+const signInResponse = await fetch('http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=fake-api-key', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: operatorEmail, password, returnSecureToken: true }),
+})
+const signInBody = await signInResponse.json()
+assert.equal(signInResponse.ok, true, JSON.stringify(signInBody))
+const { idToken } = signInBody
+const correlationId = `e2e-${Math.random().toString(36).slice(2, 12)}`
+const diagnosticResponse = await fetch(`http://127.0.0.1:5001/${projectId}/us-central1/reportClientDiagnostic`, {
+  method: 'POST', headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ data: { module: 'cash', operation: 'registerExpenseSynthetic', code: 'internal', category: 'cloud_function', correlationId, frontendVersion: '1.4.96', rawMessage: 'token=must-not-be-stored' } }),
+})
+const diagnosticBody = await diagnosticResponse.json()
+assert.equal(diagnosticResponse.ok, true, JSON.stringify(diagnosticBody))
+const storedDiagnostic = (await db.collection('support_diagnostics').doc(correlationId).get()).data()
+assert.equal(storedDiagnostic.messageSafe, 'Falló una operación del servidor.')
+assert.equal(storedDiagnostic.rawMessage, undefined)
+assert.equal(storedDiagnostic.branchId, 'punata')
 await db.collection('system_config').doc('expreso_punata').set({ status: 'configured', isOfficial: true, company: { tradeName: 'Nombre inicial' }, branches: { punata: { phone: '111' }, cochabamba: { phone: '222' } } })
 const blockedGuideId = `PUN-BLOCKED-${suffix}`
 const blockedSiblingId = `PUN-UNKNOWN-${suffix}`
@@ -62,12 +82,15 @@ try {
   page.once('dialog', dialog => dialog.accept())
   await page.getByRole('button', { name: 'Restaurar valor anterior' }).first().click()
   await page.getByText('Nombre inicial', { exact: true }).waitFor()
-  await page.getByRole('textbox', { name: 'Módulo' }).fill('cuenta')
-  await page.getByLabel('Operación', { exact: true }).fill('getAccount')
-  await page.getByLabel('Código', { exact: true }).fill('internal_0')
-  await page.getByLabel('ID de correlación').fill('case-123')
-  await page.getByRole('button', { name: 'Registrar diagnóstico' }).click()
-  await page.getByText('Diagnóstico registrado.').waitFor()
+  await page.getByLabel('Buscar correlación').fill(correlationId)
+  await page.getByRole('button', { name: 'Filtrar' }).click()
+  await page.getByRole('button', { name: new RegExp(correlationId) }).click()
+  await page.getByText('Falló una operación del servidor.').waitFor()
+  await page.getByLabel('Estado de revisión').selectOption('investigando')
+  await page.getByLabel(/Observación/).fill('Correlacionado con el error sintético de la prueba.')
+  await page.getByRole('button', { name: 'Guardar revisión' }).click()
+  await page.getByText('Revisión guardada y auditada.').waitFor()
+  assert.equal((await db.collection('support_diagnostics').doc(correlationId).get()).data().status, 'investigando')
   assert.equal((await db.collection('support_diagnostics').get()).size, 1)
   await page.getByLabel('IDs concretos').fill(blockedGuideId)
   await page.getByRole('button', { name: 'SIMULAR LIMPIEZA' }).click()
@@ -97,5 +120,5 @@ try {
   assert.deepEqual((await db.collection('manifests').doc(safeManifestId).get()).data(), safeManifest)
   await page.getByRole('button', { name: 'Actualizar', exact: true }).last().click()
   await page.locator('li').filter({ hasText: operationId }).first().waitFor()
-  console.log('Support E2E: pantalla móvil, procedencia desconocida bloqueada, grafo compartido, plan persistente, respaldo por lotes, ejecución sintética y recuperación verificadas.')
+  console.log('Support E2E: diagnóstico sintético correlacionado, filtro, detalle, revisión auditada, limpieza simulada/ejecutada/restaurada y pantalla móvil verificados.')
 } finally { await browser.close(); preview.kill() }

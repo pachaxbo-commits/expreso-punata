@@ -1,4 +1,4 @@
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import {
   collection,
   query,

@@ -1,7 +1,8 @@
 import { beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { getFirestore } from 'firebase-admin/firestore'
-import { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, getSupportCleanupInventory, simulateSupportCleanup, getSupportCleanupPlan, listSupportCleanupOperations, executeSupportCleanup, restoreSupportCleanup } from '../index.js'
+import { createSupportFunctions } from '../supportCenter.js'
+import { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, reportClientDiagnostic, updateSupportDiagnostic, getSupportCleanupInventory, simulateSupportCleanup, getSupportCleanupPlan, listSupportCleanupOperations, executeSupportCleanup, restoreSupportCleanup } from '../index.js'
 import { registerSyntheticTestRecord } from '../../tests/helpers/supportCleanupProvenance.mjs'
 
 const db = getFirestore()
@@ -10,7 +11,7 @@ const auth = { uid, token: { auth_time: Math.floor(Date.now() / 1000) } }
 const request = data => ({ auth, data })
 const suffix = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 beforeEach(async () => {
-  for (const name of ['users', 'support_cleanup_provenance', 'support_cleanup_plans', 'support_cleanup_backups', 'support_cleanup_operations', 'support_cleanup_restores', 'support_config_history', 'support_diagnostics', 'audit_logs', 'system_config']) {
+  for (const name of ['users', 'support_cleanup_provenance', 'support_cleanup_plans', 'support_cleanup_backups', 'support_cleanup_operations', 'support_cleanup_restores', 'support_config_history', 'support_diagnostics', 'support_diagnostic_limits', 'audit_logs', 'system_config']) {
     const docs = await db.collection(name).get()
     for (const doc of docs.docs) await db.recursiveDelete(doc.ref)
   }
@@ -28,6 +29,68 @@ test('diagnósticos validan identificadores y descartan campos adicionales', asy
   assert.equal((await db.collection('audit_logs').get()).size, 1)
   await db.collection('users').doc(uid).update({ role: 'secretaria' })
   await assert.rejects(() => listSupportDiagnostics.run({ auth, data: {} }), { code: 'permission-denied' })
+})
+
+test('incidente automático conserva correlación, safe fields, límites y revisión auditada', async () => {
+  const actorUid = `operator-${suffix()}`
+  const actorAuth = { uid: actorUid, token: { auth_time: Math.floor(Date.now() / 1000) } }
+  await db.collection('users').doc(actorUid).set({ role: 'secretaria', isActive: true, primaryBranchId: 'punata' })
+  const id = `incident-${Math.random().toString(36).slice(2, 12)}`
+  const data = { module: 'cash', operation: 'registerExpense', code: 'internal', category: 'cloud_function', correlationId: id, frontendVersion: '1.4.96', password: 'never-store-this', requestBody: { amount: 900 } }
+  await assert.rejects(() => reportClientDiagnostic.run({ auth: actorAuth, data: { ...data, category: 'invalid', correlationId: 'bad' } }), { code: 'invalid-argument' })
+  const saved = await reportClientDiagnostic.run({ auth: actorAuth, data })
+  assert.equal(saved.correlationId, id)
+  const stored = (await db.collection('support_diagnostics').doc(id).get()).data()
+  assert.equal(stored.messageSafe, 'Falló una operación del servidor.')
+  assert.equal(stored.branchId, 'punata')
+  assert.equal(stored.password, undefined)
+  assert.equal(stored.requestBody, undefined)
+  assert.equal(stored.actorUid, actorUid)
+  const filtered = await listSupportDiagnostics.run({ auth, data: { module: 'cash', correlationId: id } })
+  assert.equal(filtered.entries.length, 1)
+  assert.equal(filtered.entries[0].correlationId, id)
+  assert.equal(filtered.entries[0].actorUid, undefined)
+  assert.equal(filtered.summary.open, 1)
+  for (let i = 1; i < 20; i++) await reportClientDiagnostic.run({ auth: actorAuth, data: { ...data, correlationId: `${id}-${i}` } })
+  await assert.rejects(() => reportClientDiagnostic.run({ auth: actorAuth, data: { ...data, correlationId: `${id}-limit` } }), { code: 'resource-exhausted' })
+  await assert.rejects(() => updateSupportDiagnostic.run({ auth, data: { id, status: 'investigando', observation: 'correo operador@ejemplo.com' } }), { code: 'invalid-argument' })
+  await updateSupportDiagnostic.run({ auth, data: { id, status: 'investigando', observation: 'Revisar en la siguiente ventana de operación.' } })
+  assert.equal((await db.collection('support_diagnostics').doc(id).get()).data().status, 'investigando')
+  assert.equal((await db.collection('audit_logs').get()).docs.some(doc => doc.data().action === 'SUPPORT_DIAGNOSTIC_REVIEWED'), true)
+  await db.collection('users').doc(actorUid).delete()
+})
+
+test('acceso de soporte en produccion exige MFA, token vigente, usuario habilitado y auth_time reciente', async () => {
+  const prior = { functions: process.env.FUNCTIONS_EMULATOR, firestore: process.env.FIRESTORE_EMULATOR_HOST, project: process.env.GCLOUD_PROJECT }
+  delete process.env.FUNCTIONS_EMULATOR
+  delete process.env.FIRESTORE_EMULATOR_HOST
+  process.env.GCLOUD_PROJECT = 'expreso-punata-production-test'
+  const identityCalls = []
+  let verificationError = null
+  let disabled = false
+  const authAdmin = {
+    verifyIdToken: async (token, checkRevoked) => { identityCalls.push({ token, checkRevoked }); if (verificationError) throw verificationError; return { uid, firebase: { sign_in_second_factor: 'phone' } } },
+    getUser: async () => ({ disabled }),
+  }
+  const { getSupportOverview, recordSupportDiagnostic } = createSupportFunctions(db, authAdmin)
+  const token = { auth_time: Math.floor(Date.now() / 1000), firebase: { sign_in_second_factor: 'phone' } }
+  const prodRequest = (claims = token) => ({ auth: { uid, token: claims }, rawRequest: { headers: { authorization: 'Bearer signed-token' } }, data: {} })
+  try {
+    await assert.rejects(() => getSupportOverview.run(prodRequest({ ...token, firebase: {} })), { code: 'permission-denied' })
+    await assert.rejects(() => recordSupportDiagnostic.run({ ...prodRequest({ ...token, auth_time: 1 }), data: { module: 'support', operation: 'authCheck', code: 'ok', correlationId: `auth-test-${Math.random().toString(36).slice(2, 10)}`, status: 'pendiente' } }), { code: 'failed-precondition' })
+    verificationError = new Error('revoked')
+    await assert.rejects(() => getSupportOverview.run(prodRequest()), { code: 'unauthenticated' })
+    verificationError = null; disabled = true
+    await assert.rejects(() => getSupportOverview.run(prodRequest()), { code: 'permission-denied' })
+    disabled = false
+    await recordSupportDiagnostic.run({ ...prodRequest(), data: { module: 'support', operation: 'authCheck', code: 'ok', correlationId: `auth-test-${Math.random().toString(36).slice(2, 10)}`, status: 'pendiente' } })
+    assert.equal(identityCalls.at(-1).checkRevoked, true)
+    assert.equal(identityCalls.at(-1).token, 'signed-token')
+  } finally {
+    if (prior.functions === undefined) delete process.env.FUNCTIONS_EMULATOR; else process.env.FUNCTIONS_EMULATOR = prior.functions
+    if (prior.firestore === undefined) delete process.env.FIRESTORE_EMULATOR_HOST; else process.env.FIRESTORE_EMULATOR_HOST = prior.firestore
+    if (prior.project === undefined) delete process.env.GCLOUD_PROJECT; else process.env.GCLOUD_PROJECT = prior.project
+  }
 })
 
 test('configuración institucional valida, audita y restaura sin modificar finanzas', async () => {
@@ -59,13 +122,13 @@ test('overview requiere soporte activo y no revela datos de configuración', asy
   }
 })
 
-test('fuera de emuladores soporte exige segundo factor', async () => {
+test('fuera de emuladores una bandera MFA sola no sustituye un token verificable', async () => {
   const prev = process.env.FUNCTIONS_EMULATOR
   try {
     process.env.FUNCTIONS_EMULATOR = 'false'
     await assert.rejects(() => getSupportOverview.run({ auth, data: {} }), { code: 'permission-denied' })
     const secureAuth = { uid, token: { firebase: { sign_in_second_factor: 'phone' } } }
-    assert.equal((await getSupportOverview.run({ auth: secureAuth, data: {} })).cleanupEnvironment, 'no disponible en producción')
+    await assert.rejects(() => getSupportOverview.run({ auth: secureAuth, data: {} }), { code: 'unauthenticated' })
   } finally { process.env.FUNCTIONS_EMULATOR = prev }
 })
 
@@ -210,7 +273,7 @@ test('mutación posterior al plan invalida la ejecución; exige ID, huella y seg
   const saved = await db.collection('support_cleanup_plans').doc(plan.planId).get()
   assert.equal(saved.data().state, 'invalidado')
   const prev = process.env.FUNCTIONS_EMULATOR
-  try { process.env.FUNCTIONS_EMULATOR = 'false'; await assert.rejects(() => executeSupportCleanup.run({ auth: { uid, token: { ...auth.token, firebase: { sign_in_second_factor: 'phone' } } }, data }), { code: 'failed-precondition' }) }
+  try { process.env.FUNCTIONS_EMULATOR = 'false'; await assert.rejects(() => executeSupportCleanup.run({ auth: { uid, token: { ...auth.token, firebase: { sign_in_second_factor: 'phone' } } }, data }), { code: 'unauthenticated' }) }
   finally { process.env.FUNCTIONS_EMULATOR = prev }
 })
 

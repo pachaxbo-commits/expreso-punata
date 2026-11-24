@@ -1,4 +1,5 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { verifySupportSession } from './supportAccess.js'
 
 const ROUTES = ['punata-cochabamba', 'cochabamba-punata']
 const KEYS = ['commission', ...ROUTES, 'loan', 'sports']
@@ -53,15 +54,14 @@ function requireCommercialAdmin(profile) {
   }
 }
 
-export function createCommercialFunctions(db) {
+export function createCommercialFunctions(db, authAdmin = null) {
   const getCommercialSettings = onCall({ cors: true }, async request => {
     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión.')
     const profile = (await db.collection('users').doc(request.auth.uid).get()).data()
     let canEdit = true
     if (profile?.role === 'soporte_pachax' && profile.isActive === true) {
       canEdit = false
-      if (!(process.env.FUNCTIONS_EMULATOR === 'true' && process.env.FIRESTORE_EMULATOR_HOST && (process.env.GCLOUD_PROJECT || '').startsWith('demo-'))
-        && !request.auth.token?.firebase?.sign_in_second_factor) throw new HttpsError('permission-denied', 'Se requiere autenticación multifactor.')
+      await verifySupportSession(authAdmin, request)
     } else requireCommercialAdmin(profile)
     const official = (await db.collection('system_config').doc('expreso_punata').get()).data()
     const configured = official?.status === 'configured' && official?.isOfficial === true

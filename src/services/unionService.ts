@@ -1,14 +1,8 @@
 import { isOperationalAdmin } from '../modules/auth/operationalRoles'
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import {
-  collection,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-  getDoc,
-  doc,
-} from 'firebase/firestore'
+  collection, query, where, orderBy, onSnapshot, doc } from 'firebase/firestore'
+import { getDoc } from '../firebase/observedFirestore.ts'
 import { functions, db, auth } from '../firebase/config.ts'
 import type { AnnualBoard, DriverDirectoryEntry, UnionMember, UnionMonthlyDue, UnionSportsAttendance, UnionSportsEvent } from '../types/index.ts'
 import { listActiveDriversThroughBackend } from './dispatchService.ts'

@@ -22,6 +22,21 @@ test('soporte no puede escribir ni leer respaldos o auditoría directamente', as
   await assertFails(updateDoc(doc(support, 'audit_logs', 'support-log'), { action: 'forged' }))
 })
 
+test('diagnósticos y límites técnicos solo son accesibles a Functions con Admin SDK', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'users', 'diagnostics-direct-test'), { role: 'soporte_pachax', isActive: true })
+    await setDoc(doc(db, 'support_diagnostics', 'diagnostic-direct'), { messageSafe: 'safe' })
+    await setDoc(doc(db, 'support_diagnostic_limits', 'bucket-direct'), { count: 1 })
+  })
+  const db = testEnv.authenticatedContext('diagnostics-direct-test').firestore()
+  for (const ref of [doc(db, 'support_diagnostics', 'diagnostic-direct'), doc(db, 'support_diagnostic_limits', 'bucket-direct')]) {
+    await assertFails(getDoc(ref))
+    await assertFails(setDoc(ref, { forged: true }))
+    await assertFails(deleteDoc(ref))
+  }
+})
+
 test('procedencia, planes, operaciones y restauraciones de limpieza son exclusivos de Admin SDK', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
     const db = context.firestore()

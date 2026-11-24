@@ -10,6 +10,7 @@ import { printViaBrowserDialog, buildDocumentHtml } from '../../adapters/printin
 import { printViaRawBt, isAndroidDevice } from '../../adapters/printing/rawbtPrinterAdapter.ts'
 import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig.ts'
 import type { Shipment, CashShift, FinancialMovement, DispatchManifest } from '../../types/index.ts'
+import { reportObservedError } from '../../firebase/observedCallable.ts'
 
 export class PrintEngineService {
   private static instance: PrintEngineService
@@ -40,18 +41,26 @@ export class PrintEngineService {
       kickDrawer: effectivePrinter.kickDrawerOnReceipt,
     }
 
-    if (effectivePrinter.connectionType === 'virtual_pdf') {
-      return await this.downloadVirtualPdf(doc, paperFormat)
+    try {
+      let result: PrintResult
+      if (effectivePrinter.connectionType === 'virtual_pdf') result = await this.downloadVirtualPdf(doc, paperFormat)
+      else {
+        const documentWithPresentation = await this.withOfficialPresentation(doc)
+        if (effectivePrinter.connectionType === 'rawbt_intent') result = await printViaRawBt(documentWithPresentation, paperFormat, options)
+        else result = await printViaBrowserDialog(documentWithPresentation, paperFormat, options)
+      }
+      if (!result.success) {
+        const incidentId = await reportObservedError({ code: 'print_failed' }, { module: 'printing', operation: 'printDocument' })
+        if (incidentId) result.errorMessage = `${result.errorMessage || result.message} (Incidencia: ${incidentId})`
+      }
+      return result
+    } catch (error) {
+      const incidentId = await reportObservedError(error, { module: 'printing', operation: 'printDocument' })
+      if (incidentId && error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+        try { Object.defineProperty(error, 'message', { configurable: true, value: `${error.message} (Incidencia: ${incidentId})` }) } catch {}
+      }
+      throw error
     }
-
-    const documentWithPresentation = await this.withOfficialPresentation(doc)
-
-    if (effectivePrinter.connectionType === 'rawbt_intent') {
-      return await printViaRawBt(documentWithPresentation, paperFormat, options)
-    }
-
-    // Por defecto y para Windows USB (o Red configurada en Windows): Diálogo estándar de navegador
-    return await printViaBrowserDialog(documentWithPresentation, paperFormat, options)
   }
 
   private async withOfficialPresentation(doc: UnifiedDocumentPayload): Promise<UnifiedDocumentPayload> {

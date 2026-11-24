@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../../firebase/observedCallable.ts'
 import { functions } from '../../firebase/config'
 
 type InventoryItem = { collection: string; category: string; label: string; deletable: boolean; protectedReason: string | null }

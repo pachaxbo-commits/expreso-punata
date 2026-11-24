@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 

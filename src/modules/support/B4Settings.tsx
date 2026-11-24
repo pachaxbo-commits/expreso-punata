@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../../firebase/observedCallable.ts'
 import { functions } from '../../firebase/config'
 
 type Kind = 'contributions' | 'catalogs' | 'reports' | 'notifications'

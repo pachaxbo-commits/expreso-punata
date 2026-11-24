@@ -19,9 +19,9 @@ const storageAdmin = getStorage()
 
 import { commercialSettingsRef, createCommercialFunctions, effectiveCommercialRule, localBusinessDay } from './commercialSettings.js'
 
-export const { getCommercialSettings, updateCommercialSettings } = createCommercialFunctions(db)
-export const { getB4Settings, updateB4Settings } = createB4SettingsFunctions(db)
-export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, getSupportCleanupInventory, simulateSupportCleanup, getSupportCleanupPlan, listSupportCleanupOperations, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db)
+export const { getCommercialSettings, updateCommercialSettings } = createCommercialFunctions(db, authAdmin)
+export const { getB4Settings, updateB4Settings } = createB4SettingsFunctions(db, authAdmin)
+export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, reportClientDiagnostic, updateSupportDiagnostic, getSupportCleanupInventory, simulateSupportCleanup, getSupportCleanupPlan, listSupportCleanupOperations, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db, authAdmin)
 export const { adminRevokeUserSessions, adminRetireUser, adminDeleteRetiredUser, getUserDeletionStatus } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
 // Transitional access for legacy profiles. New administrators require both agencies.

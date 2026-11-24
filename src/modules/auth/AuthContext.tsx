@@ -1,15 +1,12 @@
 import { isOperationalAdmin, hasOperationalRole } from './operationalRoles'
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import {
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut as fbSignOut,
-  sendPasswordResetEmail,
-  User as FirebaseUser,
-} from 'firebase/auth'
-import { httpsCallable } from 'firebase/functions'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
+  onAuthStateChanged, signInWithEmailAndPassword, signOut as fbSignOut, sendPasswordResetEmail, User as FirebaseUser, } from 'firebase/auth'
+import { observedHttpsCallable as httpsCallable } from '../../firebase/observedCallable.ts'
+import { doc, setDoc } from 'firebase/firestore'
+import { getDoc } from '../../firebase/observedFirestore.ts'
 import { auth, db, functions, isEmulatedEnvironment } from '../../firebase/config'
+import { reportObservedError } from '../../firebase/observedCallable.ts'
 import type { UserProfile, UserRole } from '../../types'
 
 export interface AuthContextType {
@@ -176,6 +173,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return profileData
     } catch (err: unknown) {
+      if (auth.currentUser) {
+        const incidentId = await reportObservedError(err, { module: 'auth', operation: 'signInOrProfileRead' })
+        if (incidentId && err instanceof Error) {
+          try { Object.defineProperty(err, 'message', { configurable: true, value: `${err.message} (Incidencia: ${incidentId})` }) } catch {}
+        }
+      }
       setUserProfile(null)
       saveProfile(null)
       throw err

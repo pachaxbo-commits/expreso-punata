@@ -57,6 +57,9 @@ async function call(page, name, action) {
   await action()
   const { result, error } = await (await response).json()
   assert.ok(result, JSON.stringify(error))
+  if (name === 'updateB4Settings') {
+    await page.getByText('Configuración guardada con versión e historial.', { exact: true }).waitFor()
+  }
   return result
 }
 
