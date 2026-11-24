@@ -5,6 +5,9 @@ import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore'
 import { getAuth } from 'firebase-admin/auth'
 import { getStorage } from 'firebase-admin/storage'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { createSupportFunctions } from './supportCenter.js'
+import { createUserSecurityFunctions } from './userSecurity.js'
+import { createB4SettingsFunctions } from './b4Settings.js'
 
 if (getApps().length === 0) {
   initializeApp()
@@ -13,6 +16,13 @@ if (getApps().length === 0) {
 const db = getFirestore()
 const authAdmin = getAuth()
 const storageAdmin = getStorage()
+
+import { commercialSettingsRef, createCommercialFunctions, effectiveCommercialRule, localBusinessDay } from './commercialSettings.js'
+
+export const { getCommercialSettings, updateCommercialSettings } = createCommercialFunctions(db, authAdmin)
+export const { getB4Settings, updateB4Settings } = createB4SettingsFunctions(db, authAdmin)
+export const { getSupportOverview, getSupportConfiguration, updateSupportConfiguration, listSupportDiagnostics, recordSupportDiagnostic, reportClientDiagnostic, updateSupportDiagnostic, getSupportCleanupInventory, simulateSupportCleanup, getSupportCleanupPlan, listSupportCleanupOperations, executeSupportCleanup, restoreSupportCleanup } = createSupportFunctions(db, authAdmin)
+export const { adminRevokeUserSessions, adminRetireUser, adminDeleteRetiredUser, getUserDeletionStatus } = createUserSecurityFunctions(db, authAdmin, isOperationalAdmin)
 
 // Transitional access for legacy profiles. New administrators require both agencies.
 function isOperationalAdmin(profile) {
@@ -194,7 +204,60 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
   const safeIdempotencyKey = idempotencyKey.trim()
 
-  const automaticPricingEnabled = process.env.ENABLE_AUTOMATIC_PARCEL_PRICING === 'true'
+  const automaticPricingAvailable = process.env.ENABLE_AUTOMATIC_PARCEL_PRICING === 'true'
+  const shipmentRequest = {
+    originBranchId,
+    destinationBranchId,
+    deliveryType,
+    deliveryAddress: deliveryType === 'home' ? (deliveryAddress || '').trim().toLowerCase() : null,
+    sender: {
+      name: sender.name.trim().toLowerCase(),
+      phone: sender.phone.trim(),
+      docNumber: sender.docNumber ? sender.docNumber.trim() : null,
+    },
+    recipient: {
+      name: recipient.name.trim().toLowerCase(),
+      phone: recipient.phone.trim(),
+      docNumber: recipient.docNumber ? recipient.docNumber.trim() : null,
+    },
+    items: items.map(it => ({
+      description: it.description.trim().toLowerCase(),
+      quantity: Number(it.quantity) || 1,
+      weightKg: Number(it.weightKg) || 0,
+      packaging: it.packaging || 'paquete',
+      isFragile: Boolean(it.isFragile),
+      isPerishable: Boolean(it.isPerishable),
+    })),
+    packageCount,
+    totalWeightKg,
+    declaredValueTotal: Number(payload.declaredValueTotal) || 0,
+    paymentTiming,
+    paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : null,
+  }
+  const versionedFingerprint = JSON.stringify({
+    ...shipmentRequest,
+    categories: items.map(item => item.category || 'general'),
+    pricingMode: payload.pricingMode || null,
+    discountCents: Number(discountCents) || 0,
+    agreedAmountCents: payload.agreedAmountCents ?? null,
+    priceAdjustmentReason: payload.priceAdjustmentReason || null,
+    cashShiftId: payload.cashShiftId || null,
+  })
+  const idempotencyDocRef = db.collection('idempotency_keys').doc(safeIdempotencyKey)
+  if (automaticPricingAvailable || payload.pricingMode === 'automatic') {
+    const existing = (await idempotencyDocRef.get()).data()
+    if (existing?.versionedFingerprint) {
+      if (existing.callerUid !== callerUid) throw new HttpsError('permission-denied', 'La clave de idempotencia pertenece a otro usuario.')
+      if (existing.versionedFingerprint !== versionedFingerprint) throw new HttpsError('invalid-argument', 'La clave de idempotencia ya fue utilizada con datos de encomienda diferentes.')
+      const prior = await db.collection('shipments').doc(existing.trackingCode).get()
+      if (!prior.exists) throw new HttpsError('data-loss', 'No se encontró la encomienda registrada con esta clave.')
+      return { success: true, trackingCode: existing.trackingCode, isDuplicate: true, shipment: prior.data() }
+    }
+  }
+  const routeSettings = automaticPricingAvailable
+    ? (await commercialSettingsRef(db, `${originBranchId}-${destinationBranchId}`).get()).data() : null
+  const release = effectiveCommercialRule(routeSettings, localBusinessDay())
+  const automaticPricingEnabled = automaticPricingAvailable && release?.enabled !== false
   const hasManualAmount = payload.agreedAmountCents !== undefined && payload.agreedAmountCents !== null
   if (!automaticPricingEnabled && payload.pricingMode === 'automatic') {
     throw new HttpsError('failed-precondition', 'El cálculo automático de tarifas está desactivado. Ingrese manualmente el precio acordado.')
@@ -227,14 +290,14 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     const sysConfigSnap = await db.collection('system_config').doc('expreso_punata').get()
     const sysConfig = sysConfigSnap.exists ? sysConfigSnap.data() : null
     const hasOfficialConfig = sysConfig && sysConfig.status === 'configured' && sysConfig.isOfficial === true && sysConfig.tariffs && typeof sysConfig.tariffs === 'object'
-    if (hasOfficialConfig) {
-      const t = sysConfig.tariffs
+    if (hasOfficialConfig || (release && sysConfig?.status === 'configured' && sysConfig.isOfficial === true)) {
+      const t = release || sysConfig.tariffs
       baseFeeCents = t.baseFeeCents != null ? Number(t.baseFeeCents) : null
       freeWeightKg = t.freeWeightKg != null ? Number(t.freeWeightKg) : null
       extraKgRateCents = t.extraKgRateCents != null ? Number(t.extraKgRateCents) : null
       homeDeliveryRateCents = t.homeDeliveryFeeCents != null ? Number(t.homeDeliveryFeeCents) : null
     }
-    if (!isFunctionsEmulator && (!hasOfficialConfig || [baseFeeCents, freeWeightKg, extraKgRateCents, homeDeliveryRateCents].some(value => value === null || Number.isNaN(value)))) {
+    if (!isFunctionsEmulator && ((!hasOfficialConfig && !release?.enabled) || [baseFeeCents, freeWeightKg, extraKgRateCents, homeDeliveryRateCents].some(value => value === null || Number.isNaN(value)))) {
       throw new HttpsError('failed-precondition', 'Falta la configuración tarifaria oficial aprobada para activar el cálculo automático.')
     }
     if (isFunctionsEmulator) {
@@ -277,39 +340,17 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     }
   }
 
-  // Huella de datos exhaustiva para protección de idempotencia completa
+  // Preserve the original fingerprint for shipments created by earlier versions.
+  const { declaredValueTotal, paymentTiming: timing, paymentMethod: method, ...shipmentIdentity } = shipmentRequest
   const payloadFingerprint = JSON.stringify({
-    originBranchId,
-    destinationBranchId,
-    deliveryType,
-    deliveryAddress: deliveryType === 'home' ? (deliveryAddress || '').trim().toLowerCase() : null,
-    sender: {
-      name: sender.name.trim().toLowerCase(),
-      phone: sender.phone.trim(),
-      docNumber: sender.docNumber ? sender.docNumber.trim() : null,
-    },
-    recipient: {
-      name: recipient.name.trim().toLowerCase(),
-      phone: recipient.phone.trim(),
-      docNumber: recipient.docNumber ? recipient.docNumber.trim() : null,
-    },
-    items: items.map(it => ({
-      description: it.description.trim().toLowerCase(),
-      quantity: Number(it.quantity) || 1,
-      weightKg: Number(it.weightKg) || 0,
-      packaging: it.packaging || 'paquete',
-      isFragile: Boolean(it.isFragile),
-      isPerishable: Boolean(it.isPerishable),
-    })),
-    packageCount,
-    totalWeightKg,
+    ...shipmentIdentity,
     discountCents: safeDiscountCents,
-      suggestedAmountCents,
-      agreedAmountCents: finalAmountCents,
+    suggestedAmountCents,
+    agreedAmountCents: finalAmountCents,
     finalAmountCents,
-    declaredValueTotal: Number(payload.declaredValueTotal) || 0,
-    paymentTiming,
-    paymentMethod: paymentTiming === 'origin_paid' ? paymentMethod : null,
+    declaredValueTotal,
+    paymentTiming: timing,
+    paymentMethod: method,
   })
 
   // 12. Regla de cobro seguro y consistencia financiera
@@ -319,7 +360,6 @@ export const createShipment = onCall({ cors: true }, async (request) => {
   const branchCode = originBranchId === 'punata' ? 'PUN' : 'CBB'
   const currentYear = new Date().getFullYear() // 2026
   const counterDocRef = db.collection('counters').doc(`${branchCode}_${currentYear}`)
-  const idempotencyDocRef = db.collection('idempotency_keys').doc(safeIdempotencyKey)
 
   const result = await db.runTransaction(async (transaction) => {
     // A. Comprobar si ya existe la clave de idempotencia
@@ -329,7 +369,10 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       if (idempData.callerUid !== callerUid) {
         throw new HttpsError('permission-denied', 'La clave de idempotencia especificada pertenece a otro usuario.')
       }
-      if (idempData.payloadFingerprint !== payloadFingerprint) {
+      const sameRequest = idempData.versionedFingerprint
+        ? idempData.versionedFingerprint === versionedFingerprint
+        : idempData.payloadFingerprint === payloadFingerprint
+      if (!sameRequest) {
         throw new HttpsError('invalid-argument', 'La clave de idempotencia ya fue utilizada con datos de encomienda diferentes.')
       }
 
@@ -448,6 +491,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
 
       // Valores monetarios en centavos enteros (única fuente de verdad)
       shippingFeeCents: baseFeeCents,
+      ...(automaticPricingEnabled && release ? { tariffCommercialVersion: release.version, tariffEffectiveFrom: release.effectiveFrom } : {}),
       weightSurchargeCents,
       homeDeliveryFeeCents,
       discountCents: safeDiscountCents,
@@ -567,6 +611,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
       trackingCode,
       callerUid,
       payloadFingerprint,
+      ...(automaticPricingEnabled && release ? { versionedFingerprint } : {}),
       createdAt: FieldValue.serverTimestamp(),
     })
 
@@ -964,6 +1009,8 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
     assignedMobileNumber,
     unionMemberId,
     isActive = true,
+    sensitiveReason,
+    confirmSensitive,
   } = payload
 
   if (!fullName || typeof fullName !== 'string' || !fullName.trim()) {
@@ -1111,6 +1158,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
       throw new HttpsError('invalid-argument', 'Use afiliado_admin para asignar la administración de Expreso Punata.')
     }
     const existingProfile = existingDoc.data()
+    if (['retiring', 'retired', 'auth_deleted'].includes(existingProfile?.syncStatus)) throw new HttpsError('failed-precondition', 'La cuenta está en proceso de baja o ya fue dada de baja.')
     const syncAgeMs = Date.now() - Date.parse(existingProfile?.updatedAtIso || '')
     if (existingProfile?.syncStatus === 'syncing' && syncAgeMs < 120_000) {
       throw new HttpsError('aborted', 'Ya hay una actualización en curso para esta cuenta.')
@@ -1143,6 +1191,19 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
             'failed-precondition',
             'Operación denegada por seguridad: no es posible suspender ni retirar privilegios al único Administrador General activo del sistema.'
           )
+        }
+      }
+
+      const wasAdministrator = ['directiva_admin', 'afiliado_admin'].includes(existingData.role)
+      const removesAdministrator = !['directiva_admin', 'afiliado_admin'].includes(role) || willBeInactive || (isCurrentlyActiveAdmin && willDemoteRole)
+      if (wasAdministrator && removesAdministrator) {
+        const authTime = request.auth.token?.auth_time
+        const nowSeconds = Date.now() / 1000
+        if (!Number.isFinite(authTime) || nowSeconds - authTime > 300 || authTime > nowSeconds + 30) {
+          throw new HttpsError('failed-precondition', 'Vuelva a iniciar sesión antes de modificar el acceso de un administrador.')
+        }
+        if (confirmSensitive !== true || typeof sensitiveReason !== 'string' || sensitiveReason.trim().length < 10 || sensitiveReason.trim().length > 500) {
+          throw new HttpsError('invalid-argument', 'Confirme la acción e indique un motivo de al menos 10 caracteres.')
         }
       }
 
@@ -1219,6 +1280,7 @@ export const adminProvisionUser = onCall({ cors: true }, async (request) => {
           isActive: Boolean(isActive),
           ciProvided: safeCi !== null,
           claimsSynced: true,
+          reason: typeof sensitiveReason === 'string' ? sensitiveReason.trim().slice(0, 500) : null,
         },
         timestamp: FieldValue.serverTimestamp(),
         timestampIso: new Date().toISOString(),
@@ -1393,6 +1455,8 @@ export const openCashShift = onCall({ cors: true }, async (request) => {
   const branchCode = branchId === 'punata' ? 'PUN' : 'CBB'
 
   return await db.runTransaction(async (transaction) => {
+    const currentOperator = (await transaction.get(db.collection('users').doc(callerUid))).data()
+    if (currentOperator?.isActive !== true) throw new HttpsError('permission-denied', 'La cuenta está inactiva.')
     // 1. Candado determinístico de operador y sucursal para evitar doble apertura o concurrencia
     const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
     const lockDoc = await transaction.get(lockRef)
@@ -2271,6 +2335,7 @@ const singleTransfer = Symbol('singleTransfer')
 
 async function getOperationalDriver(transaction, uid, allowDirectory = true) {
   const profile = (await transaction.get(db.collection('users').doc(uid))).data()
+  if (['retiring', 'retired', 'auth_deleted'].includes(profile?.syncStatus)) return null
   if (profile?.role === 'conductor') return profile.isActive === true ? profile : null
   if (!allowDirectory) return null
   const directory = (await transaction.get(db.collection('driver_directory').doc(uid))).data()
@@ -3811,6 +3876,8 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
 
   try {
     return await db.runTransaction(async (transaction) => {
+      const currentOperator = (await transaction.get(db.collection('users').doc(callerUid))).data()
+      if (currentOperator?.isActive !== true) throw new HttpsError('permission-denied', 'La cuenta está inactiva.')
       const shipmentRef = db.collection('shipments').doc(shipmentId)
       const shipmentDoc = await transaction.get(shipmentRef)
       if (!shipmentDoc.exists) {
@@ -5044,6 +5111,13 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
 
   const warnings = []
 
+  // Published contribution policies are snapshotted only into newly issued dues.
+  // Existing due documents and their balances are never recalculated.
+  const contributionConfig = (await db.collection('b4_settings').doc('contributions').get()).data() || {}
+  const contributionPolicy = (contributionConfig.releases || [])
+    .filter(policy => policy.enabled && policy.effectiveFrom <= `${period}-01`)
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0] || null
+
   try {
     const membersSnap = await db.collection('union_members')
       .where('status', '==', 'active')
@@ -5092,13 +5166,17 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
       }
 
       // Eliminar el fallback ficticio de 5000: si no tiene cuota válida, omitir y alertar
-      const feeCents = member.monthlyFeeCents || Math.round((member.monthlyFeeBob || 0) * 100) || 0
+      const memberBranch = member.branchId || caller.primaryBranchId || 'punata'
+      const policyApplies = contributionPolicy
+        && contributionPolicy.branchIds.includes(memberBranch)
+        && (contributionPolicy.category === 'all' || contributionPolicy.category === member.category)
+      const feeCents = policyApplies ? contributionPolicy.amountCents : (member.monthlyFeeCents || Math.round((member.monthlyFeeBob || 0) * 100) || 0)
       if (!feeCents || feeCents <= 0) {
         skippedCount++
         warnings.push({
           memberId: mDoc.id,
-          memberNumber: member.memberNumber,
-          memberName: member.fullName,
+          memberNumber: member.memberNumber || mDoc.id,
+          memberName: member.fullName || 'Afiliado',
           reason: 'Socio sin cuota mensual configurada (monthlyFeeCents <= 0). Omitido.',
         })
         continue
@@ -5107,12 +5185,12 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
 
       const dueData = {
         id: dueId,
-        dueNumber: `CUO-${period}-${member.memberNumber}`,
+        dueNumber: `CUO-${period}-${member.memberNumber || mDoc.id}`,
         memberId: mDoc.id,
-        memberNumber: member.memberNumber,
-        memberName: member.fullName,
-        memberCategory: member.category,
-        branchId: member.branchId || caller.primaryBranchId || 'punata',
+        memberNumber: member.memberNumber || mDoc.id,
+        memberName: member.fullName || 'Afiliado',
+        memberCategory: member.category ?? null,
+        branchId: memberBranch,
         period,
         periodLabel,
         amountBob: feeBob,
@@ -5124,7 +5202,9 @@ export const generateMonthlyDues = onCall({ cors: true }, async (request) => {
         balanceBob: feeBob,
         balanceCents: feeCents,
         paymentsCount: 0,
-        notes: notes || `Cuota ordinaria de ${periodLabel}`,
+        concept: policyApplies ? contributionPolicy.concept : 'Cuota ordinaria',
+        contributionPolicyVersion: policyApplies ? contributionPolicy.version : null,
+        notes: notes || (policyApplies ? contributionPolicy.concept : `Cuota ordinaria de ${periodLabel}`),
         createdAtIso: nowIso,
         createdByUid: callerUid,
         createdByName: caller.fullName || 'Operador',
@@ -5754,6 +5834,8 @@ export const manageWorker = onCall({ cors: true }, async (request) => {
   if (!ci || typeof ci !== 'string' || ci.trim().length < 2) {
     throw new HttpsError('invalid-argument', 'El documento de identidad (CI) es obligatorio.')
   }
+  const workerCatalog = (await db.collection('b4_settings').doc('catalogs').get()).data()?.value?.workerRoles
+  if (workerCatalog && !workerCatalog.some(option => option.id === role && option.active)) throw new HttpsError('failed-precondition', 'El cargo está desactivado para nuevas altas.')
 
   const cleanFullName = fullName.trim()
   const cleanCi = ci.trim()
@@ -6274,6 +6356,15 @@ export const registerGeneralExpense = onCall({ cors: true }, async (request) => 
 // ENTREGA 6: INVENTARIO DE BIENES FIJOS (Equipos, Impresoras, Muebles, Balanzas)
 // =========================================================================
 
+async function assertAssetResponsibleAvailable(transaction, uid) {
+  if (!uid) return
+  if (typeof uid !== 'string' || uid.includes('/') || ['.', '..'].includes(uid)) throw new HttpsError('invalid-argument', 'Responsable patrimonial inválido.')
+  const profile = (await transaction.get(db.collection('users').doc(uid))).data()
+  if (['retiring', 'retired', 'auth_deleted'].includes(profile?.syncStatus)) {
+    throw new HttpsError('failed-precondition', 'El responsable patrimonial está dado de baja o en proceso de baja.')
+  }
+}
+
 export const manageFixedAsset = onCall({ cors: true }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para administrar bienes fijos.')
@@ -6322,6 +6413,8 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 200) throw new HttpsError('invalid-argument', 'La cantidad debe ser un entero entre 1 y 200.')
     if (category === 'inmuebles' && quantity !== 1) throw new HttpsError('invalid-argument', 'Los inmuebles deben registrarse individualmente, con cantidad 1.')
     if (!['computacion', 'muebles', 'herramientas', 'comunicacion', 'balanzas_pesaje', 'oficina', 'inmuebles', 'otro'].includes(category)) throw new HttpsError('invalid-argument', 'La categoría patrimonial no es válida.')
+    const categoryCatalog = (await db.collection('b4_settings').doc('catalogs').get()).data()?.value?.fixedAssetCategories
+    if (categoryCatalog && !categoryCatalog.some(option => option.id === category && option.active)) throw new HttpsError('failed-precondition', 'La categoría patrimonial está desactivada para nuevas altas.')
     if (!name || typeof name !== 'string' || name.trim().length < 2) throw new HttpsError('invalid-argument', 'El nombre del bien es obligatorio.')
     if (!batchRequestId || typeof batchRequestId !== 'string' || batchRequestId.length < 12 || batchRequestId.length > 100) throw new HttpsError('invalid-argument', 'La clave de lote no es válida.')
     const cleanCategory = category === 'inmuebles' ? 'inmuebles' : category
@@ -6342,6 +6435,7 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
         const docs = await Promise.all(ids.map((assetId) => transaction.get(db.collection('fixed_assets').doc(assetId))))
         return docs.filter((doc) => doc.exists).map((doc) => doc.data())
       }
+      await assertAssetResponsibleAvailable(transaction, responsiblePersonUid)
       const [counterSnap, inventorySnap] = await Promise.all([transaction.get(counterRef), transaction.get(inventoryQuery)])
       let next = counterSnap.exists ? Number(counterSnap.data().lastSeq || 0) : 0
       for (const doc of inventorySnap.docs) {
@@ -6440,7 +6534,15 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
       updates.acquisitionCostBob = costCents / 100
     }
 
-    await assetRef.update(updates)
+    await db.runTransaction(async transaction => {
+      const latest = (await transaction.get(assetRef)).data()
+      if (!latest) throw new HttpsError('not-found', 'El activo no existe.')
+      if ((updates.status ?? latest.status) !== 'disposed') {
+        const responsible = updates.responsiblePersonUid === undefined ? latest.responsiblePersonUid : updates.responsiblePersonUid
+        await assertAssetResponsibleAvailable(transaction, responsible)
+      }
+      transaction.update(assetRef, updates)
+    })
 
     // Log en subcolección de auditoría del activo
     await assetRef.collection('audit_logs').add({
@@ -6490,7 +6592,15 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     if (responsiblePersonName) updates.responsiblePersonName = responsiblePersonName.trim()
     if (responsiblePersonUid !== undefined) updates.responsiblePersonUid = responsiblePersonUid
 
-    await assetRef.update(updates)
+    await db.runTransaction(async transaction => {
+      const latest = (await transaction.get(assetRef)).data()
+      if (!latest) throw new HttpsError('not-found', 'El activo no existe.')
+      if ((updates.status ?? latest.status) !== 'disposed') {
+        const responsible = updates.responsiblePersonUid === undefined ? latest.responsiblePersonUid : updates.responsiblePersonUid
+        await assertAssetResponsibleAvailable(transaction, responsible)
+      }
+      transaction.update(assetRef, updates)
+    })
 
     await assetRef.collection('audit_logs').add({
       assetId: id,
@@ -6617,6 +6727,8 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
   if (!responsiblePersonName || typeof responsiblePersonName !== 'string' || responsiblePersonName.trim().length < 2) {
     throw new HttpsError('invalid-argument', 'El responsable asignado es obligatorio.')
   }
+  const fixedCategoryCatalog = (await db.collection('b4_settings').doc('catalogs').get()).data()?.value?.fixedAssetCategories
+  if (fixedCategoryCatalog && !fixedCategoryCatalog.some(option => option.id === category && option.active)) throw new HttpsError('failed-precondition', 'La categoría patrimonial está desactivada para nuevas altas.')
 
   const cleanBranch = branchId === 'cochabamba' ? 'cochabamba' : 'punata'
   const branchPrefix = cleanBranch === 'cochabamba' ? 'CBB' : 'PUN'
@@ -6666,7 +6778,10 @@ export const manageFixedAsset = onCall({ cors: true }, async (request) => {
     updatedAtIso: nowIso,
   }
 
-  await newDocRef.set(assetData)
+  await db.runTransaction(async transaction => {
+    await assertAssetResponsibleAvailable(transaction, assetData.responsiblePersonUid)
+    transaction.set(newDocRef, assetData)
+  })
 
   // Subcolección audit_logs
   await newDocRef.collection('audit_logs').add({
@@ -8386,7 +8501,11 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     }
 
     const config = configDoc.exists ? configDoc.data() || {} : {}
-    const commissionConfig = config.commissions || {}
+    const commercial = await transaction.get(commercialSettingsRef(db, 'commission'))
+    const release = effectiveCommercialRule(commercial.data(), localBusinessDay(shipment.createdAtIso || new Date()))
+    const commissionConfig = release
+      ? { defaultType: release.enabled ? release.type : null, defaultValue: release.value }
+      : config.commissions || {}
     const ruleType = commissionConfig.defaultType
     const ruleValue = Number(commissionConfig.defaultValue)
     if (config.status !== 'configured' || config.isOfficial !== true || !['percentage', 'fixed_per_shipment'].includes(ruleType) ||
@@ -8414,6 +8533,7 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     transaction.create(recordRef, {
       id: recordRef.id, driverUid, driverName, manifestId: manifestIdValue, shipmentId: shipmentIdValue,
       trackingCode: shipment.trackingCode || shipmentIdValue, baseShippingAmountCents,
+      ...(release ? { commercialVersion: release.version, effectiveFrom: release.effectiveFrom } : {}),
       originBranchId: manifest.originBranchId || null,
       ruleApplied: { type: ruleType, value: ruleValue }, commissionAmountCents, commissionAmountBob: commissionAmountCents / 100,
       status: 'accrued', paidAmountCents: 0, voucherIds: [], createdAtIso: nowIso,
@@ -8702,6 +8822,8 @@ export const manageConsumable = onCall({ cors: true }, async (request) => {
     if (!code || !name || !category || !branchId) {
       throw new HttpsError('invalid-argument', 'Código, nombre, categoría y sucursal son obligatorios.')
     }
+    const categoryCatalog = (await db.collection('b4_settings').doc('catalogs').get()).data()?.value?.consumableCategories
+    if (categoryCatalog && !categoryCatalog.some(option => option.id === category && option.active)) throw new HttpsError('failed-precondition', 'La categoría de insumo está desactivada para nuevas altas.')
 
     const docRef = db.collection('branch_consumables').doc()
     const cleanCode = String(code).trim().toUpperCase()
@@ -9309,10 +9431,17 @@ export const getSystemConfig = onCall({ cors: true }, async (request) => {
     config: {
       id: configDoc.id,
       ...(isOperationalAdmin(caller) ? data : {
+        documentNotices: data.documentNotices || {},
+        reportPreferences: data.reportPreferences || {},
+        company: {
+          tradeName: data.company?.tradeName || '',
+          logoUrl: data.company?.logoUrl || '',
+          legalNotice: data.company?.legalNotice || '',
+        },
         branches: Object.fromEntries(Object.entries(data.branches || {}).map(([id, branch]) => [id, {
-          phone: branch.phone,
-          address: branch.address,
-          name: branch.name,
+          phone: branch.phone || '',
+          address: branch.address || '',
+          name: branch.name || '',
         }])),
         tariffs: data.tariffs,
       }),
@@ -9338,119 +9467,137 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
   const nowIso = new Date().toISOString()
 
   const configRef = db.collection('system_config').doc('expreso_punata')
-  const currentSnap = await configRef.get()
-  const existing = currentSnap.exists ? currentSnap.data() : {}
+  return db.runTransaction(async tx => {
+    const [profile, currentSnap] = await Promise.all([tx.get(db.collection('users').doc(request.auth.uid)), tx.get(configRef)])
+    if (profile.data()?.isActive !== true || !isOperationalAdmin(profile.data())) throw new HttpsError('permission-denied', 'La autorización administrativa ya no está activa.')
+    const existing = currentSnap.exists ? currentSnap.data() : {}
 
-  const updatedConfig = {
-    ...existing,
-    status: 'configured',
-    isOfficial: true,
-    isDemo: isDemo !== undefined ? Boolean(isDemo) : (existing.isDemo !== undefined ? Boolean(existing.isDemo) : true),
-    updatedAtIso: nowIso,
-    updatedByUid: callerUid,
-    updatedByName: callerName,
-  }
-
-  if (company && typeof company === 'object') {
-    updatedConfig.company = {
-      ...(existing.company || {}),
-      name: company.name ? String(company.name).trim() : 'EXPRESO PUNATA',
-      tradeName: company.tradeName ? String(company.tradeName).trim() : 'EXPRESO PUNATA',
-      legalName: company.legalName ? String(company.legalName).trim() : 'Expreso Punata',
-      acronym: company.acronym ? String(company.acronym).trim() : 'EP',
-      legalNotice: company.legalNotice ? String(company.legalNotice).trim() : 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
-      logoUrl: company.logoUrl || existing.company?.logoUrl || '',
-      taxNotice: company.taxNotice || existing.company?.taxNotice || '',
+    const updatedConfig = {
+      ...existing,
+      status: 'configured',
+      isOfficial: true,
+      isDemo: isDemo !== undefined ? Boolean(isDemo) : (existing.isDemo !== undefined ? Boolean(existing.isDemo) : true),
+      updatedAtIso: nowIso,
+      updatedByUid: callerUid,
+      updatedByName: callerName,
     }
-  }
 
-  if (branches && typeof branches === 'object') {
-    updatedConfig.branches = branches
-  }
-
-  if (tariffs && typeof tariffs === 'object') {
-    const baseCents = (Number.isInteger(tariffs.baseFeeCents) && tariffs.baseFeeCents >= 0)
-      ? tariffs.baseFeeCents
-      : (tariffs.baseFeeBob !== undefined && tariffs.baseFeeBob !== null && !isNaN(Number(tariffs.baseFeeBob)) && Number(tariffs.baseFeeBob) >= 0 ? Math.round(Number(tariffs.baseFeeBob) * 100) : (existing.tariffs?.baseFeeCents ?? 0))
-    const extraCents = (Number.isInteger(tariffs.extraKgRateCents) && tariffs.extraKgRateCents >= 0)
-      ? tariffs.extraKgRateCents
-      : (tariffs.extraKgRateBob !== undefined && tariffs.extraKgRateBob !== null && !isNaN(Number(tariffs.extraKgRateBob)) && Number(tariffs.extraKgRateBob) >= 0 ? Math.round(Number(tariffs.extraKgRateBob) * 100) : (existing.tariffs?.extraKgRateCents ?? 0))
-    const homeCents = (Number.isInteger(tariffs.homeDeliveryFeeCents) && tariffs.homeDeliveryFeeCents >= 0)
-      ? tariffs.homeDeliveryFeeCents
-      : (tariffs.homeDeliveryFeeBob !== undefined && tariffs.homeDeliveryFeeBob !== null && !isNaN(Number(tariffs.homeDeliveryFeeBob)) && Number(tariffs.homeDeliveryFeeBob) >= 0 ? Math.round(Number(tariffs.homeDeliveryFeeBob) * 100) : (existing.tariffs?.homeDeliveryFeeCents ?? 0))
-
-    const freeWeight = tariffs.freeWeightKg !== undefined && tariffs.freeWeightKg !== null && !isNaN(Number(tariffs.freeWeightKg))
-      ? Math.max(0, Number(tariffs.freeWeightKg))
-      : (existing.tariffs?.freeWeightKg ?? 0)
-
-    updatedConfig.tariffs = {
-      baseFeeCents: baseCents,
-      baseFeeBob: baseCents / 100,
-      freeWeightKg: freeWeight,
-      extraKgRateCents: extraCents,
-      extraKgRateBob: extraCents / 100,
-      homeDeliveryFeeCents: homeCents,
-      homeDeliveryFeeBob: homeCents / 100,
+    if (company && typeof company === 'object') {
+      updatedConfig.company = {
+        ...(existing.company || {}),
+        name: company.name ? String(company.name).trim() : 'EXPRESO PUNATA',
+        tradeName: company.tradeName ? String(company.tradeName).trim() : 'EXPRESO PUNATA',
+        legalName: company.legalName ? String(company.legalName).trim() : 'Expreso Punata',
+        acronym: company.acronym ? String(company.acronym).trim() : 'EP',
+        legalNotice: company.legalNotice ? String(company.legalNotice).trim() : 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
+        logoUrl: company.logoUrl || existing.company?.logoUrl || '',
+        taxNotice: company.taxNotice || existing.company?.taxNotice || '',
+      }
     }
-  }
 
-  if (commissions && typeof commissions === 'object') {
-    const commVal = commissions.defaultValue !== undefined && commissions.defaultValue !== null && !isNaN(Number(commissions.defaultValue))
-      ? Math.max(0, Number(commissions.defaultValue))
-      : (existing.commissions?.defaultValue ?? 0)
-
-    updatedConfig.commissions = {
-      defaultType: ['percentage', 'fixed_per_shipment'].includes(commissions.defaultType) ? commissions.defaultType : (existing.commissions?.defaultType || 'percentage'),
-      defaultValue: commVal,
+    if (branches && typeof branches === 'object') {
+      updatedConfig.branches = Object.fromEntries(['punata', 'cochabamba'].flatMap(id => {
+        const branch = branches[id] || existing.branches?.[id]
+        if (!branch) return []
+        return [[id, { ...branch, code: existing.branches?.[id]?.code || (id === 'punata' ? 'PUN' : 'CBB') }]]
+      }))
     }
-  }
 
-  if (dues && typeof dues === 'object') {
-    const dueCents = (Number.isInteger(dues.monthlyDueCents) && dues.monthlyDueCents >= 0)
-      ? dues.monthlyDueCents
-      : (dues.monthlyDueBob !== undefined && dues.monthlyDueBob !== null && !isNaN(Number(dues.monthlyDueBob)) && Number(dues.monthlyDueBob) >= 0 ? Math.round(Number(dues.monthlyDueBob) * 100) : (existing.dues?.monthlyDueCents ?? 0))
+    if (tariffs && typeof tariffs === 'object') {
+      const baseCents = (Number.isInteger(tariffs.baseFeeCents) && tariffs.baseFeeCents >= 0)
+        ? tariffs.baseFeeCents
+        : (tariffs.baseFeeBob !== undefined && tariffs.baseFeeBob !== null && !isNaN(Number(tariffs.baseFeeBob)) && Number(tariffs.baseFeeBob) >= 0 ? Math.round(Number(tariffs.baseFeeBob) * 100) : (existing.tariffs?.baseFeeCents ?? 0))
+      const extraCents = (Number.isInteger(tariffs.extraKgRateCents) && tariffs.extraKgRateCents >= 0)
+        ? tariffs.extraKgRateCents
+        : (tariffs.extraKgRateBob !== undefined && tariffs.extraKgRateBob !== null && !isNaN(Number(tariffs.extraKgRateBob)) && Number(tariffs.extraKgRateBob) >= 0 ? Math.round(Number(tariffs.extraKgRateBob) * 100) : (existing.tariffs?.extraKgRateCents ?? 0))
+      const homeCents = (Number.isInteger(tariffs.homeDeliveryFeeCents) && tariffs.homeDeliveryFeeCents >= 0)
+        ? tariffs.homeDeliveryFeeCents
+        : (tariffs.homeDeliveryFeeBob !== undefined && tariffs.homeDeliveryFeeBob !== null && !isNaN(Number(tariffs.homeDeliveryFeeBob)) && Number(tariffs.homeDeliveryFeeBob) >= 0 ? Math.round(Number(tariffs.homeDeliveryFeeBob) * 100) : (existing.tariffs?.homeDeliveryFeeCents ?? 0))
 
-    const lateFee = dues.lateFeePercentage !== undefined && dues.lateFeePercentage !== null && !isNaN(Number(dues.lateFeePercentage))
-      ? Math.max(0, Number(dues.lateFeePercentage))
-      : (existing.dues?.lateFeePercentage ?? 0)
+      const freeWeight = tariffs.freeWeightKg !== undefined && tariffs.freeWeightKg !== null && !isNaN(Number(tariffs.freeWeightKg))
+        ? Math.max(0, Number(tariffs.freeWeightKg))
+        : (existing.tariffs?.freeWeightKg ?? 0)
 
-    const graceDays = dues.gracePeriodDays !== undefined && dues.gracePeriodDays !== null && !isNaN(Number(dues.gracePeriodDays))
-      ? Math.max(0, Math.floor(Number(dues.gracePeriodDays)))
-      : (existing.dues?.gracePeriodDays ?? 0)
-
-    updatedConfig.dues = {
-      monthlyDueCents: dueCents,
-      monthlyDueBob: dueCents / 100,
-      lateFeePercentage: lateFee,
-      gracePeriodDays: graceDays,
+      updatedConfig.tariffs = {
+        baseFeeCents: baseCents,
+        baseFeeBob: baseCents / 100,
+        freeWeightKg: freeWeight,
+        extraKgRateCents: extraCents,
+        extraKgRateBob: extraCents / 100,
+        homeDeliveryFeeCents: homeCents,
+        homeDeliveryFeeBob: homeCents / 100,
+      }
     }
-  }
 
-  if (printing && typeof printing === 'object') {
-    updatedConfig.printing = {
-      cutPaper: printing.cutPaper !== undefined ? Boolean(printing.cutPaper) : true,
-      openDrawer: printing.openDrawer !== undefined ? Boolean(printing.openDrawer) : true,
-      headerNotice: printing.headerNotice || '',
-      footerNotice: printing.footerNotice || '',
+    if (commissions && typeof commissions === 'object') {
+      const commVal = commissions.defaultValue !== undefined && commissions.defaultValue !== null && !isNaN(Number(commissions.defaultValue))
+        ? Math.max(0, Number(commissions.defaultValue))
+        : (existing.commissions?.defaultValue ?? 0)
+
+      updatedConfig.commissions = {
+        defaultType: ['percentage', 'fixed_per_shipment'].includes(commissions.defaultType) ? commissions.defaultType : (existing.commissions?.defaultType || 'percentage'),
+        defaultValue: commVal,
+      }
     }
-  }
 
-  await configRef.set(updatedConfig)
+    if (dues && typeof dues === 'object') {
+      const dueCents = (Number.isInteger(dues.monthlyDueCents) && dues.monthlyDueCents >= 0)
+        ? dues.monthlyDueCents
+        : (dues.monthlyDueBob !== undefined && dues.monthlyDueBob !== null && !isNaN(Number(dues.monthlyDueBob)) && Number(dues.monthlyDueBob) >= 0 ? Math.round(Number(dues.monthlyDueBob) * 100) : (existing.dues?.monthlyDueCents ?? 0))
 
-  // Auditoría administrativa
-  await db.collection('audit_logs').add({
-    action: 'system_config_updated',
-    performedByUid: callerUid,
-    performedByName: callerName,
-    details: 'Actualización autoritativa de configuración oficial de Expreso Punata',
-    timestampIso: nowIso,
+      const lateFee = dues.lateFeePercentage !== undefined && dues.lateFeePercentage !== null && !isNaN(Number(dues.lateFeePercentage))
+        ? Math.max(0, Number(dues.lateFeePercentage))
+        : (existing.dues?.lateFeePercentage ?? 0)
+
+      const graceDays = dues.gracePeriodDays !== undefined && dues.gracePeriodDays !== null && !isNaN(Number(dues.gracePeriodDays))
+        ? Math.max(0, Math.floor(Number(dues.gracePeriodDays)))
+        : (existing.dues?.gracePeriodDays ?? 0)
+
+      updatedConfig.dues = {
+        monthlyDueCents: dueCents,
+        monthlyDueBob: dueCents / 100,
+        lateFeePercentage: lateFee,
+        gracePeriodDays: graceDays,
+      }
+    }
+
+    if (printing && typeof printing === 'object') {
+      updatedConfig.printing = {
+        cutPaper: printing.cutPaper !== undefined ? Boolean(printing.cutPaper) : true,
+        openDrawer: printing.openDrawer !== undefined ? Boolean(printing.openDrawer) : true,
+        headerNotice: printing.headerNotice || '',
+        footerNotice: printing.footerNotice || '',
+      }
+    }
+
+    // The legacy form may contain a stale snapshot. Fields managed by the
+    // versioned editor can only be changed through that editor.
+    for (const field of Object.keys(existing.institutionalVersions || {})) {
+      if (['tradeName', 'logoUrl', 'legalNotice'].includes(field)) {
+        updatedConfig.company[field] = existing.company[field]
+      } else if (field.startsWith('punata') || field.startsWith('cochabamba')) {
+        const id = field.startsWith('punata') ? 'punata' : 'cochabamba'
+        const property = field.slice(id.length).toLowerCase()
+        updatedConfig.branches[id][property] = existing.branches[id][property]
+      }
+    }
+    tx.set(configRef, updatedConfig)
+
+    // Auditoría administrativa
+    tx.create(db.collection('audit_logs').doc(), {
+      action: 'system_config_updated',
+      performedByUid: callerUid,
+      performedByName: callerName,
+      details: 'Actualización autoritativa de configuración oficial de Expreso Punata',
+      timestampIso: nowIso,
+    })
+
+    return {
+      success: true,
+      config: updatedConfig,
+      message: 'Configuración oficial actualizada exitosamente.',
+    }
   })
-
-  return {
-    success: true,
-    config: updatedConfig,
-    message: 'Configuración oficial actualizada exitosamente.',
-  }
 })
 
 // =========================================================================
@@ -9548,7 +9695,12 @@ export const createUnionLoan = onCall({ cors: true }, async (request) => {
   const nowIso = new Date().toISOString()
   const year = new Date().getFullYear()
   return db.runTransaction(async (transaction) => {
-    const [memberDoc, counterDoc] = await Promise.all([transaction.get(memberRef), transaction.get(counterRef)])
+    const [memberDoc, counterDoc, settings] = await Promise.all([
+      transaction.get(memberRef), transaction.get(counterRef), transaction.get(commercialSettingsRef(db, 'loan')),
+    ])
+    const rule = effectiveCommercialRule(settings.data(), localBusinessDay(nowIso))
+    if (rule?.enabled && installmentCount > rule.maxInstallments) throw new HttpsError('invalid-argument', `Cuotas: el máximo autorizado es ${rule.maxInstallments}.`)
+    if (rule?.enabled && principalCents > rule.maxPrincipalCents) throw new HttpsError('invalid-argument', 'Capital: supera el máximo comercial vigente.')
     if (!memberDoc.exists) throw new HttpsError('not-found', 'El afiliado seleccionado no existe.')
     const sequence = (counterDoc.exists ? Number(counterDoc.data()?.currentSequence) || 0 : 0) + 1
     const loanNumber = `PRE-${year}-${String(sequence).padStart(5, '0')}`
@@ -9569,6 +9721,7 @@ export const createUnionLoan = onCall({ cors: true }, async (request) => {
       id: loanRef.id, loanNumber, memberId: memberRef.id,
       memberNumber: member.memberNumber || '', memberName: member.fullName || '',
       grantDate: grantDate || new Date().toISOString().slice(0, 10),
+      ...(rule?.enabled ? { commercialVersion: rule.version } : {}),
       principalCents, principalBob: principalCents / 100,
       installmentCount, installmentAmountCents: baseCents + (remainderCents ? 1 : 0),
       firstDueDate, notes: notes.trim(), status: firstDueDate < today ? 'overdue' : 'active',
@@ -10055,7 +10208,8 @@ export const createUnionFine = onCall({ cors: true }, async (request) => {
 // Deportes y asistencia: usa la colección union_fines existente para cualquier sanción.
 const UNION_SPORTS_WRITE_ROLES = LOAN_MANAGEMENT_ROLES
 const UNION_SPORTS_ATTENDANCE = ['pending', 'present', 'late', 'absent', 'exempt']
-const sportsFineAmountCents = (attendance) => attendance === 'late' ? 5000 : attendance === 'absent' ? 10000 : 0
+const sportsFineAmountCents = (attendance, event) => attendance === 'late' ? (event.finePolicy?.lateFineCents ?? 5000)
+  : attendance === 'absent' ? (event.finePolicy?.absentFineCents ?? 10000) : 0
 const sportsFineReason = (event, attendance) => attendance === 'late'
   ? `Tardanza en jornada deportiva: ${event.activityName}`
   : `Inasistencia a jornada deportiva: ${event.activityName}`
@@ -10071,7 +10225,7 @@ async function applyUnionSportsAttendance(transaction, { eventRef, participantRe
     attendance, changedAtIso: nowIso, changedByUid: caller.uid,
     changedByName: caller.fullName || 'Operador', reason: reason || null,
   } : null
-  const shouldFine = sportsFineAmountCents(attendance) > 0
+  const shouldFine = sportsFineAmountCents(attendance, event) > 0
   let financialReviewRequired = false
   let fineId = fineDoc.exists ? fineRef.id : null
   if (fineDoc.exists) {
@@ -10089,7 +10243,7 @@ async function applyUnionSportsAttendance(transaction, { eventRef, participantRe
           updatedAtIso: nowIso,
         })
     } else if (shouldFine) {
-      const amountCents = sportsFineAmountCents(attendance)
+      const amountCents = sportsFineAmountCents(attendance, event)
       transaction.update(fineRef, {
         fineNumber: `MUL-DEP-${eventRef.id}-${participant.memberId}`,
         memberNumber: participant.memberNumber, memberName: participant.memberName,
@@ -10112,7 +10266,7 @@ async function applyUnionSportsAttendance(transaction, { eventRef, participantRe
       })
     }
   } else if (shouldFine) {
-    const amountCents = sportsFineAmountCents(attendance)
+    const amountCents = sportsFineAmountCents(attendance, event)
     const fineNumber = `MUL-DEP-${eventRef.id}-${participant.memberId}`
     transaction.create(fineRef, {
       id: fineRef.id, fineNumber, memberId: participant.memberId,
@@ -10165,10 +10319,13 @@ export const createUnionSportsEvent = onCall({ cors: true }, async (request) => 
     }
     const missingIndex = memberDocs.findIndex((doc) => !doc.exists)
     if (missingIndex >= 0) throw new HttpsError('not-found', `No existe el afiliado convocado ${cleanedMemberIds[missingIndex]}.`)
+    const settings = await transaction.get(commercialSettingsRef(db, 'sports'))
+    const rule = effectiveCommercialRule(settings.data(), date)
     const event = {
       id: eventRef.id, date, scheduledTime, activityName: activityName.trim(),
       place: place.trim(), notes: notes.trim(), status: 'scheduled',
       branchId: caller.primaryBranchId || 'punata',
+      ...(rule?.enabled ? { finePolicy: { lateFineCents: rule.lateFineCents, absentFineCents: rule.absentFineCents, version: rule.version } } : {}),
       participantCount: cleanedMemberIds.length, createdAtIso: nowIso,
       createdByUid: caller.uid, createdByName: caller.fullName || 'Operador',
       updatedAtIso: nowIso,

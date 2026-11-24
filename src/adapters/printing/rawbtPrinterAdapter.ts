@@ -159,7 +159,7 @@ export function buildEscPosDocument(
 
   // Encabezado Oficial
   builder.align('center')
-  builder.doubleSize(true).bold(true).line('EXPRESO PUNATA').doubleSize(false).bold(false)
+  builder.doubleSize(true).bold(true).line(doc.companyName || 'EXPRESO PUNATA').doubleSize(false).bold(false)
   builder.line(`Agencia: ${doc.branchName || doc.branchId}`)
   if (doc.branchAddress) builder.line(doc.branchAddress)
   if (doc.branchPhone) builder.line(`Tel: ${doc.branchPhone}`)
@@ -244,7 +244,8 @@ export function buildEscPosDocument(
   builder.feed(1)
   builder.line('DOCUMENTO OPERATIVO INTERNO')
   builder.line('NO CONSTITUYE FACTURA FISCAL')
-  builder.line('Expreso Punata — Cochabamba y Punata')
+  builder.line(doc.companyName || 'Expreso Punata — Cochabamba y Punata')
+  for (const note of doc.footerNotes || []) builder.line(note)
 
   if (options.cutPaper !== false) {
     builder.feed(3)

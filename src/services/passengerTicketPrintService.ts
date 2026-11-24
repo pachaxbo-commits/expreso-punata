@@ -3,6 +3,7 @@ import { formatCurrencyBob } from '../domain/parcelEngine.ts'
 import type { PassengerTicketOperation } from '../types/index.ts'
 
 export type PassengerTicketPaperWidth = 58 | 80
+export type PassengerTicketPresentation = { companyName?: string; branchName?: string; notice?: string }
 
 const escapeHtml = (value: unknown) => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -17,7 +18,7 @@ const formatDateTime = (value?: string | null) => value
 
 export async function buildPassengerTicketPairHtml(
   operation: PassengerTicketOperation,
-  options: { paperWidth?: PassengerTicketPaperWidth; reprint?: boolean } = {},
+  options: PassengerTicketPresentation & { paperWidth?: PassengerTicketPaperWidth; reprint?: boolean } = {},
 ) {
   if (operation.paymentStatus !== 'paid_verified' || operation.paymentVerificationStatus !== 'verified' || !operation.paymentVerifiedAtIso) {
     throw new Error('Solo se imprimen pasajes con pago verificado en el servidor.')
@@ -31,6 +32,8 @@ export async function buildPassengerTicketPairHtml(
     ? `${operation.vehiclePlate}${operation.vehicleMobileNumber ? ` · Móvil ${operation.vehicleMobileNumber}` : ''}`
     : 'No registrado'
   const qr = `<img class="qr" alt="Código verificable ${ticketCode}" src="${qrDataUrl}">`
+  const brand = escapeHtml(options.companyName || 'EXPRESO PUNATA')
+  const notice = options.notice ? `<div class="foot">${escapeHtml(options.notice)}</div>` : ''
   const commonDetails = `
     <div class="row"><span>Operación</span><strong>${escapeHtml(operation.operationNumber)}</strong></div>
     <div class="row"><span>Fecha de viaje</span><strong>${escapeHtml(operation.travelDate)}</strong></div>
@@ -49,8 +52,8 @@ export async function buildPassengerTicketPairHtml(
   @media screen and (min-width:600px){.ticket{width:76mm}}
   @media print{@page{size:${paperWidth}mm auto;margin:2mm}body{background:#fff}.tickets{display:block;padding:0}.ticket{width:${paperWidth - 4}mm;max-width:none;margin:0 auto;border:0;border-radius:0;box-shadow:none;break-after:page;page-break-after:always;padding:1mm}.ticket:last-child{break-after:auto;page-break-after:auto}.ticket+.ticket{border-top:0}.duplicate{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
 </style></head><body><main class="tickets">
-<article class="ticket" data-ticket-copy="office">${reprintBanner}<div class="brand">EXPRESO PUNATA</div><div class="title">COMPROBANTE DE OFICINA</div>${commonDetails}<div class="row"><span>Sucursal</span><strong>${escapeHtml(operation.branchId === 'punata' ? 'Punata' : 'Cochabamba')}</strong></div><div class="status">PAGADO / ${operation.settlementStatus === 'delivered' ? 'ENTREGADO AL CHOFER' : 'PENDIENTE DE ENTREGA AL CHOFER'}</div><div class="foot">Respaldo de pago QR y entrega al chofer · No es factura fiscal</div></article>
-<article class="ticket" data-ticket-copy="driver">${reprintBanner}<div class="brand">EXPRESO PUNATA</div><div class="title">PASAJE PAGADO</div>${commonDetails}<div class="status">PAGO VERIFICADO · PRESENTAR AL CHOFER</div><div class="qrbox">${qr}<div class="code">${ticketCode}</div></div><div class="foot">La validez del pasaje se consulta en el registro digital.</div></article>
+<article class="ticket" data-ticket-copy="office">${reprintBanner}<div class="brand">${brand}</div><div class="title">COMPROBANTE DE OFICINA</div>${commonDetails}<div class="row"><span>Sucursal</span><strong>${escapeHtml(options.branchName || (operation.branchId === 'punata' ? 'Punata' : 'Cochabamba'))}</strong></div><div class="status">PAGADO / ${operation.settlementStatus === 'delivered' ? 'ENTREGADO AL CHOFER' : 'PENDIENTE DE ENTREGA AL CHOFER'}</div><div class="foot">Respaldo de pago QR y entrega al chofer · No es factura fiscal</div>${notice}</article>
+<article class="ticket" data-ticket-copy="driver">${reprintBanner}<div class="brand">${brand}</div><div class="title">PASAJE PAGADO</div>${commonDetails}<div class="status">PAGO VERIFICADO · PRESENTAR AL CHOFER</div><div class="qrbox">${qr}<div class="code">${ticketCode}</div></div><div class="foot">La validez del pasaje se consulta en el registro digital.</div>${notice}</article>
 </main></body></html>`
 }
 

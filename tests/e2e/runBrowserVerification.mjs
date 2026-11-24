@@ -282,7 +282,7 @@ async function runE2E() {
 
     await page.getByTitle('Cerrar Sesión').click()
     await login(page, await seedOperator('soporte_pachax'))
-    await page.getByRole('heading', { name: 'Soporte PACHAX', exact: true }).waitFor()
+    await page.getByRole('heading', { name: 'Centro de Soporte PACHAX', exact: true }).waitFor()
     for (const name of ['Encomiendas', 'Caja del Turno', 'Configuración']) {
       if (await page.getByRole('button', { name, exact: true }).count()) {
         throw new Error('La sesión de soporte mostró un módulo operativo: ' + name)

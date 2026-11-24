@@ -6,7 +6,7 @@ import {
   onSnapshot,
   limit,
 } from 'firebase/firestore'
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage'
 import { storagePhotosEnabled } from '../config/features.ts'
 import { db, functions, storage } from '../firebase/config.ts'

@@ -694,6 +694,7 @@ export interface UnionSportsParticipant {
   justifications: UnionSportsJustification[]
 }
 export interface UnionSportsEvent {
+  finePolicy?: { lateFineCents: number; absentFineCents: number; version: number }
   id: string
   date: string
   scheduledTime: string
@@ -1071,6 +1072,8 @@ export type SystemConfigStatus = 'configured' | 'unconfigured' | 'error' | 'emul
 
 export interface SystemConfig {
   id: string
+  reportPreferences?: { datePreset?: 'today' | 'this_week' | 'this_month' | 'last_month' }
+  documentNotices?: Partial<Record<'passengers' | 'contributions' | 'personnel' | 'inventory', string>>
   company: {
     name: string
     tradeName: string

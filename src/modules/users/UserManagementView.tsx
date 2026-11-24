@@ -21,12 +21,18 @@ import {
   provisionUserThroughBackend,
   requestPasswordResetLink,
   sendUserPasswordResetEmail,
+  revokeUserSessions,
+  retireUser,
+  deleteRetiredUser,
+  getUserSecurityStatus,
+  type UserSecurityStatus,
   fetchUserAuditLogs,
   type ProvisionUserInput,
 } from '../../services/userService'
 import type { UserProfile, UserRole, UserAuditLog } from '../../types'
 import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig'
 import { getUnionMembersRosterThroughBackend, type UnionRosterMember } from '../../services/unionService.ts'
+import { auth } from '../../firebase/config'
 
 const ROLE_LABELS: Record<UserRole, { label: string; bg: string; text: string }> = {
   soporte_pachax: { label: 'Soporte PACHAX', bg: 'bg-slate-100', text: 'text-slate-800' },
@@ -39,7 +45,20 @@ const ROLE_LABELS: Record<UserRole, { label: string; bg: string; text: string }>
   conductor: { label: 'Chofer / Conductor', bg: 'bg-indigo-100', text: 'text-indigo-800' },
 }
 
+function confirmAdminChange(user: UserProfile, nextRole: UserRole, nextActive: boolean, nextBranches: string[]): { sensitiveReason?: string; confirmSensitive?: boolean } | null {
+  if (!['directiva_admin', 'afiliado_admin'].includes(user.role)) return {}
+  const institutional = user.role === 'directiva_admin' || ['punata', 'cochabamba'].every(id => user.allowedBranchIds?.includes(id))
+  const keepsInstitutional = nextRole === 'directiva_admin' || (nextRole === 'afiliado_admin' && ['punata', 'cochabamba'].every(id => nextBranches.includes(id)))
+  if (nextActive && ['directiva_admin', 'afiliado_admin'].includes(nextRole) && (!institutional || keepsInstitutional)) return {}
+  const reason = window.prompt('Indique el motivo del cambio de acceso del administrador (mínimo 10 caracteres). Si su sesión tiene más de cinco minutos, vuelva a iniciar sesión antes de continuar.')
+  if (reason === null) return null
+  if (reason.trim().length < 10) { alert('Indique un motivo de al menos 10 caracteres.'); return null }
+  if (!window.confirm(`¿Confirma modificar el acceso administrativo de ${user.fullName}?`)) return null
+  return { sensitiveReason: reason.trim(), confirmSensitive: true }
+}
+
 export const UserManagementView: React.FC = () => {
+  const [security, setSecurity] = useState<{ user: UserProfile; status: UserSecurityStatus } | null>(null)
   const [users, setUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -56,6 +75,12 @@ export const UserManagementView: React.FC = () => {
   const [roleChangeUser, setRoleChangeUser] = useState<UserProfile | null>(null)
   const [newSelectedRole, setNewSelectedRole] = useState<UserRole>('secretaria')
   const [auditUser, setAuditUser] = useState<UserProfile | null>(null)
+  const [auditSearch, setAuditSearch] = useState('')
+  const [auditAction, setAuditAction] = useState('')
+  const [auditResult, setAuditResult] = useState('')
+  const [auditFrom, setAuditFrom] = useState('')
+  const [auditTo, setAuditTo] = useState('')
+  const [auditError, setAuditError] = useState('')
   const [auditLogs, setAuditLogs] = useState<UserAuditLog[]>([])
   const [loadingAudit, setLoadingAudit] = useState(false)
 
@@ -82,15 +107,15 @@ export const UserManagementView: React.FC = () => {
 
   // Carga de logs de auditoría cuando se abre el modal
   useEffect(() => {
-    if (auditUser) {
-      setLoadingAudit(true)
-      fetchUserAuditLogs(auditUser.uid)
-        .then((logs) => setAuditLogs(logs))
-        .catch((err) => console.error('Error al cargar logs:', err))
-        .finally(() => setLoadingAudit(false))
-    } else {
-      setAuditLogs([])
-    }
+    if (!auditUser) return
+    let cancelled = false
+    setLoadingAudit(true)
+    setAuditError('')
+    fetchUserAuditLogs(auditUser.uid)
+      .then(logs => { if (!cancelled) setAuditLogs(logs) })
+      .catch(error => { if (!cancelled) setAuditError(error instanceof Error ? error.message : 'No se pudo consultar la bitácora.') })
+      .finally(() => { if (!cancelled) setLoadingAudit(false) })
+    return () => { cancelled = true }
   }, [auditUser])
 
   // Filtrado de usuarios
@@ -128,6 +153,8 @@ export const UserManagementView: React.FC = () => {
       : `¿Confirma suspender la cuenta de "${user.fullName}"?\n\nAl suspender, sus sesiones activas serán revocadas inmediatamente y no podrá acceder a emitir encomiendas ni manejar caja.`
 
     if (!window.confirm(confirmMessage)) return
+    const confirmation = confirmAdminChange(user, user.role, nextState, user.allowedBranchIds || [])
+    if (!confirmation) return
 
     try {
       setActionLoading(true)
@@ -142,6 +169,7 @@ export const UserManagementView: React.FC = () => {
         assignedVehiclePlate: user.assignedVehiclePlate,
         assignedMobileNumber: user.assignedMobileNumber,
         isActive: nextState,
+        ...confirmation,
       })
       alert(`Usuario ${actionLabel === 'activar' ? 'reactivado' : 'suspendido'} exitosamente.`)
     } catch (err: any) {
@@ -151,9 +179,64 @@ export const UserManagementView: React.FC = () => {
     }
   }
 
+  const handleRevokeSessions = async (user: UserProfile) => {
+    const reason = window.prompt(`Motivo para cerrar las sesiones de ${user.fullName} (mínimo 10 caracteres):`)
+    if (reason === null) return
+    if (reason.trim().length < 10) { alert('Indique un motivo de al menos 10 caracteres.'); return }
+    if (!window.confirm(`¿Revocar las sesiones de ${user.fullName}? La cuenta permanecerá activa.`)) return
+    try {
+      setActionLoading(true)
+      await revokeUserSessions(user.uid, reason.trim())
+      alert('Sesiones revocadas. La cuenta permanece activa.')
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'No se pudieron revocar las sesiones.')
+    } finally { setActionLoading(false) }
+  }
+
+  const refreshSecurity = async (user: UserProfile) => {
+    setSecurity({ user, status: await getUserSecurityStatus(user.uid) })
+  }
+
+  const openSecurity = async (user: UserProfile) => {
+    setActionLoading(true)
+    try { await refreshSecurity(user) }
+    catch (error) { alert(error instanceof Error ? error.message : 'No se pudo consultar la operación.') }
+    finally { setActionLoading(false) }
+  }
+
+  const runSecurityOperation = async (kind: 'retirement' | 'deletion') => {
+    if (!security) return
+    const { user, status } = security
+    const existing = status[kind]
+    const isDeletion = kind === 'deletion'
+    const reason = existing?.reason ?? window.prompt('Indique el motivo de la operación (10 a 500 caracteres).')
+    if (reason === null) return
+    if (reason.trim().length < 10 || reason.trim().length > 500) {
+      alert('Indique un motivo de 10 a 500 caracteres.')
+      return
+    }
+    const effect = isDeletion ? 'Se eliminará la identidad de Firebase Authentication.' : 'Se deshabilitará la identidad y se revocarán las sesiones.'
+    if (!window.confirm(`¿Confirma la operación para ${user.fullName} (${user.email || user.uid})? ${effect} Se conservarán el perfil y los registros históricos.`)) return
+    setActionLoading(true)
+    try {
+      const operationId = existing?.operationId ?? crypto.randomUUID()
+      if (isDeletion) await deleteRetiredUser(user.uid, reason.trim(), operationId)
+      else await retireUser(user.uid, reason.trim(), operationId)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo completar la operación.')
+    } finally {
+      try { await refreshSecurity(user) }
+      catch (error) { alert(error instanceof Error ? error.message : 'No se pudo actualizar el estado.') }
+      setActionLoading(false)
+    }
+  }
+
   // Acción: Confirmar cambio de rol
   const handleConfirmRoleChange = async () => {
     if (!roleChangeUser) return
+    const nextBranches = roleChangeUser.role === 'directiva_admin' && newSelectedRole === 'afiliado_admin' ? INITIAL_BRANCHES.map(branch => branch.id) : roleChangeUser.allowedBranchIds
+    const confirmation = confirmAdminChange(roleChangeUser, newSelectedRole, roleChangeUser.isActive, nextBranches || [])
+    if (!confirmation) return
     try {
       setActionLoading(true)
       await provisionUserThroughBackend({
@@ -169,6 +252,7 @@ export const UserManagementView: React.FC = () => {
         assignedVehiclePlate: roleChangeUser.assignedVehiclePlate,
         assignedMobileNumber: roleChangeUser.assignedMobileNumber,
         isActive: roleChangeUser.isActive,
+        ...confirmation,
       })
       alert(`Rol actualizado a "${ROLE_LABELS[newSelectedRole]?.label || newSelectedRole}" exitosamente.`)
       setRoleChangeUser(null)
@@ -201,6 +285,14 @@ export const UserManagementView: React.FC = () => {
       setActionLoading(false)
     }
   }
+
+  const filteredAuditLogs = auditLogs.filter(log => {
+    const date = (log.timestampIso || '').slice(0, 10)
+    return (!auditFrom || date >= auditFrom) && (!auditTo || (date && date <= auditTo))
+      && (!auditAction || log.action === auditAction)
+      && (!auditResult || log.details?.result === auditResult)
+      && JSON.stringify({ action: log.action, operator: log.performedBy, details: log.details }).toLowerCase().includes(auditSearch.toLowerCase())
+  })
 
   return (
     <div className="space-y-6">
@@ -469,7 +561,7 @@ export const UserManagementView: React.FC = () => {
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800">
                             <span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
-                            Suspendido
+                            {String(u.syncStatus) === 'auth_deleted' ? 'Eliminado de Auth' : String(u.syncStatus) === 'retired' ? 'Dado de baja' : String(u.syncStatus) === 'retiring' ? 'Baja pendiente de recuperación' : 'Suspendido'}
                           </span>
                         )}
                       </td>
@@ -501,6 +593,8 @@ export const UserManagementView: React.FC = () => {
                           </button>
 
                           {/* Restablecer Contraseña */}
+                          <button type="button" disabled={actionLoading} onClick={() => void openSecurity(u)} className="p-1.5 text-rose-700 hover:bg-rose-50 rounded-lg" title="Baja y eliminación de Auth" aria-label={`Baja y eliminación de Auth de ${u.fullName}`}><XCircle className="w-4 h-4" /></button>
+                          <button type="button" disabled={actionLoading} onClick={() => void handleRevokeSessions(u)} className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg" title="Revocar sesiones" aria-label={`Revocar sesiones de ${u.fullName}`}><Lock className="w-4 h-4" /></button>
                           <button
                             type="button"
                             onClick={() => handleRequestPasswordReset(u)}
@@ -528,7 +622,7 @@ export const UserManagementView: React.FC = () => {
                           {/* Historial de Auditoría */}
                           <button
                             type="button"
-                            onClick={() => setAuditUser(u)}
+                            onClick={() => { setAuditAction(''); setAuditResult(''); setAuditUser(u) }}
                             className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
                             title="Ver historial de auditoría"
                           >
@@ -636,6 +730,41 @@ export const UserManagementView: React.FC = () => {
 
 
       {/* MODAL 5: HISTORIAL DE AUDITORÍA */}
+      {security && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/60 p-4">
+          <section role="dialog" aria-modal="true" aria-labelledby="user-security-title" className="w-full max-w-lg space-y-4 rounded-xl bg-white p-6 shadow-xl">
+            <h3 id="user-security-title" className="font-bold">Baja y eliminación de Auth</h3>
+            <p>{security.user.fullName} · {security.user.email}</p>
+            <p className="text-sm text-slate-600">El perfil, los movimientos y la auditoría se conservan.</p>
+            {(['retirement', 'deletion'] as const).map(kind => {
+              const operation = security.status[kind]
+              const label = kind === 'retirement' ? 'Baja lógica' : 'Eliminación de Auth'
+              const blocked = kind === 'deletion' ? security.status.deletionBlockedReason
+                : security.user.role === 'soporte_pachax' ? 'La cuenta técnica está protegida.'
+                : security.user.uid === auth.currentUser?.uid ? 'Otra cuenta administradora debe realizar la baja.' : null
+              return (
+                <div key={kind} className="space-y-1 rounded border border-slate-200 p-3 text-sm">
+                  <h4 className="font-semibold">{label}</h4>
+                  {operation && (
+                    <>
+                      <p>{operation.status === 'completed' ? 'Completada' : operation.status === 'retry_required' ? 'Requiere reintento' : 'Pendiente'}</p>
+                      <p>Motivo: {operation.reason}</p>
+                      <p className="break-all">Operación: {operation.operationId}</p>
+                    </>
+                  )}
+                  {operation?.status !== 'completed' && (blocked ? <p>{blocked}</p> : (
+                    <button type="button" disabled={actionLoading} onClick={() => void runSecurityOperation(kind)} className="rounded bg-rose-700 px-3 py-2 text-white disabled:opacity-50">
+                      {operation ? `Reintentar ${label.toLowerCase()}` : kind === 'retirement' ? 'Dar de baja' : 'Eliminar identidad de Auth'}
+                    </button>
+                  ))}
+                </div>
+              )
+            })}
+            <button type="button" disabled={actionLoading} onClick={() => setSecurity(null)} className="rounded bg-slate-800 px-3 py-2 text-white">Cerrar operaciones</button>
+          </section>
+        </div>
+      )}
+
       {auditUser && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-5 shadow-2xl space-y-4 border border-slate-200 max-h-[90vh] flex flex-col">
@@ -647,7 +776,7 @@ export const UserManagementView: React.FC = () => {
                     Historial de Auditoría Inmutable
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Operador: <strong className="text-slate-700">{auditUser.fullName}</strong> ({auditUser.email})
+                    Usuario afectado: <strong className="text-slate-700">{auditUser.fullName}</strong> ({auditUser.email})
                   </p>
                 </div>
               </div>
@@ -661,17 +790,30 @@ export const UserManagementView: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-1 text-xs">
+              <div className="grid gap-2 sm:grid-cols-3"><label>Acción, operador o resultado<input value={auditSearch} onChange={e => setAuditSearch(e.target.value)} className="block w-full rounded border p-2" /></label><label>Desde<input type="date" value={auditFrom} onChange={e => setAuditFrom(e.target.value)} className="block w-full rounded border p-2" /></label><label>Hasta<input type="date" value={auditTo} onChange={e => setAuditTo(e.target.value)} className="block w-full rounded border p-2" /></label></div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label>Acción<select aria-label="Acción" className="block w-full rounded border p-2" value={auditAction} onChange={event => setAuditAction(event.target.value)}>
+                  <option value="">Todas</option>
+                  {[...new Set(auditLogs.map(log => log.action).filter(Boolean))].sort().map(action => <option key={action}>{action}</option>)}
+                </select></label>
+                <label>Estado<select aria-label="Estado" className="block w-full rounded border p-2" value={auditResult} onChange={event => setAuditResult(event.target.value)}>
+                  <option value="">Todos</option>
+                  {[...new Set(auditLogs.map(log => String(log.details?.result || '')).filter(Boolean))].sort().map(result => <option key={result}>{result}</option>)}
+                </select></label>
+              </div>
               {loadingAudit ? (
                 <div className="p-8 text-center text-slate-500">
                   <RefreshCw className="w-5 h-5 animate-spin mx-auto text-[#064e3b] mb-2" />
                   Consultando registros inmutables de audit_logs...
                 </div>
+              ) : auditError ? (
+                <p role="alert">{auditError}</p>
               ) : auditLogs.length === 0 ? (
                 <div className="p-8 text-center text-slate-500">
                   No hay eventos registrados en la bitácora de auditoría para este usuario.
                 </div>
               ) : (
-                auditLogs.map((log, i) => (
+                filteredAuditLogs.length === 0 ? <p>No hay eventos que coincidan con los filtros.</p> : filteredAuditLogs.map((log, i) => (
                   <div key={log.id || i} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-slate-800 font-mono text-[11px] bg-slate-200/80 px-2 py-0.5 rounded">
@@ -682,7 +824,7 @@ export const UserManagementView: React.FC = () => {
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-600">
-                      Realizado por: <strong className="text-slate-700">{log.performedByEmail || log.performedBy || 'Sistema'}</strong>
+                      Realizado por: <strong className="text-slate-700">{log.performedByEmail || log.performedBy || 'No registrado'}</strong>
                     </div>
                     {log.details && Object.keys(log.details).length > 0 && (
                       <pre className="text-[10px] bg-white p-2 rounded border border-slate-200 font-mono text-slate-600 overflow-x-auto">
@@ -1081,6 +1223,10 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
         assignedMobileNumber: user.role === 'conductor' ? mobileNumber.trim() : undefined,
         isActive: user.isActive,
       }
+
+      const confirmation = confirmAdminChange(user, input.role, Boolean(input.isActive), input.allowedBranchIds)
+      if (!confirmation) return
+      Object.assign(input, confirmation)
 
       await provisionUserThroughBackend(input)
       onSuccess()

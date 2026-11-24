@@ -943,16 +943,112 @@ Documenta la deuda heredada y las correcciones verificadas.
 
 ## Fase 2
 
+### Cierre local de Fase 2 · Bloques A–D · 2026-11-24
+
+| Bloque | Estado local | Evidencia de cierre |
+|---|---|---|
+| A · Gestión de usuarios | Verificado en emuladores | TypeScript, build, regresión y recorrido Playwright de ciclo de vida, revocación, recuperación y eliminación de Auth sintética. Sin publicación ni eliminación real. |
+| B · Configuraciones operativas y comerciales | Verificado en emuladores | TypeScript, build y recorrido Playwright de configuraciones B4, comerciales e institucionales; valores sintéticos. No se cambiaron fórmulas comerciales de producción. |
+| C · Limpieza y recuperación | Verificado en emuladores | Recorrido Playwright de inventario, simulación, ejecución y restauración de registros sintéticos con procedencia. No hubo limpieza de datos reales. |
+| D · Diagnóstico, seguridad, regresión e integración | Verificado localmente | 73 pruebas unitarias, 188 Functions, 34 reglas Firestore y tres recorridos Playwright de soporte, configuración y usuarios; Node 22. |
+
+### Integración GitHub y producción · actualización 2026-11-24
+
+| Etapa | Estado | Evidencia o condición pendiente |
+|---|---|---|
+| Desarrollo local | Terminado | Bloques A–D y pruebas locales indicadas arriba. |
+| Integración GitHub | PR [#64](https://github.com/pachaxbo-commits/expreso-punata/pull/64) abierta hacia `main`; sin conflictos | Rama `codex/phase-2-support-center` publicada desde el SHA base `c35b620e08e2af32196b900bdaa8c12d55004e8b`. Check de Vercel: success; Preview de la revisión más reciente: READY. La revisión actualizada se ve en la PR. |
+| Despliegue | No realizado; bloqueado | No fusionar ni desplegar mientras no haya respaldo recuperable y recuperación comprobada. |
+| Respaldo Firebase | Bloqueado por autorización de costos | Firestore `(default)` en `nam5`: no hay backup administrado ni agenda; PITR está desactivado. Hay un export previo de Fase 1 en el bucket privado descrito abajo, pero no acredita un respaldo fresco de Fase 2 ni un restore probado. |
+| Verificación de producción | Parcial, no funcional | Vercel Production está READY en `c35b620…`; `/` responde 200 y `/demo` redirige 307 a `/`. No se probó el inicio de sesión ni las operaciones reales de Nelson. |
+| Cuenta real SOPORTE | No activada | No se creó identidad; faltan titular autorizado, MFA y prueba de acceso real conforme al [procedimiento](PROCEDIMIENTO_ACCESO_SOPORTE.md). |
+| Fase 3 | No iniciada | Mantener pendiente hasta cerrar y verificar en producción la integración de Fase 2. |
+
+Las reglas de Firestore y Storage no cambian en esta PR. Se añadió un índice compuesto para el historial de operaciones de limpieza (`support_cleanup_operations`: `operatorUid ASC`, `createdAtIso DESC`); Firebase producción tenía 21 índices y ninguno para esta consulta. Tras levantar los bloqueos, publicar índices y esperar estado `READY` antes de desplegar Functions del codebase `default`; el frontend Vercel se publica al integrar `main`. No se hicieron cambios de producción, no se creó identidad real de soporte y no se modificaron cuentas o datos. El alta real requiere responsable designado, MFA y aprobación operativa; emuladores no acreditan MFA de producción.
+
+### Respaldo y publicación coordinada · comprobación operativa 2026-11-24
+
+| Control | Resultado comprobado | Decisión |
+|---|---|---|
+| Facturación y permisos | Billing API devuelve `billingEnabled=true` y cuenta asociada para `expreso-punata-dev`. La sesión Firebase/Google tiene binding directo `roles/owner` en el proyecto; puede administrar Firestore y Storage. | La capacidad técnica no sustituye la autorización específica del titular para generar costo. No se creó agenda, copia, base de restauración ni export nuevo. |
+| Volumen | Métrica `firestore.googleapis.com/storage/data_and_index_storage_bytes`: 342.020 bytes (aprox. 0,000319 GiB), muestra del 2026-11-24 15:24 UTC. Es tamaño medido de datos e índices, no un conteo de documentos. | El tamaño reduce el costo estimado de almacenamiento, pero exportación/importación depende también del conteo de documentos. |
+| Backups Firestore | CLI lista cero copias y cero agendas para `(default)`/`nam5`; modo Native, Standard; PITR apagado. | La copia administrada es la opción recomendada: es consistente, incluye datos e índices y se restaura en una base nueva en la misma ubicación. La agenda admite una recurrencia diaria y otra semanal, hasta 14 semanas; no fija la hora. Debe esperarse y comprobar una copia `READY` tras crear la agenda. No se encontró vía oficial de backup administrado bajo demanda. |
+| Costo estimado de backup | Precio de backup: USD 0,000041096 por GiB-hora. Para 0,000319 GiB y agenda diaria con retención de 14 días, aprox. USD 0,00013/mes en régimen estable si el tamaño no crece. | Estimación de almacenamiento, no cotización; el costo cambia con tamaño y retención. PITR no hace falta para esta publicación y no se habilita. |
+| Restore de prueba | Debe restaurarse una copia `READY` como base nombrada nueva en `nam5`, por ejemplo `phase2-restore-YYYYMMDD`; no sobrescribe `(default)`. El precio publicado de restore es USD 0,20/GiB: aprox. USD 0,000064 con el tamaño medido, más uso real de la base nombrada. Las bases nombradas no reciben cuota gratuita de Firestore. | Antes de aprobar, estimar también lecturas, validación, almacenamiento temporal y borrado de la base aislada. Firestore backup no contiene Firebase Auth, Security Rules ni políticas TTL. Comparar conteos y muestras antes de aceptar el respaldo. |
+| Opción Cloud Storage | Billing también está activo. Existe `pachax-expreso-phase1-backup-00f7eeda9c` en ubicación `US`, con acceso uniforme, prevención de acceso público forzada y sin miembros públicos en IAM. Contiene cuatro objetos del prefijo `firestore-pre-phase1` y `phase1-recovery-inventory.json`, actualizados el 2026-11-22. El bucket se conserva intacto. | Puede reutilizarse con un prefijo nuevo aprobado. Export gestionado cobra una lectura por documento exportado; import cobra una escritura por documento; además se paga almacenamiento. No hay conteo actual de documentos para cerrar el costo exacto. No se exportará sin aprobación. La exportación no es snapshot consistente si la base recibe escrituras durante el proceso; requeriría ventana de pausa y verificar operación/metadatos. |
+| Auth y configuración | El inventario de Fase 1 en el bucket es histórico y no acredita el estado de Fase 2. No se descargaron identidades, claims ni configuraciones actuales. | En la misma ventana autorizada guardar fuera de Git un inventario nuevo de UID, roles, claims completos, estado, agencias, perfiles, configuración institucional/comercial, reglas, índices y revisiones desplegadas. Excluir password hashes, contraseñas y secretos; restringir IAM y generar checksum. Auth y Firestore son respaldos separados. |
+| GitHub y revisión enfocada | PR #64 abierta y `MERGEABLE`; el HEAD vigente está enlazado en la [PR](https://github.com/pachaxbo-commits/expreso-punata/pull/64). El último commit de código de Fase 2 es `35e033490fccd8d2f4979bff10be17795e056ab8`; desde entonces sólo se añadió esta documentación. Preview y checks de Vercel reportan `SUCCESS`. No hay revisiones aprobatorias. `main` no está protegido (404 `Branch not protected`) y `rulesets` está vacío. La lectura focalizada de accesos/MFA, limpieza, ciclo de usuarios, diagnósticos, configuración versionada e índice no encontró un bypass crítico evidente; se mantienen las suites locales ya registradas (73 unitarias, 188 Functions, 34 Rules). | Mantener la PR sin merge. Antes de fusionar, el propietario debe habilitar protecciones requeridas (revisión aprobatoria y checks obligatorios) y obtener la revisión aprobatoria de seguridad. La lectura focalizada no reemplaza esa aprobación. No omitir protecciones ni usar bypass. |
+| Vercel | Proyecto `expreso-punata` enlazado con GitHub `pachaxbo-commits/expreso-punata`. El código de Fase 2 (`35e033…`) y las actualizaciones de roadmap generan Preview READY; SHA actual de `main`, `c35b620…`, es Production READY (`dpl_E37Er8tpvauY5yiPYUCTBCoysJVG`) y alias de producción actual. | La secuencia observada confirma publicación de `main` a Production. No cambiar configuración: hacer índice y backend compatibles primero; fusionar PR #64 al final para que el despliegue automático del frontend ocurra después. Reversión web: volver al deployment actual de `main`/SHA `c35b620…`; volver a comprobar el alias antes de la ventana. |
+
+**Autorización pendiente exacta.** Para hacer el respaldo recuperable y demostrar el restore, el titular debe autorizar: (a) crear en Firestore `(default)` una agenda diaria de 14 días y esperar la primera copia `READY` (aprox. USD 0,00013/mes al tamaño medido); (b) restaurar esa copia en una base nombrada aislada en `nam5` (aprox. USD 0,000064 por la operación, más uso de la base); (c) crear un inventario actualizado de Auth/configuración y conservarlo en el bucket privado existente, bajo prefijo nuevo, sin hashes ni secretos. Alternativa si se necesita una copia inmediata: export/import gestionado a ese bucket, con pausa de escrituras; el costo por documento no puede estimarse sin contar documentos. No se activa PITR ni se crea un bucket.
+
+**Secuencia de publicación cuando se levanten los bloqueos:** 1) autorización y snapshot; 2) comprobar disponibilidad, integridad y restaurar en la base nombrada; 3) comparar conteos, relaciones y documentos representativos; 4) activar protecciones de `main`, obtener aprobación y confirmar continuidad administrativa de Nelson; 5) publicar el índice compuesto y esperar `READY`; 6) desplegar Functions compatibles y hacer smoke tests del backend; 7) fusionar PR #64 como último paso de promoción frontend (Vercel Production automático); 8) pruebas de producción y registro de SHA, IDs de deployment y plan de reversión. Firestore/Storage Rules no cambiaron y no deben desplegarse. La prueba humana de Nelson: iniciar sesión, abrir Configuración → Usuarios y Permisos, crear sólo una cuenta aprobada y confirmar roles/agencias Punata y Cochabamba; no pedir ni almacenar contraseña.
+
+Fuentes oficiales para [backups y restore](https://docs.cloud.google.com/firestore/native/docs/backups), [precios de Firestore](https://cloud.google.com/firestore/pricing?hl=en) y [export/import](https://firebase.google.com/docs/firestore/manage-data/export-import).
+
+### Bloque A · avance de gestión de usuarios
+
+#### Continuación desde `c8187ba`
+
+- **Responsabilidades por UID.** Baja y eliminación comparten comprobaciones transaccionales de caja, manifiestos y traslados, encomiendas asignadas en tránsito, cobros COD pendientes de rendición, pasajes por embarcar o liquidar, saldo de comisiones y bienes patrimoniales vigentes con responsable explícito. Las recepciones y entregas de ventanilla corresponden a la agencia. Los UID de registro, entrega completada, recepción completada y almacenamiento son trazabilidad. El COD conciliado conserva su referencia histórica. Un nombre libre de responsable no demuestra un vínculo con una identidad de Auth.
+- **Asignaciones concurrentes.** La apertura de caja y la entrega leen el perfil vigente dentro de la transacción. Despachos, pasajes y devengos usan la lectura transaccional del conductor y rechazan un perfil en baja, incluso si comparte UID con el directorio. Las escrituras de responsabilidad patrimonial comprueban el perfil dentro de la transacción.
+- **Operaciones y recuperación.** Gestión de usuarios consulta por UID las reservas de baja y eliminación guardadas en Firestore. Otra sesión administrativa puede reintentar el mismo identificador con confirmación y autenticación reciente. El backend también admite consulta por identificador y tipo. La bitácora conserva operador inicial, operador que completó, resultado e identificador. Una respuesta tardía de fallo no degrada una operación completada.
+- **Eliminación de Auth.** Exige perfil dado de baja, identidad deshabilitada si aún existe, cuenta sintética marcada y proyecto `demo-*` con emuladores. Verifica la ausencia de la identidad antes de marcar la operación completada. Conserva perfil y movimientos. Las cuentas técnicas y los administradores están protegidos. Para evaluar activación real quedan pendientes la reconciliación de referencias no verificables por UID, revisión de triggers y datos heredados y autorización expresa.
+- **Verificación final con Node 22.** TypeScript y build aprobados, 73 pruebas unitarias, 175 de Functions y 30 de Firestore Rules. Las pruebas cubrieron bajas simultáneas entre administradores, protección del último administrador, suspensión durante una eliminación, cambio de rol o agencia durante una baja, rechazo de asignaciones nuevas durante una eliminación, fallo parcial, reintento con Auth ya eliminado, cuentas protegidas y acceso sin autorización.
+- **Playwright integral aprobado en Chrome y Firebase Emulator Suite.** El recorrido de `tests/e2e/runUserSecurityJourney.mjs` creó, editó, reasignó, suspendió y reactivó una cuenta, revocó sesiones, comprobó el rechazo por caja abierta y completó la baja. Verificó los filtros de usuario, texto, acción, estado y fechas. Tras inducir una discrepancia entre Auth y Firestore, cerró el navegador, inició sesión con otro administrador y reintentó la eliminación con el mismo identificador. Auth respondió `auth/user-not-found` y se conservaron el perfil, la auditoría y el movimiento financiero.
+- **Estado.** Bloque A cerrado técnicamente en emuladores. La rama permanece local y la eliminación física en producción sigue bloqueada. Commits de implementación y pruebas: `9ab18c6`, `71e28b5`, `a568f54` y `01e04f8`.
+
+Los siguientes párrafos registran los avances anteriores a esta continuación.
+
+Historial: se retiró el ordenamiento Firestore por timestamp, que excluía eventos nuevos con solo timestampIso; la lectura ahora conserva esos eventos y ordena sus fechas ISO. Se muestran motivo, resultado e identificador disponible y se añadieron filtros de texto y fechas en la bitácora del usuario. Build y TypeScript aprobados; falta comprobar estos cambios en Playwright y ejecutar la regresión integral. El Bloque A permanece abierto.
+
+Prueba adicional: dos solicitudes simultáneas con el mismo UID e identificador de eliminación completan coherentemente y conservan la referencia financiera; cinco pruebas dirigidas y build aprobaron. La tabla de usuarios distingue suspensión, baja pendiente, baja completada y eliminación de Auth. No se ejecutó Playwright integral ni se completaron filtros de historial o la revisión total de obligaciones; Bloque A sigue abierto.
+
+Eliminación física: implementación inicial exclusivamente para una identidad sintética marcada en proyecto demo con Auth y Firestore Emulator. Registra estado y auditoría persistentes, conserva el perfil y admite reintento tras fallo Auth; las cuentas técnicas y administradores están bloqueados. Producción permanece bloqueada porque aún faltan verificaciones de custodia, pasajes y otras responsabilidades y revisar triggers desplegados. Cinco pruebas dirigidas y build aprobaron antes de añadir la consulta de estado; faltan pruebas de concurrencia y de esa consulta. No está listo para publicación.
+
+Continuación de backend: la baja comprueba además turnos de caja abiertos, manifiestos despachados o en tránsito asignados al conductor y saldo pendiente de comisiones. Cuatro pruebas dirigidas pasaron en emuladores, incluyendo bloqueo por manifiesto y comisión y conservación de historial. La revisión de custodia, pasajes y otras responsabilidades aún no es completa; no se implementó eliminación física de Auth ni recuperación independiente del navegador. El backend sigue sin estar listo para publicación.
+
+Continuación: el identificador y motivo de una baja pendiente se guardan en el navegador, separados por administrador y usuario, para reintentar tras cerrar la pantalla en el mismo dispositivo. Una prueba en emulador fuerza un fallo al actualizar Auth y confirma que el mismo identificador completa después la operación. Build y cuatro pruebas dirigidas aprobadas. Sigue pendiente recuperar la operación desde otro dispositivo o tras borrar el almacenamiento, comprobar todas las obligaciones y probar Playwright integral. La eliminación física y el historial con filtros siguen pendientes; este bloque no está cerrado.
+
+Se añadió una baja lógica con autenticación reciente, confirmación, motivo, candado de administración, protección del último administrador, bloqueo ante caja abierta, revocación de acceso, auditoría y reintentos por identificador. Se conserva Auth deshabilitado y el perfil histórico; todavía no existe eliminación física segura ni un inventario completo de custodia y obligaciones. La interfaz permite iniciar la baja y reintentar mientras permanece abierta; la recuperación del identificador tras cerrar la pantalla sigue pendiente. TypeScript y build aprobados; tres pruebas dirigidas de seguridad y 29 pruebas Rules aprobadas. Faltan Playwright del recorrido completo, fallos parciales y concurrencia específica de la baja. No se tocaron usuarios de producción. EP-14 sigue en curso y la baja no está lista para publicación.
+
+### Bloque B · configuraciones operativas y comerciales
+
+- **B1.** Edición institucional y de agencias por campos, con versión, valor previo, motivo, operador y restauración auditada. El comprobante unificado y su vista previa toman los datos oficiales de la agencia, el nombre y el aviso institucional. El diálogo de impresión puede usar el logo HTTPS cuando el perfil de impresora lo admite. Los códigos de agencia siguen siendo los mismos. El formulario legado conserva los campos que ya administra el editor versionado. Los horarios no tienen actualmente un consumidor operativo.
+- **B2.** Editor de tarifas por los dos sentidos de la ruta con base, peso incluido, recargo por kilo y entrega a domicilio. Los borradores se guardan sin aplicar. Las publicaciones se seleccionan por vigencia en La Paz y el motor existente conserva importe y versión en cada guía. El interruptor de cálculo automático sigue siendo independiente. Un reintento con la misma clave recupera la guía original incluso después de publicar otra tarifa. Las categorías de bulto se mantienen como clasificación; la fórmula existente no las usa como multiplicadores.
+- **B3.** Comisión fija por encomienda o porcentual sobre `shippingFeeCents`. El precio manual no aporta esta base. El devengo versionado conserva el importe histórico e idempotencia. La aprobación y publicación pertenecen a la administración del cliente. Soporte consulta reglas y estado.
+- **B4.** Configuraciones versionadas para políticas de aportes, catálogos operativos, campos opcionales de reportes y preferencias de avisos. Las políticas de aportes admiten periodicidad mensual, concepto, importe, vigencia, categoría y sucursales; administración de afiliados puede preparar y aprobar/publicar versiones. La emisión toma la política vigente para nuevos cobros y conserva la versión aplicada; no recalcula ni modifica aportes históricos ni pagos directos. Los valores comerciales oficiales aún requieren aprobación del cliente. Los catálogos renombran o desactivan opciones existentes de cargos, activos fijos e insumos; no admiten claves nuevas ni eliminan opciones o registros históricos. Las opciones desactivadas no se ofrecen para altas nuevas. Se preservan las categorías financieras, de seguridad y de cuentas. Los reportes permiten ordenar y mostrar/ocultar campos opcionales admitidos en la tabla, PDF y XLSX; los campos legales y financieros obligatorios permanecen visibles. Se conserva el período inicial seleccionable y el nombre institucional del PDF. Las preferencias afectan únicamente la visibilidad del aviso informativo de encomienda ya existente y su lista de pendientes con marcado de lectura; no cambian alertas de seguridad, caja o auditoría, ni crean canales nuevos. B4 no añade recurrencias distintas de la mensual ni automatiza otros tipos de cobro.
+- **B5–B6.** Formularios por módulo y ruta, historial reciente, confirmación, autenticación reciente, segundo factor para Soporte fuera de emulador y control transaccional por versión. La restauración comercial crea un borrador y su aplicación requiere aprobación explícita. Las versiones se consultan mediante Functions y quedan cerradas a escrituras directas desde Firestore.
+- **B7. Verificación final con Node 22.** TypeScript, build, 73 pruebas unitarias, 179 pruebas de Functions y 32 pruebas Firestore Rules aprobadas. Playwright en Chrome aprobó edición y restauración de agencia y configuraciones B4, efecto en comprobantes y reportes, separación de roles, publicación de tarifas y comisiones, historial y período. El recorrido verificó que el campo opcional de afiliado se oculta en el reporte real y que catálogos y avisos usan las preferencias guardadas. Las pruebas Functions cubren publicación solo para altas nuevas, preservación histórica, coincidencia de categoría/sucursal, autenticación reciente, permisos, concurrencia, restauración versionada y bloqueo de opciones desactivadas. También verifican devengo fijo y porcentual, rechazo sin base, vigencia, reintentos, topes de préstamos y multas deportivas. El recorrido de navegador está en `tests/e2e/runBlockBConfiguration.mjs`.
+- **Estado.** Bloque B cerrado localmente y verificado en emuladores, sin publicación. La configuración comercial efectiva de tarifas, comisiones y aportes sigue sujeta a aprobación del cliente; las pruebas usan valores sintéticos. Límites de B4: periodicidad mensual; catálogos restringidos a claves existentes; campos opcionales del reporte genérico admitidos; aviso informativo de encomiendas ya existente. Las fórmulas tarifarias y comisiones de producción no cambiaron. Commits anteriores de implementación y pruebas: `4b25de2`, `a797105`, `137c226`, `b98e77f` y `5319d07`. B4: `4cb9f3a` y `9652e07`.
+
+### Avance local · Centro de Soporte
+
+Rama `codex/phase-2-support-center`, creada desde `origin/main` en `c35b620e08e2af32196b900bdaa8c12d55004e8b`. No se ha publicado esta fase. En la comprobación de producción anterior al desarrollo, Vercel estaba READY en ese SHA, las 71 Functions estaban activas y `/demo` respondía 307 a `/`. El inicio de sesión real de Nelson y la creación de usuarios requieren comprobación humana y siguen pendientes.
+
+| Tarea | Estado real | Evidencia y trabajo pendiente |
+|---|---|---|
+| EP-13 · Soporte | Implementado y verificado localmente | Panel independiente con resumen, filtros, detalle y revisión auditada de diagnósticos. Cliente clasifica fallos observados de Functions, Firestore, autenticación, red y errores globales con correlación; backend limita frecuencia, guarda campos permitidos y expira reportes. Ver recorrido Playwright móvil y pruebas D. Las fallas de inicio de sesión sin usuario autenticado no se reportan centralmente; tampoco se detecta el resultado físico de impresión. La identidad real de soporte no fue creada. |
+| EP-14 · Usuarios | Verificado en emuladores | Gestión, revocación y baja lógica con auditoría, recuperación por backend y protección administrativa. Eliminación de identidad limitada a cuentas sintéticas marcadas en emuladores; perfil y operaciones conservados. La verificación y las condiciones de publicación se registran en el Bloque A. |
+| EP-15 · Cuentas antiguas | Pendiente de revisión | Las tres cuentas antiguas fueron deshabilitadas y sus sesiones revocadas. Existen referencias en movimientos, manifiestos y auditoría, así como dos candados históricos de caja; no se han eliminado físicamente perfiles ni registros de negocio. |
+| EP-16 · Limpieza | Implementado y verificado en emuladores; producción bloqueada | Centro de limpieza sobre las colecciones operativas inventariadas. La procedencia firmada por el helper de seeding y el hash del contenido son obligatorios; sólo `shipments` y `manifests` pueden ser candidatos. Finanzas, auditorías, usuarios y demás colecciones quedan protegidas. El grafo, los planes persistentes, el respaldo verificable, la ejecución idempotente por lotes, la recuperación y el bloqueo fuera de Firebase Emulator Suite se probaron localmente. No se ejecutó ni habilitó ninguna limpieza real. |
+
+**Identidad técnica futura:** el procedimiento local está documentado en [`docs/PROCEDIMIENTO_ACCESO_SOPORTE.md`](PROCEDIMIENTO_ACCESO_SOPORTE.md) y automatizado por `scripts/supportIdentity.mjs`. Exige proyecto explícito, aprobación registrada, titular preexistente con MFA, ejecución interactiva y auditoría; permite revocar el acceso. El administrador del cliente no puede crear ni modificar el rol de soporte. No se ha creado una cuenta real ni se ha validado MFA de producción.
+
+**Limitaciones:** las tarjetas de mantenimiento e impresoras son indicadores de trabajo pendiente; no representan herramientas terminadas. Los reportes automáticos cubren los errores observados por cliente, no errores ocurridos antes de autenticar ni el éxito físico de una impresora. El servidor no recibe trazas crudas, mensajes originales o datos de solicitud; la limpieza de reportes vencidos es por lotes al consultar o registrar. El antiguo `internal 0` sigue sin causa confirmada. No se propone ninguna tarifa de comisión. El alcance de Fase 3 permanece intacto.
+
+**Pruebas locales con Node 22:** `npm run typecheck` y `npm run build` aprobados; suite unitaria 73/73, Functions 188/188 y Firestore Rules 34/34. Playwright aprobado para `tests/e2e/runSupportCenter.mjs` (diagnóstico y limpieza móvil), `tests/e2e/runBlockBConfiguration.mjs` (configuración móvil/escritorio) y `tests/e2e/runUserSecurityJourney.mjs` (gestión y seguridad de usuarios). Los tres recorridos usaron datos sintéticos y emuladores. No se hizo verificación real de cuenta/MFA, despliegue ni producción.
+
 ### EP-13 · CENTRO DE SOPORTE PACHAX
 
-- [ ] Pendiente
-- Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- [x] Implementado y verificado localmente en emuladores.
+- Prioridad: Alta.
+- Diagnóstico: errores observados en cliente clasificados y correlacionados; información sensible cruda excluida del reporte.
+- Archivos afectados: `functions/supportCenter.js`, `functions/supportAccess.js`, `src/firebase/observedCallable.ts`, `src/firebase/observedFirestore.ts`, `src/firebase/globalDiagnostics.ts`, `src/modules/support/SupportCenter.tsx` y puntos de integración en servicios y vistas.
+- Solución realizada: recepción limitada y retenida de diagnósticos; lista, filtros, detalle y revisión con auditoría; sesión de soporte verificada; procedimiento de provisión y revocación documentado.
+- Pruebas y resultado: 73 unitarias, 188 Functions, 34 reglas Firestore; recorridos de soporte, configuración y seguridad de usuarios aprobados con Node 22 y Firebase Emulator Suite.
+- Commit: publicado en la rama `codex/phase-2-support-center`; incluido en PR #64 abierta.
+- Bloqueos de producción: respaldo Firestore recuperable (actualmente no existe respaldo ni agenda y PITR está apagado), ensayo aislado de restauración, permisos y revisiones anteriores, verificación humana de la cuenta de Nelson, titular/MFA reales de SOPORTE, autorización de despliegue y validación posterior. Sin cambios en producción.
 
 Crear un panel profesional, separado de la administración del cliente.
 
@@ -988,14 +1084,11 @@ Las operaciones sensibles deben requerir permisos específicos.
 
 ### EP-14 · GESTIÓN COMPLETA DE USUARIOS
 
-- [ ] Pendiente
-- Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- [x] Completado y verificado localmente en emuladores.
+- Prioridad: Alta.
+- Implementación local: pantalla de Gestión de usuarios, Functions de seguridad y protecciones transaccionales de asignación.
+- Evidencia: regresión y recorrido de emuladores en el resumen del Bloque A.
+- Dependencias de publicación: revisión de referencias heredadas y triggers, verificación con operadores autorizados y autorización explícita. La eliminación física general permanece deshabilitada.
 
 Agregar:
 
@@ -1079,14 +1172,14 @@ La limpieza de cuentas se hará desde Gestión de usuarios, no desde la herramie
 
 ### EP-16 · HERRAMIENTA DE LIMPIEZA SELECTIVA DE DATOS DE PRUEBA
 
-- [ ] Pendiente
-- Prioridad: Programada.
-- Diagnóstico: pendiente de verificación.
-- Archivos afectados: por determinar.
-- Solución realizada: pendiente.
-- Pruebas, resultado y evidencias: pendientes.
-- Commit: pendiente.
-- Dependencias y bloqueos: revisar al iniciar.
+- [x] Implementado y verificado localmente en Firebase Emulator Suite.
+- Prioridad: Completada para desarrollo y mantenimiento de conjuntos sintéticos; ejecución de producción deshabilitada.
+- Diagnóstico: el prototipo aislado no representaba relaciones reales y no distinguía historial contable, auditorías, procedencia desconocida ni dependencias compartidas.
+- Archivos afectados: `functions/cleanupInventory.js`, `functions/supportCleanup.js`, `functions/supportCenter.js`, `functions/index.js`, `src/modules/support/CleanupCenter.tsx`, `src/modules/support/SupportCenter.tsx`, `functions/test/supportCenter.test.mjs`, `tests/helpers/supportCleanupProvenance.mjs`, `tests/rules/firestoreRules.test.mjs`, `tests/e2e/runSupportCenter.mjs`.
+- Solución realizada: inventario de 32 colecciones operativas con relaciones documentadas desde escritores/lectores existentes; recorrido de grafo con ciclos, relaciones huérfanas, documentos compartidos, auditorías y subcolecciones protegidas; origen desconocido excluido; sólo `shipments` y `manifests` son colecciones elegibles con procedencia HMAC del helper de prueba y hash vigente. La UI responsive permite filtros por categoría, agencia, fechas, estado, IDs, procedencia y dependencia; muestra IDs, importes, agencias, dependencias, exclusiones, motivos y conflictos. Los planes se persisten con digest y expiración. Ejecución de hasta 450 documentos en lotes de 150, componente conectado indivisible, respaldo con checksum, idempotencia y control de concurrencia. Recuperación por lotes valida colisiones, no sobrescribe ni pretende revertir efectos financieros; reintento recuperable conserva el ID de operación. Rules bloquea acceso cliente directo a procedencia, planes, operaciones, respaldos y recuperaciones. Fuera de demo Emulator Suite el backend rechaza toda operación destructiva.
+- Pruebas, resultado y evidencias: Node 22; TypeScript/build aprobados; 73 unitarias aprobadas; suite completa de Functions aprobada: 186/186, incluye conflictos, datos desconocidos, auditoría vinculada, dependencias huérfanas, 151 registros por lotes, colisión de restauración y llamadas de restauración concurrentes; 33 Firestore Rules aprobadas. Playwright Chrome en viewport móvil aprobado: soporte, pantalla, origen desconocido y manifiesto compartido bloqueados, plan persistente, respaldo, ejecución y restauración con verificación de documentos. No se usaron ni modificaron credenciales o datos reales.
+- Commit: commits locales del Bloque C para motor y relaciones, interfaz, pruebas y documentación; sin publicar la rama.
+- Dependencias y bloqueos: custodia, caja, movimientos, pasajes, comisiones, liquidaciones, aportes, préstamos, multas, nómina, inventario, almacén, auditorías, usuarios y toda entidad sin procedencia comprobable permanecen protegidos. La presencia de auditoría inmutable, vínculo financiero, estado compartido, subdocumento o referencia huérfana bloquea la componente. La activación posterior en producción requiere un diseño distinto, revisión legal y operativa del conjunto exacto, controles de backup/restauración validados para producción y autorización expresa del propietario; el mecanismo actual no permite hacerlo.
 
 **ESTA ES UNA FUNCIONALIDAD NUEVA Y OBLIGATORIA DE SOPORTE.**
 

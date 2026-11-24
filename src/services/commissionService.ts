@@ -1,14 +1,7 @@
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  limit,
-} from 'firebase/firestore'
+  collection, doc, query, where, orderBy, limit } from 'firebase/firestore'
+import { getDoc, getDocs } from '../firebase/observedFirestore.ts'
 import { functions, db } from '../firebase/config.ts'
 import type {
   DriverCommissionAccount,

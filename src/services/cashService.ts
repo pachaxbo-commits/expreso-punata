@@ -1,16 +1,6 @@
-import {
-  collection,
-  doc,
-  query,
-  where,
-  orderBy,
-  startAfter,
-  getDocs,
-  onSnapshot,
-  limit,
-  type QueryDocumentSnapshot,
-} from 'firebase/firestore'
-import { httpsCallable } from 'firebase/functions'
+import { collection, doc, query, where, orderBy, startAfter, onSnapshot, limit, type QueryDocumentSnapshot } from 'firebase/firestore'
+import { getDocs } from '../firebase/observedFirestore.ts'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import { db, functions, auth } from '../firebase/config.ts'
 import type { CashShift, FinancialMovement, PaymentMethod } from '../types/index.ts'
 

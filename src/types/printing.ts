@@ -155,6 +155,7 @@ export interface UnifiedDocumentPayload {
   subtitle?: string
   branchId: string
   branchName: string
+  companyName?: string
   branchAddress?: string
   branchPhone?: string
   documentNumber: string

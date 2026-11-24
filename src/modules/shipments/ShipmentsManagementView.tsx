@@ -20,6 +20,8 @@ import { ShipmentDetailModal } from './ShipmentDetailModal'
 import { searchShipmentsServer, fetchShipmentsPage, fetchShipmentByTrackingCode } from '../../services/shipmentService'
 import { fetchShipmentContacts } from '../../services/incidentService'
 import { elapsedFullDays, receptionDate } from '../../utils/shipmentTiming'
+import { fetchShipmentNotifications, markShipmentNotificationRead } from '../../services/shipmentNotificationService'
+import { getB4Setting } from '../../services/b4SettingsService'
 
 interface ShipmentsManagementViewProps {
   shipments: Shipment[]
@@ -32,6 +34,25 @@ interface ShipmentsManagementViewProps {
   backendConnected: boolean
   isCloudEnvironment: boolean
   renderLocalTransfer?: (shipment: Shipment) => React.ReactNode
+}
+
+const ShipmentNotifications: React.FC<{ branchId: string }> = ({ branchId }) => {
+  const [notifications, setNotifications] = useState<import('../../types').ShipmentNotification[]>([])
+  const [preferences, setPreferences] = useState<any>({ shipmentRegisteredVisible: true, unreadShipmentAlertsVisible: true })
+  const [message, setMessage] = useState('')
+  const refresh = async () => {
+    const [entries, setting] = await Promise.all([fetchShipmentNotifications(branchId), getB4Setting('notifications')])
+    setNotifications(entries)
+    setPreferences(setting?.value || { shipmentRegisteredVisible: true, unreadShipmentAlertsVisible: true })
+  }
+  useEffect(() => { void refresh().catch(() => setMessage('No se pudieron consultar los avisos de encomiendas.')) }, [branchId])
+  const visible = notifications.filter(entry => preferences.shipmentRegisteredVisible && (!preferences.unreadShipmentAlertsVisible || !entry.isReadByCurrentUser))
+  if (!preferences.shipmentRegisteredVisible || !visible.length) return message ? <p role="status" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{message}</p> : null
+  return <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4" aria-label="Avisos de encomiendas">
+    <div className="flex items-center justify-between gap-3"><h2 className="font-bold text-amber-950">Avisos de encomiendas · {visible.length}</h2><button type="button" className="text-xs underline" onClick={() => void refresh().catch(() => setMessage('No se pudieron actualizar los avisos.'))}>Actualizar</button></div>
+    {message && <p role="status" className="mt-2 text-xs">{message}</p>}
+    <ul className="mt-2 divide-y divide-amber-200">{visible.slice(0, 8).map(entry => <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"><span><strong>{entry.trackingCode}</strong> · {entry.status} · {new Date(entry.createdAtIso).toLocaleString('es-BO', { timeZone: 'America/La_Paz' })}</span>{!entry.isReadByCurrentUser && <button type="button" className="rounded border border-amber-700 px-2 py-1 text-xs" onClick={() => void markShipmentNotificationRead({ notificationId: entry.id, branchId }).then(refresh).catch(() => setMessage('No se pudo marcar como leído.'))}>Marcar leído</button>}</li>)}</ul>
+  </section>
 }
 
 export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = ({
@@ -270,6 +291,7 @@ export const ShipmentsManagementView: React.FC<ShipmentsManagementViewProps> = (
 
   return (
     <div className="space-y-5">
+      <ShipmentNotifications branchId={currentBranch.id} />
       {/* ========================================================================= */}
       {/* LAYOUT PRINCIPAL DE DOS COLUMNAS (50% / 50% en escritorio)                */}
       {/* ========================================================================= */}

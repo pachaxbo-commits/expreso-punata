@@ -1,18 +1,6 @@
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocFromServer,
-  query,
-  where,
-  or,
-  onSnapshot,
-  limit,
-  getDocs,
-  orderBy,
-  startAfter,
-} from 'firebase/firestore'
-import { httpsCallable } from 'firebase/functions'
+import { collection, doc, getDocFromServer, query, where, or, onSnapshot, limit, orderBy, startAfter } from 'firebase/firestore'
+import { getDoc, getDocs } from '../firebase/observedFirestore.ts'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import { db, functions, auth } from '../firebase/config.ts'
 import type { Shipment, ParcelCustomer, ParcelItem, PaymentTiming, PaymentMethod } from '../types/index.ts'
 import { formatShipmentCreationError } from './shipmentErrors.ts'

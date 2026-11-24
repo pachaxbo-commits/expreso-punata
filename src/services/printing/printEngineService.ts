@@ -10,6 +10,7 @@ import { printViaBrowserDialog, buildDocumentHtml } from '../../adapters/printin
 import { printViaRawBt, isAndroidDevice } from '../../adapters/printing/rawbtPrinterAdapter.ts'
 import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig.ts'
 import type { Shipment, CashShift, FinancialMovement, DispatchManifest } from '../../types/index.ts'
+import { reportObservedError } from '../../firebase/observedCallable.ts'
 
 export class PrintEngineService {
   private static instance: PrintEngineService
@@ -28,13 +29,7 @@ export class PrintEngineService {
     doc: UnifiedDocumentPayload,
     printerOverride?: PrinterProfile
   ): Promise<PrintResult> {
-    const branch = INITIAL_BRANCHES.find((b) => b.id === doc.branchId) || INITIAL_BRANCHES[0]
     const effectivePrinter = printerOverride || getDefaultPrinter(doc.branchId)
-
-    // Completar datos de sucursal si faltan
-    if (!doc.branchName) doc.branchName = branch.name
-    if (!doc.branchAddress) doc.branchAddress = branch.address
-    if (!doc.branchPhone) doc.branchPhone = branch.phone
 
     const paperFormat: PaperFormat = effectivePrinter.paperFormat || '80mm'
     const options = {
@@ -46,16 +41,58 @@ export class PrintEngineService {
       kickDrawer: effectivePrinter.kickDrawerOnReceipt,
     }
 
-    if (effectivePrinter.connectionType === 'virtual_pdf') {
-      return await this.downloadVirtualPdf(doc, paperFormat)
+    try {
+      let result: PrintResult
+      if (effectivePrinter.connectionType === 'virtual_pdf') result = await this.downloadVirtualPdf(doc, paperFormat)
+      else {
+        const documentWithPresentation = await this.withOfficialPresentation(doc)
+        if (effectivePrinter.connectionType === 'rawbt_intent') result = await printViaRawBt(documentWithPresentation, paperFormat, options)
+        else result = await printViaBrowserDialog(documentWithPresentation, paperFormat, options)
+      }
+      if (!result.success) {
+        const incidentId = await reportObservedError({ code: 'print_failed' }, { module: 'printing', operation: 'printDocument' })
+        if (incidentId) result.errorMessage = `${result.errorMessage || result.message} (Incidencia: ${incidentId})`
+      }
+      return result
+    } catch (error) {
+      const incidentId = await reportObservedError(error, { module: 'printing', operation: 'printDocument' })
+      if (incidentId && error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+        try { Object.defineProperty(error, 'message', { configurable: true, value: `${error.message} (Incidencia: ${incidentId})` }) } catch {}
+      }
+      throw error
+    }
+  }
+
+  private async withOfficialPresentation(doc: UnifiedDocumentPayload): Promise<UnifiedDocumentPayload> {
+    const branch = INITIAL_BRANCHES.find((b) => b.id === doc.branchId) || INITIAL_BRANCHES[0]
+
+    const fallback = {
+      ...doc,
+      branchName: doc.branchName || branch.name,
+      branchAddress: doc.branchAddress || branch.address,
+      branchPhone: doc.branchPhone || branch.phone,
     }
 
-    if (effectivePrinter.connectionType === 'rawbt_intent') {
-      return await printViaRawBt(doc, paperFormat, options)
+    const { fetchSystemConfig } = await import('../configService.ts')
+    const response = await fetchSystemConfig()
+    if (response.status === 'configured' && response.isOfficial && response.config) {
+      const { company, branches, documentNotices } = response.config
+      const moduleNotice = doc.documentType === 'member_due_receipt' ? documentNotices?.contributions
+        : doc.documentType === 'worker_payroll_receipt' ? documentNotices?.personnel
+        : doc.documentType === 'fixed_asset_label' ? documentNotices?.inventory : undefined
+      const officialBranch = branches?.[doc.branchId]
+      return {
+        ...fallback,
+        companyName: company?.tradeName || fallback.companyName,
+        logoUrl: company?.logoUrl || fallback.logoUrl,
+        branchName: officialBranch?.name || fallback.branchName,
+        branchAddress: officialBranch?.address ?? fallback.branchAddress,
+        branchPhone: officialBranch?.phone ?? fallback.branchPhone,
+        footerNotes: [...new Set([...(doc.footerNotes || []), company?.legalNotice, moduleNotice].filter((note): note is string => Boolean(note)))],
+      }
     }
 
-    // Por defecto y para Windows USB (o Red configurada en Windows): Diálogo estándar de navegador
-    return await printViaBrowserDialog(doc, paperFormat, options)
+    return fallback
   }
 
   /**
@@ -69,6 +106,7 @@ export class PrintEngineService {
     const nowIso = new Date().toISOString()
 
     try {
+      doc = await this.withOfficialPresentation(doc)
       const isThermal = paperFormat === '58mm' || paperFormat === '80mm'
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -82,13 +120,18 @@ export class PrintEngineService {
       // Encabezado
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(isThermal ? 13 : 16)
-      pdf.text('EXPRESO PUNATA', pageWidth / 2, y, { align: 'center' })
+      pdf.text(doc.companyName || 'EXPRESO PUNATA', pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - 12 })
       y += 5
 
       pdf.setFont('helvetica', 'normal')
       pdf.setFontSize(isThermal ? 9 : 10)
       pdf.text(`Agencia: ${doc.branchName || doc.branchId}`, pageWidth / 2, y, { align: 'center' })
       y += 4
+      if (doc.branchAddress) {
+        const lines = pdf.splitTextToSize(doc.branchAddress, pageWidth - 14) as string[]
+        pdf.text(lines, pageWidth / 2, y, { align: 'center' })
+        y += 4 * lines.length
+      }
       if (doc.branchPhone) {
         pdf.text(`Tel: ${doc.branchPhone}`, pageWidth / 2, y, { align: 'center' })
         y += 4
@@ -146,7 +189,13 @@ export class PrintEngineService {
 
       pdf.setFont('helvetica', 'italic')
       pdf.setFontSize(7.5)
-      pdf.text('DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL', pageWidth / 2, y + 6, { align: 'center' })
+      for (const text of ['DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL', ...(doc.footerNotes || [])]) {
+        for (const line of pdf.splitTextToSize(text, pageWidth - 16) as string[]) {
+          y += 4
+          if (y > pdf.internal.pageSize.getHeight() - 10) { pdf.addPage(); y = 12 }
+          pdf.text(line, pageWidth / 2, y, { align: 'center' })
+        }
+      }
 
       const fileName = `${doc.documentType}_${doc.documentNumber}.pdf`
       pdf.save(fileName)
@@ -179,7 +228,7 @@ export class PrintEngineService {
     doc: UnifiedDocumentPayload,
     paperFormat: PaperFormat = '80mm'
   ): Promise<string> {
-    return await buildDocumentHtml(doc, paperFormat)
+    return await buildDocumentHtml(await this.withOfficialPresentation(doc), paperFormat, { includeLogo: true })
   }
 
   /**

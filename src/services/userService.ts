@@ -1,17 +1,10 @@
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  limit,
-  onSnapshot,
-} from 'firebase/firestore'
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore'
+import { getDocs } from '../firebase/observedFirestore.ts'
 import {
   sendPasswordResetEmail,
   updatePassword,
 } from 'firebase/auth'
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import { db, auth, functions } from '../firebase/config'
 import type { UserProfile, UserRole, UserAuditLog } from '../types'
 
@@ -28,6 +21,8 @@ export interface ProvisionUserInput {
   assignedMobileNumber?: string
   unionMemberId?: string
   isActive?: boolean
+  sensitiveReason?: string
+  confirmSensitive?: boolean
 }
 
 export interface ProvisionUserResult {
@@ -40,6 +35,36 @@ export interface PasswordResetResult {
   success: boolean
   email: string
   message: string
+}
+
+export async function revokeUserSessions(targetUid: string, reason: string): Promise<void> {
+  if (!auth.currentUser) throw new Error('Debe iniciar sesión para administrar usuarios.')
+  await httpsCallable<{ targetUid: string; reason: string; confirmation: boolean }, { success: boolean }>(functions, 'adminRevokeUserSessions')({ targetUid, reason, confirmation: true })
+}
+
+export async function retireUser(targetUid: string, reason: string, operationId: string): Promise<{ message: string }> {
+  const call = httpsCallable<{ targetUid: string; reason: string; confirmation: boolean; operationId: string }, { message: string }>(functions, 'adminRetireUser')
+  return (await call({ targetUid, reason, operationId, confirmation: true })).data
+}
+
+export interface UserSecurityOperation {
+  operationId: string
+  status: 'pending' | 'retry_required' | 'completed'
+  reason: string
+}
+
+export interface UserSecurityStatus {
+  retirement: UserSecurityOperation | null
+  deletion: UserSecurityOperation | null
+  deletionBlockedReason: string | null
+}
+
+export async function getUserSecurityStatus(targetUid: string): Promise<UserSecurityStatus> {
+  return (await httpsCallable<{ targetUid: string }, UserSecurityStatus>(functions, 'getUserDeletionStatus')({ targetUid })).data
+}
+
+export async function deleteRetiredUser(targetUid: string, reason: string, operationId: string): Promise<void> {
+  await httpsCallable(functions, 'adminDeleteRetiredUser')({ targetUid, reason, operationId, confirmation: true })
 }
 
 /**
@@ -188,8 +213,6 @@ export async function fetchUserAuditLogs(targetUid: string): Promise<UserAuditLo
     const q = query(
       auditRef,
       where('entityId', '==', targetUid),
-      orderBy('timestamp', 'desc'),
-      limit(50)
     )
     const snapshot = await getDocs(q)
     return snapshot.docs.map((d) => {
@@ -199,16 +222,16 @@ export async function fetchUserAuditLogs(targetUid: string): Promise<UserAuditLo
         entityType: data.entityType || '',
         entityId: data.entityId || '',
         action: data.action || '',
-        performedBy: data.performedBy || data.performedByEmail || data.performedByUid || 'Sistema',
+        performedBy: data.performedBy || data.performedByEmail || data.performedByUid || '',
         performedByUid: data.performedByUid,
         performedByEmail: data.performedByEmail,
-        details: data.details || {},
+        details: { ...(data.details || {}), reason: data.reason || data.details?.reason || '', result: data.result || data.details?.result || '', ...(data.completedByUid ? { completedByUid: data.completedByUid } : {}), operationId: data.operationId || (d.id.startsWith('retire-') ? d.id.slice(7) : d.id.startsWith('delete-') ? d.id.slice(7) : '') },
         timestamp: data.timestamp,
-        timestampIso: data.timestampIso || '',
+        timestampIso: data.timestampIso || data.timestamp?.toDate?.().toISOString() || (typeof data.timestamp === 'string' ? data.timestamp : ''),
       } as UserAuditLog
-    })
+    }).sort((a, b) => (b.timestampIso || '').localeCompare(a.timestampIso || ''))
   } catch (err) {
     console.warn('[userService] Error al consultar audit_logs:', err)
-    return []
+    throw err
   }
 }

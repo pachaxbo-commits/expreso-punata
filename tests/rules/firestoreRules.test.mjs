@@ -10,6 +10,112 @@ import { doc, getDoc, collection, getDocs, query, where, setDoc, updateDoc, dele
 
 let testEnv
 
+test('soporte no puede escribir ni leer respaldos o auditoría directamente', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'support-direct-test'), { role: 'soporte_pachax', isActive: true, primaryBranchId: 'punata' })
+    await setDoc(doc(context.firestore(), 'support_cleanup_backups', 'backup'), { sensitive: true })
+    await setDoc(doc(context.firestore(), 'audit_logs', 'support-log'), { action: 'example' })
+  })
+  const support = testEnv.authenticatedContext('support-direct-test').firestore()
+  await assertFails(getDoc(doc(support, 'support_cleanup_backups', 'backup')))
+  await assertFails(setDoc(doc(support, 'support_cleanup_backups', 'forged'), { sensitive: false }))
+  await assertFails(updateDoc(doc(support, 'audit_logs', 'support-log'), { action: 'forged' }))
+})
+
+test('diagnósticos y límites técnicos solo son accesibles a Functions con Admin SDK', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'users', 'diagnostics-direct-test'), { role: 'soporte_pachax', isActive: true })
+    await setDoc(doc(db, 'support_diagnostics', 'diagnostic-direct'), { messageSafe: 'safe' })
+    await setDoc(doc(db, 'support_diagnostic_limits', 'bucket-direct'), { count: 1 })
+  })
+  const db = testEnv.authenticatedContext('diagnostics-direct-test').firestore()
+  for (const ref of [doc(db, 'support_diagnostics', 'diagnostic-direct'), doc(db, 'support_diagnostic_limits', 'bucket-direct')]) {
+    await assertFails(getDoc(ref))
+    await assertFails(setDoc(ref, { forged: true }))
+    await assertFails(deleteDoc(ref))
+  }
+})
+
+test('procedencia, planes, operaciones y restauraciones de limpieza son exclusivos de Admin SDK', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'users', 'cleanup-direct-test'), { role: 'soporte_pachax', isActive: true })
+    for (const path of [
+      'support_cleanup_provenance/record-proof',
+      'support_cleanup_plans/plan-proof',
+      'support_cleanup_plans/plan-proof/records/record-proof',
+      'support_cleanup_operations/op-proof',
+      'support_cleanup_backups/op-proof/records/record-proof',
+      'support_cleanup_restores/op-proof',
+    ]) await setDoc(doc(db, path), { sensitive: true })
+  })
+  const support = testEnv.authenticatedContext('cleanup-direct-test').firestore()
+  for (const path of [
+    'support_cleanup_provenance/record-proof',
+    'support_cleanup_plans/plan-proof',
+    'support_cleanup_plans/plan-proof/records/record-proof',
+    'support_cleanup_operations/op-proof',
+    'support_cleanup_backups/op-proof/records/record-proof',
+    'support_cleanup_restores/op-proof',
+  ]) {
+    await assertFails(getDoc(doc(support, path)))
+    await assertFails(setDoc(doc(support, path), { sensitive: false }))
+    await assertFails(deleteDoc(doc(support, path)))
+  }
+})
+
+test('configuraciones B4 solo se leen y escriben mediante Functions', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'users', 'b4-rules-admin'), { role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
+    await setDoc(doc(db, 'b4_settings', 'reports'), { version: 1, value: { order: 'source' } })
+    await setDoc(doc(db, 'b4_settings', 'reports', 'history', '1'), { version: 1, reason: 'test' })
+  })
+  const db = testEnv.authenticatedContext('b4-rules-admin').firestore()
+  for (const ref of [doc(db, 'b4_settings', 'reports'), doc(db, 'b4_settings', 'reports', 'history', '1')]) {
+    await assertFails(getDoc(ref))
+    await assertFails(setDoc(ref, { version: 2 }))
+  }
+})
+
+test('auditoría y reservas de baja y eliminación protegidas frente a clientes administradores', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'users', 'retirement-rules-admin'), { role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
+    for (const collectionName of ['audit_logs', 'user_retirement_operations', 'user_deletion_operations']) {
+      await setDoc(doc(db, collectionName, 'operation-audit-test'), { status: 'pending' })
+    }
+  })
+  const db = testEnv.authenticatedContext('retirement-rules-admin').firestore()
+  const audit = doc(db, 'audit_logs', 'operation-audit-test')
+  await assertSucceeds(getDoc(audit))
+  await assertFails(updateDoc(audit, { status: 'completed' }))
+  await assertFails(deleteDoc(audit))
+  for (const collectionName of ['user_retirement_operations', 'user_deletion_operations']) {
+    const operation = doc(db, collectionName, 'operation-audit-test')
+    await assertFails(getDoc(operation))
+    await assertFails(setDoc(operation, { status: 'completed' }))
+  }
+})
+
+test('versiones comerciales e institucionales solo se administran mediante Functions', async () => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore()
+    await setDoc(doc(db, 'users', 'commercial-rules-admin'), { role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'] })
+    await setDoc(doc(db, 'commercial_settings', 'commission'), { version: 1 })
+    await setDoc(doc(db, 'commercial_settings', 'commission', 'history', '1'), { version: 1 })
+    await setDoc(doc(db, 'support_config_history', 'institutional'), { version: 1 })
+  })
+  const db = testEnv.authenticatedContext('commercial-rules-admin').firestore()
+  for (const path of [['commercial_settings', 'commission'], ['commercial_settings', 'commission', 'history', '1'], ['support_config_history', 'institutional']]) {
+    const ref = doc(db, path.join('/'))
+    await assertFails(getDoc(ref))
+    await assertFails(setDoc(ref, { version: 2 }))
+    await assertFails(deleteDoc(ref))
+  }
+})
+
 before(async () => {
   const rules = readFileSync('firestore.rules', 'utf8')
   testEnv = await initializeTestEnvironment({

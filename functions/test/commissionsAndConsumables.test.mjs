@@ -406,7 +406,7 @@ test('afiliado_admin devenga y liquida Bs 2 una sola vez para un conductor de di
   assert.equal(record.status, 'paid')
   assert.equal(record.paidAmountCents, 200)
   assert.equal((await account.get()).data().pendingCents, 0)
-  const day = first.createdAtIso?.slice(0, 10) || record.createdAtIso.slice(0, 10)
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date(first.createdAtIso || record.createdAtIso))
   const report = await getSystemReport.run({ auth, data: { reportType: 'commissions', startDate: day, endDate: day } })
   assert.equal(report.summary.totalPaidCents, 200)
   assert.equal(report.summary.totalPendingCents, 0)

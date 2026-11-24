@@ -1,5 +1,5 @@
 import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore'
-import { httpsCallable } from 'firebase/functions'
+import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
 import { auth, db, functions } from '../firebase/config.ts'
 import type { PassengerTicketOperation, UserProfile } from '../types/index.ts'
 
