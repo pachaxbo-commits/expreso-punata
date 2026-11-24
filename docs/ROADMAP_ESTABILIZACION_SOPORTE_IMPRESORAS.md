@@ -964,7 +964,7 @@ Documenta la deuda heredada y las correcciones verificadas.
 | Cuenta real SOPORTE | No activada | No se creó identidad; faltan titular autorizado, MFA y prueba de acceso real conforme al [procedimiento](PROCEDIMIENTO_ACCESO_SOPORTE.md). |
 | Fase 3 | No iniciada | Mantener pendiente hasta cerrar y verificar en producción la integración de Fase 2. |
 
-Las reglas de Firestore, reglas de Storage e índices no cambian en esta PR. Se debe publicar el código de Functions del codebase `default` y el frontend Vercel una vez levantados los bloqueos. No se hicieron cambios de producción, no se creó una identidad real de soporte y no se modificaron cuentas o datos. El alta real requiere responsable designado, MFA y aprobación operativa; la validación en emuladores no acredita MFA de producción.
+Las reglas de Firestore y Storage no cambian en esta PR. Se añadió un índice compuesto para el historial de operaciones de limpieza (`support_cleanup_operations`: `operatorUid ASC`, `createdAtIso DESC`); Firebase producción tenía 21 índices y ninguno para esta consulta. Tras levantar los bloqueos, publicar índices y esperar estado `READY` antes de desplegar Functions del codebase `default`; el frontend Vercel se publica al integrar `main`. No se hicieron cambios de producción, no se creó identidad real de soporte y no se modificaron cuentas o datos. El alta real requiere responsable designado, MFA y aprobación operativa; emuladores no acreditan MFA de producción.
 
 ### Bloque A · avance de gestión de usuarios
 
