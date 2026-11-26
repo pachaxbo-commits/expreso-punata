@@ -128,7 +128,7 @@ export const UserManagementView: React.FC = () => {
     }
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim()
-      const matchName = u.fullName.toLowerCase().includes(q)
+      const matchName = (u.fullName || '').toLowerCase().includes(q)
       const matchEmail = (u.email || '').toLowerCase().includes(q)
       const matchPhone = (u.phone || '').includes(q)
       const matchCi = (u.ci || '').toLowerCase().includes(q)
@@ -489,11 +489,11 @@ export const UserManagementView: React.FC = () => {
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-[#064e3b]/10 text-[#064e3b] font-extrabold flex items-center justify-center shrink-0 uppercase text-xs">
-                            {u.fullName.slice(0, 2)}
+                            {(u.fullName || 'Operador').slice(0, 2).toUpperCase()}
                           </div>
                           <div>
                             <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                              <span>{u.fullName}</span>
+                              <span>{u.fullName || 'Operador'}</span>
                               {u.syncStatus === 'synced' && (
                                 <span title="Claims sincronizados con Firebase Auth" className="text-emerald-600">
                                   <CheckCircle className="w-3.5 h-3.5" />
