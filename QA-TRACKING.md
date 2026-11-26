@@ -15,3 +15,12 @@
 - A automatizado: Auth `17099`, Firestore `17080`, Storage `17199`, Functions `17001`.
 - B simulación: Auth `18099`, Firestore `18080`, Storage `18199`, Functions `18001`.
 - Cada entorno usa `TEMP`, `FIREBASE_CLI_HOME`, caché y hub separados.
+## Avance 2026-11-26 (continuación)
+
+- Entorno A aislado: los fallos de Auth/Storage observados previamente no se reprodujeron con puertos, TEMP y caché separados; no hubo evidencia de OOM.
+- Reproducción aislada `b4Settings.test.mjs`: 2/2 aprobadas. MFA continúa exigido fuera de emuladores; no se desactivó ni se debilitó ningún permiso.
+- Reproducción aislada `supportCenter.test.mjs`: 16/16 aprobadas, incluidos MFA, token revocado, usuario deshabilitado y `auth_time` reciente.
+- `blockBConfiguration.test.mjs`: el primer caso pasa en aislamiento; el segundo falló en una ejecución contaminada por un turno de caja abierto de una ejecución anterior. Clasificación: fixture/estado compartido de la ejecución, no defecto confirmado del producto. Debe repetirse con limpieza del Entorno A antes de cerrar el grupo.
+- Entorno B: usuarios sintéticos completos creados en Auth Emulator y perfiles válidos en Firestore, con conductor enlazado por UID real. Vite continúa apuntando exclusivamente a `127.0.0.1:18080/18099/18199/18001`.
+- Navegador: login real de Secretaría Punata, apertura `TUR-PUN-2026-0001`, registro y cobro de `PUN202600001` por Bs 15, estado `RECIBIDO/PAGADO`, persistencia visible tras respuesta del backend. Acciones de impresión PDF/térmica visibles; descarga física aún no certificada.
+
