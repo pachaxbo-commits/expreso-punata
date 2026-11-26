@@ -1,5 +1,13 @@
 # Seguimiento QA comercial
 
+## Custodia y comisiones â€” continuaciÃ³n 2026-11-26
+
+- Desde Directiva QA se abriÃ³ el turno `TUR-PUN-2026-0003` con fondo Bs0 mediante la interfaz.
+- RendiciÃ³n parcial de `CBB202600001`: Bs10. El sistema dejÃ³ Bs20 pendientes y generÃ³ comprobante/movimiento `SETTL-PUNATA-18342A86`.
+- RendiciÃ³n final: Bs20. La cuenta del conductor quedÃ³ `cashUnderCustodyCents=0`, `pendingRemittanceCents=0`, `totalRemittedCents=3000`. Se generÃ³ `SETTL-PUNATA-A4926A7F`. Movimientos de caja: Bs10 + Bs20; diferencia de custodia Bs0.
+- El flete COD de Bs30 no se contabilizÃ³ como nueva venta al liquidar: los movimientos son `internal_custody_transfer`/`driver_remittance`.
+- Comisiones: la configuraciÃ³n oficial consultada en Entorno B estÃ¡ marcada oficial/configurada pero `defaultType=percentage` y `defaultValue=0`. AdemÃ¡s `CBB202600001` tiene `shippingFeeCents=null` por precio manual, aunque `agreedAmountCents=3000`. La Function rechaza correctamente el devengo porcentual sin base oficial; no se inventÃ³ porcentaje ni se modificÃ³ el registro histÃ³rico. Devengo/liquidaciÃ³n de comisiÃ³n quedan bloqueados por configuraciÃ³n comercial.
+
 - CorrecciÃ³n adicional `003e7e3`: tras una entrega exitosa la guÃ­a se oculta de la acciÃ³n local `Realizar entrega`, evitando reintentos visuales mientras el listener del manifiesto conserva su resumen histÃ³rico. La Function mantiene la protecciÃ³n idempotente.
 
 ## Entrega directa por conductor â€” 2026-11-26
