@@ -195,3 +195,11 @@
 - El formulario de devengo exige IDs internos de `shipments` y `manifests`, no códigos públicos. El intento con `CBB202600001`/`MAN-CBBA-2026-0001` fue rechazado por backend con 404 y no creó comisión.
 - La configuración temporal 10% se restauró mediante la interfaz a 0%, con mensaje de guardado exitoso. No se generaron registros financieros ni se modificaron encomiendas históricas.
 - El recorrido comercial de comisión sigue pendiente: requiere una nueva encomienda/manifiesto legítimos y obtener sus IDs internos desde el flujo de interfaz. No se declara operativa la comisión.
+-
+## Formulario usable de devengo de comisiones - 2026-11-26
+
+- Se sustituyeron los campos manuales de IDs internos en `DriverCommissionsView` por selectores autorizados de manifiestos y encomiendas.
+- El operador ahora ve número de manifiesto, nombre del conductor, cantidad de encomiendas, código público, destinatario e importe oficial; internamente se envían los IDs reales seleccionados.
+- Los manifiestos cancelados quedan excluidos y la encomienda solo puede elegirse dentro del manifiesto seleccionado. El backend conserva la validación final de tarifa, estado, conductor, sucursal, permisos e idempotencia.
+- Validación: la suite unitaria previa quedó en 91/91 aprobadas; typecheck y build aprobados después de eliminar el estado obsoleto de ID de manifiesto.
+- El recorrido comercial sigue pendiente de crear una nueva encomienda/manifiesto desde la interfaz y completar devengo/liquidación. No se generaron registros financieros directamente.
