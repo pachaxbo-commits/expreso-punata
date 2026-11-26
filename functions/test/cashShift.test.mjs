@@ -101,28 +101,41 @@ test('1. APERTURA DE CAJA: Secretaria Punata abre turno con Bs 100 (10000 cts) y
   assert.equal(movDoc.data().concept, 'Fondo inicial de apertura de caja (cambio/sencillo)')
 })
 
-test('2. CONCURRENCIA Y DOBLE CLIC: Impide abrir un segundo turno si ya tiene uno abierto', async () => {
-  await createTestUser('sec-punata-2', 'secretaria', 'punata')
-
-  // Primera apertura exitosa
-  await openCashShift.run({
-    auth: { uid: 'sec-punata-2', token: { email: 'sec-punata-2@expresopunata.com' } },
+test('Reintentar apertura recupera el turno y repara el candado sin duplicar el fondo', async () => {
+  const uid = 'sec-punata-2'
+  await createTestUser(uid, 'secretaria', 'punata')
+  const request = {
+    auth: { uid, token: { email: uid + '@expresopunata.com' } },
     data: { branchId: 'punata', initialCashCents: 5000 },
-  })
+  }
+  const [first, second] = await Promise.all([openCashShift.run(request), openCashShift.run(request)])
+  assert.equal(first.shift.id, second.shift.id)
 
-  // Intento de segunda apertura concurrente o por doble clic
-  await assert.rejects(
-    async () =>
-      openCashShift.run({
-        auth: { uid: 'sec-punata-2', token: { email: 'sec-punata-2@expresopunata.com' } },
-        data: { branchId: 'punata', initialCashCents: 5000 },
-      }),
-    (err) => {
-      assert.equal(err.code, 'failed-precondition')
-      assert.match(err.message, /Ya existe un turno de caja abierto para este operador/)
-      return true
-    }
-  )
+  const lock = db.collection('cash_shift_active_locks').doc(uid + '_punata')
+  await lock.update({ shiftId: 'missing-shift' })
+  const recovered = await openCashShift.run(request)
+  assert.equal(recovered.shift.id, first.shift.id)
+  assert.equal((await lock.get()).data().shiftId, first.shift.id)
+  assert.equal((await db.collection('cash_shifts').get()).size, 1)
+  assert.equal((await db.collection('financial_movements').get()).size, 1)
+  assert.equal((await db.collection('audit_logs').where('action', '==', 'CASH_SHIFT_LOCK_REPAIRED').get()).size, 1)
+})
+
+test('Un candado sin turno permite abrir caja y deja constancia en auditoria', async () => {
+  const uid = 'sec-orphan-lock'
+  await createTestUser(uid, 'secretaria', 'punata')
+  const lock = db.collection('cash_shift_active_locks').doc(uid + '_punata')
+  await lock.set({ shiftId: 'missing-shift', operatorUid: uid, branchId: 'punata', status: 'open' })
+
+  const result = await openCashShift.run({
+    auth: { uid, token: { email: uid + '@expresopunata.com' } },
+    data: { branchId: 'punata', initialCashCents: 0 },
+  })
+  assert.equal((await lock.get()).data().shiftId, result.shift.id)
+  assert.equal((await db.collection('financial_movements').get()).size, 0)
+  const audit = await db.collection('audit_logs').where('action', '==', 'CASH_SHIFT_ORPHAN_LOCK_REPLACED').get()
+  assert.equal(audit.size, 1)
+  assert.equal(audit.docs[0].data().entityId, 'missing-shift')
 })
 
 test('3. RESTRICCIÓN DE SUCURSAL Y ROL: Secretaria de Cochabamba no puede operar caja de Punata', async () => {

@@ -15,18 +15,22 @@ import type { UserProfile, SystemConfig } from '../../types/index.ts'
 import { automaticParcelPricingEnabled } from '../../config/features.ts'
 import { fetchSystemConfig, updateSystemConfig, BLANK_UNCONFIGURED_TEMPLATE } from '../../services/configService.ts'
 
+type ConfigSection = 'company' | 'branches' | 'tariffs' | 'commissions' | 'dues' | 'printing'
+
 interface SystemConfigViewProps {
+  sections?: readonly ConfigSection[]
+  hideVersionedIdentity?: boolean
   currentUser: UserProfile
 }
 
-export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser: _currentUser }) => {
+export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser: _currentUser, sections, hideVersionedIdentity = false }) => {
   const [config, setConfig] = useState<SystemConfig>(BLANK_UNCONFIGURED_TEMPLATE)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   // Sub-sección activa dentro de Configuración Oficial
-  const [activeSection, setActiveSection] = useState<'company' | 'branches' | 'tariffs' | 'commissions' | 'dues' | 'printing'>('company')
+  const [activeSection, setActiveSection] = useState<ConfigSection>(sections?.[0] ?? 'company')
 
   const [configStatus, setConfigStatus] = useState<'configured' | 'unconfigured' | 'error'>('configured')
 
@@ -199,7 +203,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
           { id: 'commissions', label: 'Comisiones Conductor', icon: Coins },
           { id: 'dues', label: 'Aportes de Socios', icon: Sparkles },
           { id: 'printing', label: 'Impresión y Tickets', icon: Printer },
-        ].map((tab) => {
+        ].filter(tab => !sections || sections.includes(tab.id as ConfigSection)).map((tab) => {
           const Icon = tab.icon
           const isActive = activeSection === tab.id
           return (
@@ -225,7 +229,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
           <div className="space-y-4">
             <h3 className="text-sm font-black text-slate-800 border-b pb-2">Identidad Oficial de la Empresa</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              <div>
+              {!hideVersionedIdentity && <div>
                 <label className="block font-bold text-slate-700 mb-1">Nombre Comercial</label>
                 <input
                   type="text"
@@ -239,7 +243,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
                   required
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold"
                 />
-              </div>
+              </div>}
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Razón Social Legal</label>
                 <input
@@ -269,7 +273,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold"
                 />
               </div>
-              <div>
+              {!hideVersionedIdentity && <div>
                 <label className="block font-bold text-slate-700 mb-1">Leyenda Legal de Boletas</label>
                 <input
                   type="text"
@@ -282,7 +286,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
                   }
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-slate-600"
                 />
-              </div>
+              </div>}
             </div>
           </div>
         )}

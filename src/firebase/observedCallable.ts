@@ -40,7 +40,7 @@ export async function reportObservedError(error: unknown, context: DiagnosticCon
   const id = correlationId()
   try {
     const { functions } = await import('./config.ts')
-    const diagnosticCall = firebaseHttpsCallable<DiagnosticPayload, { success: boolean; correlationId: string }>(functions, 'reportClientDiagnostic')
+    const diagnosticCall = firebaseHttpsCallable<DiagnosticPayload, { success: boolean; correlationId: string }>(functions, 'reportClientDiagnostic', { timeout: 3_000 })
     const result = await diagnosticCall({ module: context.module, operation: context.operation, code, category, correlationId: id, frontendVersion: String(viteEnv.VITE_APP_VERSION || '1.0.0') })
     return result.data.correlationId
   } catch {

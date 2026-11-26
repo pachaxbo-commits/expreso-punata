@@ -1463,16 +1463,40 @@ export const openCashShift = onCall({ cors: true }, async (request) => {
     const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
     const lockDoc = await transaction.get(lockRef)
 
-    if (lockDoc.exists) {
-      const lockData = lockDoc.data() || {}
-      if (lockData.status === 'open') {
-        throw new HttpsError(
-          'failed-precondition',
-          `Ya existe un turno de caja abierto para este operador en la sucursal '${branchId}'. Debe cerrar el turno anterior antes de abrir uno nuevo.`
-        )
-      }
+    const lock = lockDoc.data()
+    const operatorShifts = db.collection('cash_shifts')
+      .where('operatorUid', '==', callerUid)
+      .where('branchId', '==', branchId)
+      .where('status', '==', 'open')
+      .limit(2)
+    const activeShifts = await transaction.get(operatorShifts)
+    if (activeShifts.size > 1) {
+      throw new HttpsError('failed-precondition', 'Hay más de un turno abierto en esta agencia. Solicite a administración revisar los turnos antes de operar.')
     }
-
+    const existingShift = activeShifts.docs[0]
+    if (existingShift) {
+      if (lock?.status !== 'open' || lock.shiftId !== existingShift.id ||
+          lock.operatorUid !== callerUid || lock.branchId !== branchId) {
+        transaction.set(lockRef, {
+          shiftId: existingShift.id,
+          operatorUid: callerUid,
+          operatorName: currentOperator.fullName || 'Operador',
+          branchId,
+          status: 'open',
+        })
+        transaction.create(db.collection('audit_logs').doc(), {
+          action: 'CASH_SHIFT_LOCK_REPAIRED',
+          entityType: 'cash_shift',
+          entityId: existingShift.id,
+          performedByUid: callerUid,
+          branchId,
+          previousShiftId: lock?.shiftId ?? null,
+          timestampIso: nowIso,
+        })
+      }
+      const { openedAtServer, createdAt, updatedAt, ...shift } = existingShift.data()
+      return { success: true, resumed: true, shift: { ...shift, id: existingShift.id } }
+    }
     // 2. Obtener y avanzar correlativo anual de turnos
     const counterRef = db.collection('counters').doc(`shifts_${branchId}_${currentYear}`)
     const counterDoc = await transaction.get(counterRef)
@@ -1526,6 +1550,17 @@ export const openCashShift = onCall({ cors: true }, async (request) => {
       updatedAt: FieldValue.serverTimestamp(),
     }
 
+    if (lock?.status === 'open') {
+      transaction.create(db.collection('audit_logs').doc(), {
+        action: 'CASH_SHIFT_ORPHAN_LOCK_REPLACED',
+        entityType: 'cash_shift',
+        entityId: lock.shiftId ?? lockRef.id,
+        performedByUid: callerUid,
+        branchId,
+        timestampIso: nowIso,
+      })
+    }
+
     // 4. Registro de movimiento financiero para el fondo inicial (separado de ventas)
     if (initialCashCents > 0) {
       const initMovementId = `MOV-INIT-${shiftId}`
@@ -1554,7 +1589,7 @@ export const openCashShift = onCall({ cors: true }, async (request) => {
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true })
 
-    transaction.set(db.collection('cash_shifts').doc(shiftId), shiftData)
+    transaction.create(db.collection('cash_shifts').doc(shiftId), shiftData)
 
     transaction.set(lockRef, {
       shiftId,
