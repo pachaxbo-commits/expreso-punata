@@ -61,6 +61,8 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
     if (isOpen && tutorialStep && tutorialStep >= 1 && tutorialStep <= 4) setStep(tutorialStep)
   }, [isOpen, tutorialStep])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isPrintingGuide, setIsPrintingGuide] = useState(false)
+  const [printFeedback, setPrintFeedback] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
   const [createdShipment, setCreatedShipment] = useState<Shipment | null>(null)
@@ -1167,13 +1169,24 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                 </div>
               </div>
 
+              {printFeedback && <p role="status" className="text-center text-sm">{printFeedback}</p>}
+
               {/* Botones de Acción */}
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                 <button
                   type="button"
+                  disabled={isPrintingGuide}
                   onClick={async () => {
-                    const doc = await applyOfficialBranchPhone(printEngine.buildFromShipment(createdShipment, userProfile?.fullName || 'Operador'), createdShipment.originBranchId)
-                    await printEngine.printDocument(doc)
+                    setIsPrintingGuide(true)
+                    setPrintFeedback('Preparando impresión…')
+                    try {
+                      const doc = await applyOfficialBranchPhone(printEngine.buildFromShipment(createdShipment, userProfile?.fullName || 'Operador'), createdShipment.originBranchId)
+                      setPrintFeedback((await printEngine.printDocument(doc)).message)
+                    } catch (error) {
+                      setPrintFeedback(error instanceof Error ? error.message : 'No se pudo preparar la impresión.')
+                    } finally {
+                      setIsPrintingGuide(false)
+                    }
                   }}
                   className="px-5 py-2.5 bg-[#064e3b] hover:bg-[#065f46] text-[#facc15] font-bold text-xs rounded-xl shadow-md flex items-center gap-2"
                 >

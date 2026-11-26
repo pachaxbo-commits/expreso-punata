@@ -14,10 +14,11 @@ import { reportObservedError } from '../../firebase/observedCallable.ts'
 import { loadShipmentTicketTemplate } from './ticketTemplateService.ts'
 import type { ShipmentTicketTemplate } from './ticketTemplates.ts'
 import { loadDocumentPrintTemplate } from './documentTemplateService.ts'
-import type { DocumentPrintTemplate } from './documentTemplates.ts'
+import { createDefaultDocumentTemplate, type DocumentPrintTemplate } from './documentTemplates.ts'
 
 export class PrintEngineService {
   private static instance: PrintEngineService
+  private browserGuidePrinting = false
 
   public static getInstance(): PrintEngineService {
     if (!PrintEngineService.instance) {
@@ -31,9 +32,17 @@ export class PrintEngineService {
    */
   public async printDocument(
     doc: UnifiedDocumentPayload,
-    printerOverride?: PrinterProfile
+    printerOverride?: PrinterProfile,
+    guideCopies?: 1 | 2,
   ): Promise<PrintResult> {
     const effectivePrinter = printerOverride || getDefaultPrinter(doc.branchId)
+
+    const browserGuide = doc.documentType === 'shipment_guide' && effectivePrinter.connectionType === 'browser_dialog'
+    if (browserGuide && this.browserGuidePrinting) {
+      return { success: false, jobId: '', connectionType: 'browser_dialog', status: 'failed',
+        message: 'Ya hay una guía en el flujo de impresión.', dispatchedAtIso: new Date().toISOString() }
+    }
+    if (browserGuide) this.browserGuidePrinting = true
 
     const paperFormat: PaperFormat = effectivePrinter.paperFormat || '80mm'
     const options: {
@@ -59,11 +68,12 @@ export class PrintEngineService {
         try {
           const saved = await loadDocumentPrintTemplate(doc.documentType)
           if (saved.template) options.documentTemplate = saved.template
-          else if (doc.documentType === 'shipment_guide') {
+          else if (doc.documentType === 'shipment_guide' && !browserGuide) {
             const legacy = await loadShipmentTicketTemplate()
             if (legacy.template) options.ticketTemplate = legacy.template
           }
         } catch {
+          if (browserGuide) throw new Error('No se pudo cargar el diseño de guía guardado. Intente de nuevo antes de imprimir.')
           // If Fase 3 Functions is not deployed yet, preserve the previously versioned guide template when available.
           if (doc.documentType === 'shipment_guide') {
             try {
@@ -78,6 +88,16 @@ export class PrintEngineService {
       else {
         const documentWithPresentation = await this.withOfficialPresentation(doc)
         if (effectivePrinter.connectionType === 'rawbt_intent') result = await printViaRawBt(documentWithPresentation, options.documentTemplate?.paperFormat || paperFormat, options)
+        else if (browserGuide && (paperFormat === '58mm' || paperFormat === '80mm' || options.documentTemplate)) {
+          const template = options.documentTemplate || { ...createDefaultDocumentTemplate('shipment_guide'), paperFormat: paperFormat === '58mm' ? '58mm' : '80mm' as const }
+          const printOptions = { ...options, documentTemplate: template }
+          result = await printViaBrowserDialog(documentWithPresentation, template.paperFormat, { ...printOptions, copyIndex: 0 })
+          if (result.success && (guideCopies === 2 || (guideCopies === undefined && template.secondCopyEnabled))) {
+            result = await printViaBrowserDialog(documentWithPresentation, template.paperFormat, { ...printOptions, copyIndex: 1 })
+            if (result.success) result.message = 'Chrome recibió los trabajos de cliente y agencia. Compruebe las dos copias en la impresora.'
+            else result.message = 'El flujo de cliente terminó. Copia de agencia sin confirmar. ' + result.message
+          }
+        }
         else result = await printViaBrowserDialog(documentWithPresentation, options.documentTemplate?.paperFormat || options.ticketTemplate?.paperFormat || paperFormat, options)
       }
       if (!result.success) {
@@ -91,6 +111,8 @@ export class PrintEngineService {
         try { Object.defineProperty(error, 'message', { configurable: true, value: `${error.message} (Incidencia: ${incidentId})` }) } catch {}
       }
       throw error
+    } finally {
+      if (browserGuide) this.browserGuidePrinting = false
     }
   }
 
@@ -260,9 +282,9 @@ export class PrintEngineService {
     paperFormat: PaperFormat = '80mm',
     ticketTemplate?: ShipmentTicketTemplate,
     documentTemplate?: DocumentPrintTemplate,
-    presentationOptions: { includeLogo?: boolean; includeQr?: boolean } = {},
+    presentationOptions: { includeLogo?: boolean; includeQr?: boolean; copyIndex?: 0 | 1 } = {},
   ): Promise<string> {
-    return await buildDocumentHtml(await this.withOfficialPresentation(doc), paperFormat, { includeLogo: presentationOptions.includeLogo ?? true, includeQr: presentationOptions.includeQr, ticketTemplate, documentTemplate })
+    return await buildDocumentHtml(await this.withOfficialPresentation(doc), paperFormat, { includeLogo: presentationOptions.includeLogo ?? true, includeQr: presentationOptions.includeQr, copyIndex: presentationOptions.copyIndex, ticketTemplate, documentTemplate })
   }
 
   /**

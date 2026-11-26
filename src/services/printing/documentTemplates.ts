@@ -65,7 +65,7 @@ const REQUIRED: Partial<Record<DocumentPrintType, TemplateFieldId[]>> = {
   passenger_ticket: ['title', 'number', 'travelDate', 'route', 'quantity', 'fare', 'paymentVerification', 'footer'],
 }
 
-const DEFAULT_AGENCY: TemplateFieldId[] = ['title', 'tracking', 'timestamp', 'sender', 'route', 'items']
+const DEFAULT_AGENCY: TemplateFieldId[] = ['title', 'tracking', 'timestamp', 'sender', 'route', 'items', 'financials']
 export const getTemplateFields = (type: DocumentPrintType) => TEMPLATE_FIELD_CATALOG.filter(field => SCHEMAS[type]?.includes(field.id))
 export const getRequiredTemplateFields = (type: DocumentPrintType) => REQUIRED[type] || ['title', 'number']
 export function createDefaultDocumentTemplate(type: DocumentPrintType): DocumentPrintTemplate {

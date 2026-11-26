@@ -32,6 +32,7 @@ export async function buildDocumentHtml(
     includeLogo?: boolean
     ticketTemplate?: ShipmentTicketTemplate
     documentTemplate?: DocumentPrintTemplate
+    copyIndex?: 0 | 1
   } = {}
 ): Promise<string> {
   if (doc.documentType === 'shipment_guide' && options.ticketTemplate && (paperFormat === '58mm' || paperFormat === '80mm')) {
@@ -301,6 +302,7 @@ export async function printViaBrowserDialog(
     includeLogo?: boolean
     ticketTemplate?: ShipmentTicketTemplate
     documentTemplate?: DocumentPrintTemplate
+    copyIndex?: 0 | 1
   } = {}
 ): Promise<PrintResult> {
   const jobId = `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
@@ -352,27 +354,40 @@ export async function printViaBrowserDialog(
     return new Promise((resolve) => {
       const triggerPrint = () => {
         try {
-          // Escuchar evento afterprint para limpieza no prematura
-          if (iframe.contentWindow) {
-            iframe.contentWindow.addEventListener('afterprint', () => {
-              setTimeout(cleanup, 1000)
-            })
-          }
-
-          iframe.contentWindow?.focus()
-          iframe.contentWindow?.print()
-
-          // Fallback de limpieza en caso de que afterprint no se dispare
-          setTimeout(cleanup, 45000)
-
-          resolve({
+          const printWindow = iframe.contentWindow
+          if (!printWindow) throw new Error('La ventana de impresión no esta disponible.')
+          const result: PrintResult = {
             success: true,
             jobId,
             connectionType: 'browser_dialog',
             status: 'dialog_opened',
-            message: 'Diálogo de impresión de Windows abierto. Seleccione su impresora USB/térmica y confirme.',
+            message: 'Trabajo enviado al flujo de impresión de Chrome. Verifique el papel en la impresora.',
             dispatchedAtIso: nowIso,
-          })
+          }
+          let timer: ReturnType<typeof setTimeout>
+          printWindow.addEventListener('afterprint', () => {
+            clearTimeout(timer)
+            cleanup()
+            if (options.copyIndex !== undefined) resolve(result)
+          }, { once: true })
+          timer = setTimeout(() => {
+            cleanup()
+            if (options.copyIndex !== undefined) resolve({
+              ...result,
+              success: false,
+              status: 'failed',
+              errorClassification: 'requiresOperatorDecision',
+              message: 'Chrome no confirmó el cierre del diálogo. Revise la impresora antes de volver a imprimir.',
+            })
+          }, 45000)
+          try {
+            printWindow.focus()
+            printWindow.print()
+          } catch (error) {
+            clearTimeout(timer)
+            throw error
+          }
+          if (options.copyIndex === undefined) resolve(result)
         } catch (err: any) {
           cleanup()
           resolve({
