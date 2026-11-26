@@ -1521,8 +1521,19 @@ export const openCashShift = onCall({ cors: true }, async (request) => {
       nextSeq = (Number(counterDoc.data().current) || 0) + 1
     }
 
-    const shiftSeqPadded = String(nextSeq).padStart(4, '0')
-    const shiftId = `TUR-${branchCode}-${currentYear}-${shiftSeqPadded}`
+    let shiftId
+    for (let attempt = 0; attempt < 20; attempt++, nextSeq++) {
+      const candidate = `TUR-${branchCode}-${currentYear}-${String(nextSeq).padStart(4, '0')}`
+      const [shift, movements] = await Promise.all([
+        transaction.get(db.collection('cash_shifts').doc(candidate)),
+        transaction.get(db.collection('financial_movements').where('shiftId', '==', candidate).limit(1)),
+      ])
+      if (!shift.exists && movements.empty && candidate !== lock?.shiftId) {
+        shiftId = candidate
+        break
+      }
+    }
+    if (!shiftId) throw new HttpsError('failed-precondition', 'No se pudo asignar un número de turno libre. Solicite a administración revisar la numeración de caja.')
 
     // 3. Documento canónico del turno de caja
     const shiftData = {
@@ -1595,7 +1606,7 @@ export const openCashShift = onCall({ cors: true }, async (request) => {
         timestamp: nowIso,
         createdAt: FieldValue.serverTimestamp(),
       }
-      transaction.set(db.collection('financial_movements').doc(initMovementId), initMovement)
+      transaction.create(db.collection('financial_movements').doc(initMovementId), initMovement)
     }
 
     // 5. Escribir documentos atómicamente

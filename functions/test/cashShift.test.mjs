@@ -127,15 +127,24 @@ test('Un candado sin turno permite abrir caja y deja constancia en auditoria', a
   const lock = db.collection('cash_shift_active_locks').doc(uid + '_punata')
   await lock.set({ shiftId: 'missing-shift', operatorUid: uid, branchId: 'punata', status: 'open' })
 
+  const year = new Date().getFullYear()
+  const oldShiftId = 'TUR-PUN-' + year + '-0001'
+  await lock.update({ shiftId: oldShiftId })
+  const history = db.collection('financial_movements').doc('MOV-INIT-' + oldShiftId)
+  const historicalMovement = { shiftId: oldShiftId, type: 'initial_cash', amountCents: 9500 }
+  await history.set(historicalMovement)
+
   const result = await openCashShift.run({
     auth: { uid, token: { email: uid + '@expresopunata.com' } },
     data: { branchId: 'punata', initialCashCents: 0 },
   })
   assert.equal((await lock.get()).data().shiftId, result.shift.id)
-  assert.equal((await db.collection('financial_movements').get()).size, 0)
+  assert.notEqual(result.shift.id, oldShiftId)
+  assert.deepEqual((await history.get()).data(), historicalMovement)
+  assert.equal((await db.collection('financial_movements').get()).size, 1)
   const audit = await db.collection('audit_logs').where('action', '==', 'CASH_SHIFT_ORPHAN_LOCK_REPLACED').get()
   assert.equal(audit.size, 1)
-  assert.equal(audit.docs[0].data().entityId, 'missing-shift')
+  assert.equal(audit.docs[0].data().entityId, oldShiftId)
 })
 
 test('3. RESTRICCIÓN DE SUCURSAL Y ROL: Secretaria de Cochabamba no puede operar caja de Punata', async () => {
