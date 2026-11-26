@@ -732,6 +732,7 @@ test('17. Padrón imprimible: devuelve afiliados, hijos y vínculos con los role
   })
 
   const fullRoster = await getUnionMembersRoster.run({ auth, data: {} })
+  assert.equal(fullRoster.members.find(member => member.id === memberId).branchId, 'punata')
   assert.equal(fullRoster.success, true)
   assert.equal(fullRoster.members.length, 2)
   const currentEntry = fullRoster.members.find((member) => member.id === memberId)
