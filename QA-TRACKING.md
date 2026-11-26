@@ -1,5 +1,11 @@
 # Seguimiento QA comercial
 
+## Multas y prÃ©stamos â€” continuaciÃ³n 2026-11-26
+
+- La vista `Multas` muestra `SOC-QA-001` y el formulario de creaciÃ³n para Directiva QA. Se intentÃ³ registrar una multa ficticia de Bs30 mediante la interfaz, sin escribir directamente en Firestore.
+- Resultado: el formulario quedÃ³ en `Guardandoâ€¦` y posteriormente no apareciÃ³ registro; lectura de comprobaciÃ³n del emulador confirma colecciÃ³n `fines` vacÃ­a. No se declara multa creada ni se ejecutÃ³ cobro.
+- No se iniciÃ³ el bloque de prÃ©stamos porque no existe una operaciÃ³n financiera previa de multa que validar y la automatizaciÃ³n UI requiere investigar el fallo de guardado antes de continuar con seguridad.
+
 ## VinculaciÃ³n de afiliado completada â€” 2026-11-26
 
 - Causa raÃ­z confirmada: `getUnionMembersRoster` no devolvÃ­a `branchId`; el editor de usuarios filtraba por sucursal y ocultaba `SOC-QA-001` aunque existÃ­a y estaba activo.
