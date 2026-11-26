@@ -70,7 +70,7 @@ export const getTemplateFields = (type: DocumentPrintType) => TEMPLATE_FIELD_CAT
 export const getRequiredTemplateFields = (type: DocumentPrintType) => REQUIRED[type] || ['title', 'number']
 export function createDefaultDocumentTemplate(type: DocumentPrintType): DocumentPrintTemplate {
   const fields = SCHEMAS[type] || COMMON
-  const customerFields = fields.filter(id => (id !== 'qr' || type === 'shipment_guide' || type === 'package_label' || type === 'passenger_ticket') && !(type === 'shipment_guide' && id === 'number'))
+  const customerFields = fields.filter(id => (id !== 'qr' || type === 'package_label' || type === 'passenger_ticket') && !(type === 'shipment_guide' && id === 'number'))
   const agencyFields = type === 'shipment_guide' ? DEFAULT_AGENCY : type === 'passenger_ticket' ? fields.filter(id => ['title', 'number', 'travelDate', 'route', 'driver', 'vehicle', 'quantity', 'fare', 'paymentVerification', 'settlement', 'qr'].includes(id)) : fields.filter(id => ['title', 'number', 'timestamp', 'items'].includes(id))
   return {
     documentType: type, version: 0, paperFormat: '80mm', marginsMm: 2, fontSize: 'normal', separator: 'dashed',
