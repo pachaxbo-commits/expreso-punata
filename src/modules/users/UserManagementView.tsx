@@ -1183,8 +1183,17 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
   const [allowedBranches, setAllowedBranches] = useState<string[]>(user.allowedBranchIds || [user.primaryBranchId])
   const [vehiclePlate, setVehiclePlate] = useState(user.assignedVehiclePlate || '')
   const [mobileNumber, setMobileNumber] = useState(user.assignedMobileNumber || '')
+  const [unionMemberId, setUnionMemberId] = useState(user.unionMemberId || '')
+  const [availableMembers, setAvailableMembers] = useState<UnionRosterMember[]>([])
   const [loading, setLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!['afiliado', 'afiliado_admin'].includes(user.role)) return
+    getUnionMembersRosterThroughBackend()
+      .then(members => setAvailableMembers(members.filter(member => member.branchId === primaryBranchId && member.status === 'active')))
+      .catch(err => setFormError(err.message || 'No se pudieron cargar los afiliados disponibles.'))
+  }, [primaryBranchId, user.role])
 
   const handleBranchCheckbox = (branchId: string) => {
     if (branchId === primaryBranchId) return
@@ -1221,6 +1230,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
               : [primaryBranchId, ...allowedBranches],
         assignedVehiclePlate: user.role === 'conductor' ? vehiclePlate.trim() : undefined,
         assignedMobileNumber: user.role === 'conductor' ? mobileNumber.trim() : undefined,
+        unionMemberId: ['afiliado', 'afiliado_admin'].includes(user.role) ? (unionMemberId || undefined) : undefined,
         isActive: user.isActive,
       }
 
@@ -1384,6 +1394,17 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
                   />
                 </div>
               </div>
+            </div>
+          )}
+
+          {['afiliado', 'afiliado_admin'].includes(user.role) && (
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Afiliado vinculado</label>
+              <select value={unionMemberId} onChange={(e) => setUnionMemberId(e.target.value)} className="w-full p-2.5 border border-slate-300 rounded-lg bg-white">
+                <option value="">Sin vinculación</option>
+                {availableMembers.map(member => <option key={member.id} value={member.id}>{member.memberNumber} · {member.fullName}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">La vinculación se valida nuevamente en Cloud Functions.</p>
             </div>
           )}
 
