@@ -4,7 +4,7 @@ import { SupportCenter } from '../modules/support/SupportCenter'
 import { BranchCommissionView } from '../modules/dispatch/BranchCommissionView'
 import { DailyOperationsView } from '../modules/reports/DailyOperationsView'
 import { isPublicDemo } from '../firebase/config'
-import React, { lazy, Suspense, useState, useEffect } from 'react'
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react'
 import {
   Package,
   Truck,
@@ -195,6 +195,20 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     try { window.localStorage.setItem('expreso-sidebar-collapsed', String(isSidebarCollapsed)) } catch { /* La navegación sigue disponible si el almacenamiento está bloqueado. */ }
   }, [isSidebarCollapsed])
 
+  const layoutRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const layout = layoutRef.current
+    const header = headerRef.current
+    if (!layout || !header) return
+    const measure = () => layout.style.setProperty('--app-header-height', header.offsetHeight + 'px')
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [])
+
   // Encomiendas a listar (prioriza registros de Firestore Emulator)
   // En entorno Cloud o cuando el backend está conectado, mostramos exclusivamente datos reales de Firestore (0 si está vacío).
   // Los fixtures DEV_SHIPMENTS solo se usan si estamos en emulador local aislado y sin conexión.
@@ -204,9 +218,9 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-slate-100 flex flex-col text-slate-800">
+    <div ref={layoutRef} className="min-h-screen overflow-x-clip bg-slate-100 flex flex-col text-slate-800">
       {/* Top Bar Institucional de Expreso Punata */}
-      <header className="bg-[#064e3b] text-white shadow-md sticky top-0 z-40">
+      <header ref={headerRef} className="bg-[#064e3b] text-white shadow-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
           {/* Logo y Nombre */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -327,7 +341,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         <aside
           data-tutorial-target="nav-tabs-bar"
           aria-label="Navegación principal"
-          className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-emerald-900 bg-[#064e3b] text-white shadow-xl transition-transform duration-150 md:sticky md:top-0 md:z-20 md:h-screen md:translate-x-0 md:shrink-0 md:shadow-none md:transition-none ${isMobileNavOpen ? 'translate-x-0' : '-translate-x-full'} ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'}`}
+          className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-emerald-900 bg-[#064e3b] text-white shadow-xl transition-transform duration-150 md:sticky md:top-[var(--app-header-height,0px)] md:z-20 md:h-[calc(100dvh-var(--app-header-height,0px))] md:self-start md:translate-x-0 md:shrink-0 md:shadow-none md:transition-none ${isMobileNavOpen ? 'translate-x-0' : '-translate-x-full'} ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'}`}
         >
           <div data-tutorial-target="nav-menu-controls" className={`flex min-h-16 items-center border-b border-emerald-800 px-3 ${isSidebarCollapsed ? 'md:justify-center' : 'justify-between'}`}>
             {!isSidebarCollapsed && <span className="font-bold text-sm text-emerald-100 md:hidden">Navegación</span>}
@@ -351,7 +365,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
               <X className="h-5 w-5" aria-hidden="true" />
             </button>
           </div>
-          <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label="Secciones del sistema">
+          <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2" aria-label="Secciones del sistema">
             {tabs.map(tab => {
               const Icon = tab.icon
               const isActive = activeTab === tab.id
@@ -658,7 +672,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
                 }`}
               >
                 <Building2 className="w-4 h-4" />
-                <span>General</span>
+                <span>Empresa y agencias</span>
               </button>
 
               <button
@@ -671,7 +685,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
                 }`}
               >
                 <Wallet className="w-4 h-4" />
-                <span>Tarifas</span>
+                <span>Tarifas y comisiones</span>
               </button>
 
               <button
@@ -691,8 +705,20 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             {/* Contenido de cada subpestaña */}
             {configSubTab === 'users' && <UserManagementView />}
 
-            {(configSubTab === 'general' || configSubTab === 'tariffs') && (
-              <><InstitutionalSettings /><CommercialSettings /><SystemConfigView currentUser={userProfile} /></>
+            {configSubTab === 'general' && (
+              <div className="space-y-4">
+                <InstitutionalSettings />
+                <details>
+                  <summary className="cursor-pointer font-semibold">Otros datos de empresa</summary>
+                  <SystemConfigView key="empresa" currentUser={userProfile} sections={['company']} hideVersionedIdentity />
+                </details>
+              </div>
+            )}
+            {configSubTab === 'tariffs' && (
+              <div className="space-y-4">
+                <CommercialSettings />
+                <SystemConfigView key="aportes" currentUser={userProfile} sections={['dues']} />
+              </div>
             )}
 
             {configSubTab === 'printers' && (
@@ -703,6 +729,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             )}
           </div>
         )}
+        <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500">
+          <p>
+            © 2026 {EXPRESO_PUNATA_COMPANY.name} — Sistema Independiente Desarrollado por PACHAX
+          </p>
+        </footer>
       </main>
       </div>
 
@@ -760,12 +791,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         userRole={userProfile.role}
       />
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500">
-        <p>
-          © 2026 {EXPRESO_PUNATA_COMPANY.name} — Sistema Independiente Desarrollado por PACHAX
-        </p>
-      </footer>
     </div>
   )
 }
