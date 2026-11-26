@@ -17,6 +17,7 @@ import type {
   DriverCommissionAccount,
   DriverCommissionRecord,
   DriverCommissionVoucher,
+  DispatchManifest,
 } from '../../types/index.ts'
 import {
   fetchAllDriverCommissionAccounts,
@@ -24,6 +25,7 @@ import {
   settleDriverCommission,
   accrueDriverCommission,
 } from '../../services/commissionService.ts'
+import { subscribeManifestsByBranch } from '../../services/dispatchService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
 
 interface DriverCommissionsViewProps {
@@ -52,8 +54,10 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
   // El backend determina el importe y la regla; la interfaz solo envía referencias.
   const [isAccrueModalOpen, setIsAccrueModalOpen] = useState(false)
   const [accrueShipmentId, setAccrueShipmentId] = useState('')
-  const [accrueManifestId, setAccrueManifestId] = useState('')
   const [isAccruing, setIsAccruing] = useState(false)
+  const [manifests, setManifests] = useState<DispatchManifest[]>([])
+  const [selectedManifestId, setSelectedManifestId] = useState('')
+  const selectedManifest = manifests.find((manifest) => manifest.id === selectedManifestId) || null
   const canAccrueCommission = isOperationalAdmin(currentUser)
 
   const loadAccounts = async (focusDriverUid?: string) => {
@@ -74,6 +78,10 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
   useEffect(() => {
     loadAccounts()
   }, [])
+
+  useEffect(() => subscribeManifestsByBranch(currentBranch.id, setManifests, (error) => {
+    setFeedback({ type: 'error', message: error.message || 'No se pudieron cargar los manifiestos disponibles.' })
+  }), [currentBranch.id])
 
   useEffect(() => {
     if (selectedDriverUid) {
@@ -155,13 +163,8 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
 
   const handleExecuteAccrue = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!accrueShipmentId.trim()) {
-      alert('Ingrese el ID interno de la encomienda.')
-      return
-    }
-
-    if (!accrueManifestId.trim()) {
-      alert('Ingrese el identificador del manifiesto.')
+    if (!selectedManifest || !accrueShipmentId.trim()) {
+      alert('Seleccione una encomienda elegible desde un manifiesto.')
       return
     }
 
@@ -169,7 +172,7 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
       setIsAccruing(true)
       const res = await accrueDriverCommission({
         shipmentId: accrueShipmentId.trim(),
-        manifestId: accrueManifestId.trim(),
+        manifestId: selectedManifest.id,
       })
 
       setFeedback({
@@ -178,7 +181,7 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
       })
       setIsAccrueModalOpen(false)
       setAccrueShipmentId('')
-      setAccrueManifestId('')
+      setSelectedManifestId('')
       await loadAccounts(res.driverUid)
       if (selectedDriverUid === res.driverUid) await loadRecords(res.driverUid)
     } catch (err: any) {
@@ -567,30 +570,22 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
 
             <form onSubmit={handleExecuteAccrue} className="p-4 space-y-3 text-xs">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">ID interno de la encomienda</label>
-                <input
-                  type="text"
-                  placeholder="ID del documento de encomienda"
-                  value={accrueShipmentId}
-                  onChange={(e) => setAccrueShipmentId(e.target.value.trim())}
-                  required
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono font-bold"
-                />
+                <label className="block font-bold text-slate-700 mb-1">Manifiesto y conductor</label>
+                <select required value={selectedManifestId} onChange={(e) => { setSelectedManifestId(e.target.value); setAccrueShipmentId('') }} className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold">
+                  <option value="">Seleccione un manifiesto</option>
+                  {manifests.filter((manifest) => manifest.status !== 'cancelled' && manifest.driverUid).map((manifest) => <option key={manifest.id} value={manifest.id}>{manifest.manifestNumber} · {manifest.driverName} · {manifest.shipmentSummaries.length} encomienda(s)</option>)}
+                </select>
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">ID del manifiesto recibido</label>
-                <input
-                  type="text"
-                  placeholder="ID del manifiesto"
-                  value={accrueManifestId}
-                  onChange={(e) => setAccrueManifestId(e.target.value.trim())}
-                  required
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono font-bold"
-                />
+                <label className="block font-bold text-slate-700 mb-1">Encomienda elegible</label>
+                <select required value={accrueShipmentId} onChange={(e) => setAccrueShipmentId(e.target.value)} disabled={!selectedManifest} className="w-full px-3 py-2 border border-slate-300 rounded-xl font-bold">
+                  <option value="">Seleccione por código público</option>
+                  {selectedManifest?.shipmentSummaries.map((summary) => <option key={summary.shipmentId} value={summary.shipmentId}>{summary.trackingCode} · {summary.recipientName} · Bs {(summary.finalAmountCents / 100).toFixed(2)}</option>)}
+                </select>
               </div>
               <p className="rounded-lg bg-amber-50 p-2 text-[11px] text-amber-900">
-                El backend valida el manifiesto y aplica la regla oficial; no se ingresan importes ni porcentajes.
+                Conductor: {selectedManifest?.driverName || '—'}. El backend valida manifiesto, tarifa y regla oficial; no se ingresan IDs, importes ni porcentajes manualmente.
               </p>
 
               <div className="flex gap-2 pt-2">
