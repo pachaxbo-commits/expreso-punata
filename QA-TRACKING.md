@@ -221,3 +221,12 @@
 - Manifiesto creado desde Chrome: `MAN-PUN-2026-0003`, Móvil `QA-14`, Conductor QA, 1 guía/1 bulto. La interfaz confirmó despacho y lo registró en historial.
 - La continuación quedó bloqueada al cambiar de Directiva QA a Conductor QA: el botón visible `Cerrar Sesión` no produjo transición en la sesión CUA, por lo que no se aceptó custodia ni se simuló ese estado por backend.
 - Las variables temporales de frontend y la instancia secundaria fueron detenidas/restauradas al terminar. No se generó comisión ni liquidación, no se insertaron movimientos directos y no se alteraron históricos.
+
+## Sesiones independientes y restauración de comisión - 2026-11-26
+
+- Se abrió un contexto Chrome independiente para `conductor@qa.local`; la autenticación fue exitosa y el perfil visible fue `Conductor QA`.
+- En `Mis viajes`/`Encomiendas asignadas`, la interfaz mostró `No hay guías pendientes de aceptar` para el manifiesto existente `MAN-PUN-2026-0003`. No se forzó aceptación de custodia ni se alteraron estados directamente.
+- Directiva QA conservó acceso al registro existente `PUN202600003`/`MAN-PUN-2026-0003`, pero el recorrido financiero no pudo continuar porque el conductor no recibió una guía elegible.
+- Se confirmó un defecto visual en la configuración: `defaultValue || 10` convertía un porcentaje persistido de 0 en 10 al renderizar. Se corrigió a `defaultValue ?? 0` en `src/modules/admin/SystemConfigView.tsx`.
+- Regresión técnica: typecheck aprobado; suite unitaria aprobada 91/91. La restauración del valor 0 debe verificarse desde la pantalla tras recargar la aplicación con esta corrección; no se declara generado ni liquidado ningún devengo.
+- Estado: custodia, devengo, liquidación y conciliación de `PUN202600003` permanecen no ejecutados por bloqueo de elegibilidad del conductor. No se hicieron escrituras directas ni se accedió a producción.

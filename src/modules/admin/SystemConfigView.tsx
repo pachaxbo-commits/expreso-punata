@@ -514,7 +514,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
                   type="number"
                   step="0.5"
                   min="0"
-                  value={config.commissions?.defaultValue || 10}
+                  value={config.commissions?.defaultValue ?? 0}
                   onChange={(e) =>
                     setConfig({
                       ...config,
