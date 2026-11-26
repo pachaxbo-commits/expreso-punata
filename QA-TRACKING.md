@@ -1,5 +1,14 @@
 # Seguimiento QA comercial
 
+## Entrega directa por conductor â€” 2026-11-26
+
+- ImplementaciÃ³n `c5f1952`: `Mis Viajes` expone `Realizar entrega` por guÃ­a solo cuando el manifiesto estÃ¡ asignado al conductor, la custodia estÃ¡ aceptada y el resumen indica `direct_driver`. La guÃ­a se recupera con `fetchCurrentShipment`; no se aceptan importes introducidos por el conductor.
+- Se reutiliza `ShipmentDeliveryModal` y `deliverShipmentThroughBackend`; firma, datos del receptor, COD, idempotencia y validaciones permanecen en la Function existente.
+- Playwright `390x844`: `CBB202600001` â†’ firma del destinatario â†’ cobro efectivo COD Bs30 â†’ entrega confirmada. UI regresÃ³ a Mis Viajes tras la respuesta del backend.
+- VerificaciÃ³n persistida en Emulator B: `status=delivered`, `paymentStatus=paid`, `deliveryChannel=route_delivery`, `deliveredByRole=conductor`, `collectedAmountCents=3000`, firma Storage verificada y `financialMovementId` presente.
+- Custodia generada: cuenta del UID del Conductor QA con `pendingRemittanceCents=3000`, `cashUnderCustodyCents=3000`; un Ãºnico registro `route_collection` de Bs30 en `driver_custody_records`.
+- No se alteraron estados ni movimientos directamente en Firestore. La conciliaciÃ³n y liquidaciÃ³n siguen pendientes porque requieren ejecutar el flujo autorizado de rendiciÃ³n desde el rol de caja/tesorerÃ­a.
+
 ## ContinuaciÃ³n desde fa03a49 â€” 2026-11-26
 
 - Modalidad persistida de `CBB202600001`: el recorrido fue creado mediante el asistente con `deliveryType=direct_driver`; la generaciÃ³n de `MAN-CBBA-2026-0001` y el estado `TRÃNSITO` confirman que no era solo una selecciÃ³n visual.
