@@ -14,6 +14,7 @@ import {
 import type { UserProfile, SystemConfig } from '../../types/index.ts'
 import { automaticParcelPricingEnabled } from '../../config/features.ts'
 import { fetchSystemConfig, updateSystemConfig, BLANK_UNCONFIGURED_TEMPLATE } from '../../services/configService.ts'
+import { normalizeSystemConfig } from '../../domain/systemConfigNormalization.ts'
 
 interface SystemConfigViewProps {
   currentUser: UserProfile
@@ -48,7 +49,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
           message: 'Configuración pendiente de aprobación: El sistema aún no cuenta con datos oficiales registrados. Por favor ingrese los datos corporativos, tarifas y comisiones confirmadas.',
         })
       } else {
-        setConfig(data.config)
+        setConfig(normalizeSystemConfig(data.config))
         setConfigStatus('configured')
         setFeedback(null)
       }
