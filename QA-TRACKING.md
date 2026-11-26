@@ -169,3 +169,14 @@
 - Se cobró desde la interfaz con turno autorizado. Resultado visible: `REC-MUL-2026-00001`, saldo Bs 0, estado `Pagada`, historial de pagos 1.
 - Defecto confirmado: el comprobante mostraba `Bs. NaN` porque la vista leía `result.amountCents`, inexistente en la respuesta. Corrección: usa `result.payment.amountCents`, fuente oficial del cobro.
 - Suite posterior: 91/91 unitarias, typecheck y build aprobados. El préstamo de Bs 500 aún no fue ejecutado desde interfaz.
+-
+## Préstamo PRE-2026-00001 completado - 2026-11-26
+
+- Desde Chrome interactivo en Entorno B, Directiva QA registró `PRE-2026-00001` para `SOC-QA-001` por Bs 500, con 2 cuotas de Bs 250 y sin intereses.
+- Se cerró el turno anterior conforme por Bs 110 y se abrió legítimamente `TUR-PUN-2026-0004` con fondo inicial QA de Bs 500.
+- Desembolso desde interfaz: comprobante `REC-DES-PRE-2026-00001`, egreso de caja Bs 500.
+- Amortización parcial desde interfaz: `REC-PRE-2026-00001`, Bs 250; saldo Bs 250.
+- Liquidación final desde interfaz: `REC-PRE-2026-00002`, Bs 250; saldo final Bs 0, estado Pagado, historial 2 pagos.
+- Mi cuenta del afiliado `afiliado@qa.local` mostró `PRE-2026-00001 Bs 0,00 pendiente` y saldo de préstamos Bs 0; cuota 2026-11 permaneció pagada y no mostró obligaciones pendientes.
+- Defecto confirmado y corregido: comprobante de amortización mostraba `Bs. NaN` por leer `result.amountCents`; ahora usa `result.payment.amountCents`, igual que multas.
+- Caja mostró fondo inicial Bs 500, egreso Bs 500 y recaudación de préstamos Bs 250 durante el turno; no se repitieron pagos ni desembolsos.
