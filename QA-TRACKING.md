@@ -1,5 +1,13 @@
 # Seguimiento QA comercial
 
+## EjecuciÃ³n autÃ³noma â€” 2026-11-26 â€” Entrega directa por conductor
+
+- Entorno A recuperado sin tocar Entorno B: puertos 17001/17080/17099/17199; cachÃ© aislada con cloud-firestore-emulator-v1.22.0.jar y configuraciÃ³n .qa-automated/firebase-a.json.
+- Firestore Rules contra Entorno A: 34/34 aprobadas, 0 fallos; los PERMISSION_DENIED observados son aserciones negativas esperadas.
+- Entorno B desde Playwright y Auth real: creada CBB202600001, modalidad Conductor en Ruta, por cobrar/COD Bs30. Generado MAN-CBBA-2026-0001 con MÃ³vil QA-14 y Conductor QA; pasÃ³ a TRÃNSITO.
+- El conductor autenticado conductor@qa.local ve el manifiesto como Pendiente de Custodia. El botÃ³n Confirmar Carga Recibida no produjo transiciÃ³n ni Ã©xito antes de expirar la automatizaciÃ³n. No se declara custodia, entrega, cobro, liquidaciÃ³n ni comisiÃ³n y no se insertaron movimientos financieros directamente.
+- Defecto UX confirmado: el resumen muestra Modalidad: En Agencia aunque se seleccionÃ³ Conductor en Ruta; queda pendiente de correcciÃ³n y regresiÃ³n.
+
 | Módulo | Operación | Resultado | Defecto / causa | Corrección | Regresión | Evidencia navegador | Pendiente |
 |---|---|---|---|---|---|---|---|
 | Autenticación | Perfil sin `fullName` | Corregida y verificada | Pantalla blanca en `MainDashboard` | `e36be60`, normalización y fail-closed RBAC | 85 unitarias frontend | Login local validado; captura previa del blanco conservada | Repetir tras entorno B limpio |
