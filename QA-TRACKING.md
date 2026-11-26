@@ -239,3 +239,9 @@
 - Verificación Chrome: el conductor vio `MAN-PUN-2026-0003`, aceptó custodia y luego pudo abrir `Realizar entrega · PUN202600003`. La modalidad mostrada fue entrega en ruta y el formulario exigió documento y firma.
 - Bloqueo restante: la firma manuscrita obligatoria requiere un gesto de ratón/táctil sobre el lienzo; no se ejecutó una firma sintética ni se saltó el botón deshabilitado. Por ello no se generaron cobro adicional, devengo de Bs 1, liquidación ni egreso de caja.
 - La variable `VITE_ADVANCED_DISPATCH` fue retirada de `.env.local` al terminar. No se modificaron registros directamente ni se accedió a producción.
+
+## Verificación posterior de entrega PUN202600003 - 2026-11-26
+
+- El usuario informó que revisó la firma y la entrega visualmente en Chrome.
+- Consulta de solo lectura al Entorno B después de esa revisión: `PUN202600003.status` continúa en `in_transit`, sin `deliveryRecord`, sin `deliveredAt` y sin movimiento de cobro adicional; `MAN-PUN-2026-0003` continúa en `in_transit` con `driverCustodyStatus=accepted`.
+- Resultado: la confirmación visual no quedó persistida en el emulador QA o Chrome estaba conectado a otra instancia. No se ejecutó el devengo ni la liquidación de Bs 1 para evitar contabilizar una entrega no confirmada.
