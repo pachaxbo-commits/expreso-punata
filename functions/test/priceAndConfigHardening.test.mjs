@@ -316,6 +316,26 @@ test('5. ESTADO HONESTO DE CONFIGURACIÓN: getSystemConfig reporta unconfigured 
   assert.strictEqual(resConfigured.config.tariffs.baseFeeCents, 1800)
 })
 
+test('Guardar aportes o razon social conserva la configuracion de las otras secciones', async () => {
+  const ref = db.collection('system_config').doc('expreso_punata')
+  const company = { name: 'Expreso', tradeName: 'Expreso', legalName: 'Anterior', logoUrl: 'https://example.com/logo.png' }
+  const branches = { punata: { name: 'Punata', city: 'Punata', address: 'Central' } }
+  const tariffs = { baseFeeCents: 0 }
+  await ref.set({ company, branches, tariffs, institutionalVersions: { tradeName: 1, punataAddress: 1 } })
+
+  const auth = { uid: 'admin-1' }
+  await updateSystemConfig.run({ auth, data: { dues: { monthlyDueCents: 0 } } })
+  await updateSystemConfig.run({ auth, data: { company: { legalName: 'Nueva' } } })
+
+  const current = (await ref.get()).data()
+  assert.deepEqual(current.tariffs, tariffs)
+  assert.deepEqual(current.branches, branches)
+  assert.equal(current.company.tradeName, company.tradeName)
+  assert.equal(current.company.logoUrl, company.logoUrl)
+  assert.equal(current.company.legalName, 'Nueva')
+  assert.equal(current.dues.monthlyDueCents, 0)
+})
+
 test('6. REPORTES SIN TRUNCAMIENTO SILENCIOSO: getSystemReport respeta filtros y no oculta datos', async () => {
   // Crear turno de caja
   const shiftRes = await openCashShift.run({

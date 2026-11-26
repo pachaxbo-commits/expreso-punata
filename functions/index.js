@@ -88,7 +88,23 @@ const TARIFFS_DEV_REFERENCE = {
  * Cloud Function Callable para la creación atómica, segura, idempotente y auditable de encomiendas.
  * Utiliza Firebase Admin SDK y transacciones de Firestore.
  */
-export const createShipment = onCall({ cors: true }, async (request) => {
+export const createShipment = onCall({ cors: true }, async request => {
+  try {
+    return await createShipmentOperation(request)
+  } catch (error) {
+    const diagnosticId = request.data?.diagnosticId
+    if (request.auth?.uid && typeof diagnosticId === 'string' && /^[a-f0-9]{32}$/.test(diagnosticId)) {
+      console.warn(JSON.stringify({
+        event: 'shipment_creation_rejected',
+        diagnosticId,
+        code: error instanceof HttpsError ? error.code : 'internal',
+      }))
+    }
+    throw error
+  }
+})
+
+async function createShipmentOperation(request) {
   // 1. Validar autenticación
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debe iniciar sesión para registrar encomiendas.')
@@ -633,7 +649,7 @@ export const createShipment = onCall({ cors: true }, async (request) => {
     isDuplicate: result.isDuplicate,
     shipment: result.shipment,
   }
-})
+}
 
 function assertShipmentNotificationBranchAccess(caller, branchId) {
   if (!['punata', 'cochabamba'].includes(branchId)) throw new HttpsError('invalid-argument', 'Agencia de notificaciones no válida.')
@@ -9522,11 +9538,11 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
     if (company && typeof company === 'object') {
       updatedConfig.company = {
         ...(existing.company || {}),
-        name: company.name ? String(company.name).trim() : 'EXPRESO PUNATA',
-        tradeName: company.tradeName ? String(company.tradeName).trim() : 'EXPRESO PUNATA',
-        legalName: company.legalName ? String(company.legalName).trim() : 'Expreso Punata',
-        acronym: company.acronym ? String(company.acronym).trim() : 'EP',
-        legalNotice: company.legalNotice ? String(company.legalNotice).trim() : 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
+        name: company.name !== undefined ? String(company.name).trim() : existing.company?.name ?? 'EXPRESO PUNATA',
+        tradeName: company.tradeName !== undefined ? String(company.tradeName).trim() : existing.company?.tradeName ?? 'EXPRESO PUNATA',
+        legalName: company.legalName !== undefined ? String(company.legalName).trim() : existing.company?.legalName ?? 'Expreso Punata',
+        acronym: company.acronym !== undefined ? String(company.acronym).trim() : existing.company?.acronym ?? 'EP',
+        legalNotice: company.legalNotice !== undefined ? String(company.legalNotice).trim() : existing.company?.legalNotice ?? 'DOCUMENTO OPERATIVO INTERNO — NO CONSTITUYE FACTURA FISCAL',
         logoUrl: company.logoUrl || existing.company?.logoUrl || '',
         taxNotice: company.taxNotice || existing.company?.taxNotice || '',
       }
@@ -9610,9 +9626,9 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
     // The legacy form may contain a stale snapshot. Fields managed by the
     // versioned editor can only be changed through that editor.
     for (const field of Object.keys(existing.institutionalVersions || {})) {
-      if (['tradeName', 'logoUrl', 'legalNotice'].includes(field)) {
+      if (company && ['tradeName', 'logoUrl', 'legalNotice'].includes(field)) {
         updatedConfig.company[field] = existing.company[field]
-      } else if (field.startsWith('punata') || field.startsWith('cochabamba')) {
+      } else if (branches && (field.startsWith('punata') || field.startsWith('cochabamba'))) {
         const id = field.startsWith('punata') ? 'punata' : 'cochabamba'
         const property = field.slice(id.length).toLowerCase()
         updatedConfig.branches[id][property] = existing.branches[id][property]

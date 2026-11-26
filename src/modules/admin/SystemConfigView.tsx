@@ -76,7 +76,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
     // Validación preventiva de parámetros requeridos
     const baseFee = Number(config.tariffs?.baseFeeBob)
     const extraKg = Number(config.tariffs?.extraKgRateBob)
-    if (isNaN(baseFee) || baseFee <= 0) {
+    if (activeSection === 'tariffs' && (!Number.isFinite(baseFee) || baseFee < 0 || (automaticParcelPricingEnabled && baseFee === 0))) {
       setFeedback({
         type: 'error',
         message: 'La Tarifa Base (Bs) es obligatoria y debe ser mayor a 0 para admitir encomiendas.',
@@ -84,7 +84,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
       setActiveSection('tariffs')
       return
     }
-    if (isNaN(extraKg) || extraKg < 0) {
+    if (activeSection === 'tariffs' && (!Number.isFinite(extraKg) || extraKg < 0)) {
       setFeedback({
         type: 'error',
         message: 'La Tarifa por Kg Adicional (Bs) no puede ser negativa.',
@@ -95,7 +95,12 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
 
     try {
       setSaving(true)
-      const res = await updateSystemConfig(config)
+      const section = activeSection
+      const { legalName, acronym } = config.company
+      const patch = section === 'company' && hideVersionedIdentity
+        ? { company: { legalName, acronym } }
+        : { [section]: config[section] }
+      const res = await updateSystemConfig(patch)
       setConfig(res.config)
       setConfigStatus('configured')
       setFeedback({ type: 'success', message: '¡Configuración oficial guardada exitosamente en Cloud Firestore!' })
@@ -392,7 +397,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
                   type="number"
                   step="0.50"
                   min="0"
-                  value={config.tariffs?.baseFeeBob || 15}
+                  value={config.tariffs?.baseFeeBob ?? 0}
                   onChange={(e) => {
                     const bob = parseFloat(e.target.value) || 0
                     setConfig({
@@ -435,7 +440,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
                   type="number"
                   step="0.50"
                   min="0"
-                  value={config.tariffs?.extraKgRateBob || 2}
+                  value={config.tariffs?.extraKgRateBob ?? 0}
                   onChange={(e) => {
                     const bob = parseFloat(e.target.value) || 0
                     setConfig({
@@ -548,7 +553,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
                   type="number"
                   step="1"
                   min="0"
-                  value={config.dues?.monthlyDueBob || 50}
+                  value={config.dues?.monthlyDueBob ?? 0}
                   onChange={(e) => {
                     const bob = parseFloat(e.target.value) || 0
                     setConfig({
@@ -570,7 +575,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
                   type="number"
                   step="1"
                   min="0"
-                  value={config.dues?.lateFeePercentage || 10}
+                  value={config.dues?.lateFeePercentage ?? 0}
                   onChange={(e) =>
                     setConfig({
                       ...config,
@@ -590,7 +595,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
                   type="number"
                   step="1"
                   min="0"
-                  value={config.dues?.gracePeriodDays || 10}
+                  value={config.dues?.gracePeriodDays ?? 0}
                   onChange={(e) =>
                     setConfig({
                       ...config,

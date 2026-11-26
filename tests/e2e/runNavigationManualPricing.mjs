@@ -79,6 +79,23 @@ async function run() {
     await page.getByRole('button', { name: 'Expandir menú lateral' }).waitFor()
     await page.getByRole('button', { name: 'Expandir menú lateral' }).click()
 
+    await page.locator('main').evaluate(main => {
+      const spacer = document.createElement('div')
+      spacer.id = 'e2e-scroll-spacer'
+      spacer.style.height = '180vh'
+      main.append(spacer)
+    })
+    for (const [width, height] of [[1366, 768], [1920, 1080]]) {
+      await page.setViewportSize({ width, height })
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+      await page.waitForFunction(() => {
+        const header = document.querySelector('header').getBoundingClientRect()
+        const sidebar = document.querySelector('aside[aria-label="Navegación principal"]').getBoundingClientRect()
+        return window.scrollY > 500 && Math.abs(sidebar.top - header.bottom) <= 1 &&
+          sidebar.bottom <= window.innerHeight + 1
+      })
+      await page.screenshot({ path: path.join(evidenceDir, 'menu-final-' + width + '.png') })
+    }
     await page.setViewportSize({ width: 390, height: 844 })
     await page.getByRole('button', { name: 'Abrir menú de navegación' }).click()
     await page.waitForTimeout(200)
@@ -97,6 +114,8 @@ async function run() {
     await page.waitForTimeout(200)
     const mobileSidebarBox = await sidebar.boundingBox()
     assert.ok(mobileSidebarBox && mobileSidebarBox.x < -200, 'seleccionar una sección cierra el menú móvil')
+    await page.locator('#e2e-scroll-spacer').evaluate(spacer => spacer.remove())
+    await page.evaluate(() => window.scrollTo(0, 0))
     await page.setViewportSize({ width: 768, height: 900 })
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'el diseño tablet no genera desplazamiento horizontal')
     await page.screenshot({ path: path.join(evidenceDir, '04-menu-tablet.png') })

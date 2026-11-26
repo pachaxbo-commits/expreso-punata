@@ -92,16 +92,18 @@ export async function createShipmentThroughBackend(
     'createShipment'
   )
 
+  const diagnosticId = globalThis.crypto?.randomUUID?.().replaceAll('-', '')
   try {
     const res = await callable({
       ...input,
       idempotencyKey,
+      ...(diagnosticId ? { diagnosticId } : {}),
     })
 
     return res.data
   } catch (err: unknown) {
-    console.error('[shipmentService] Error al invocar createShipment:', err)
-    throw new Error(formatShipmentCreationError(err))
+    const detail = formatShipmentCreationError(err)
+    throw new Error(diagnosticId ? detail + ' ID de diagnóstico: ' + diagnosticId : detail)
   }
 }
 

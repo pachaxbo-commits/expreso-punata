@@ -123,7 +123,7 @@ export async function fetchSystemConfig(): Promise<SystemConfigResponse> {
 }
 
 export async function updateSystemConfig(
-  config: Partial<SystemConfig>
+  config: Omit<Partial<SystemConfig>, 'company'> & { company?: Partial<SystemConfig['company']> }
 ): Promise<{ success: boolean; config: SystemConfig; message: string }> {
   const fn = httpsCallable(functions, 'updateSystemConfig')
   const res = await fn(config)
