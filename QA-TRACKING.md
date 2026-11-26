@@ -246,6 +246,13 @@
 - Consulta de solo lectura al Entorno B después de esa revisión: `PUN202600003.status` continúa en `in_transit`, sin `deliveryRecord`, sin `deliveredAt` y sin movimiento de cobro adicional; `MAN-PUN-2026-0003` continúa en `in_transit` con `driverCustodyStatus=accepted`.
 - Resultado: la confirmación visual no quedó persistida en el emulador QA o Chrome estaba conectado a otra instancia. No se ejecutó el devengo ni la liquidación de Bs 1 para evitar contabilizar una entrega no confirmada.
 
+## Reintento de entrega y verificación backend - 2026-11-26
+
+- Tras la confirmación manual informada por el usuario, la consulta directa de solo lectura al Entorno B volvió a mostrar `PUN202600003.status=in_transit` y `MAN-PUN-2026-0003.status=in_transit`, con custodia aceptada.
+- `deliveryRecord` y `deliveredAt` no existen en el documento de la encomienda.
+- Storage Emulator no contiene objetos bajo `shipments/PUN202600003/signatures/`.
+- Conclusión: la confirmación no llegó a los emuladores configurados en `18080/18199`, o Chrome estaba conectado a otra instancia. No se ejecutó devengo, liquidación ni conciliación para evitar registros financieros sin entrega persistida.
+
 ## Auditoría transversal de comprobantes - 2026-11-26
 
 | Familia | Generador revisado | Estado |
