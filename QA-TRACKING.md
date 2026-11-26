@@ -1,5 +1,12 @@
 # Seguimiento QA comercial
 
+## Estabilidad QA y vinculaciÃ³n administrativa â€” 2026-11-26
+
+- Entorno B verificado activo: Vite `5175`; Auth/Functions `18099/18001`; Firestore `18080`; Storage `18199`. Entorno A permanece separado en `170xx`.
+- El timeout de Playwright provenÃ­a de esperar `networkidle` en una SPA con listeners persistentes de Auth/Firestore. Con `domcontentloaded` + espera de indicadores funcionales, tres ejecuciones consecutivas con login y recarga pasaron; sin errores de consola ni solicitudes fallidas. Frontend conectado a Entorno B y proyecto demo.
+- Brecha confirmada en Usuarios y Permisos: el alta nueva permitÃ­a `unionMemberId`, pero la ediciÃ³n de usuarios existentes no exponÃ­a ese campo. Se integrÃ³ selector de afiliados activos reutilizando `getUnionMembersRosterThroughBackend` y `provisionUserThroughBackend`.
+- La vinculaciÃ³n de `afiliado@qa.local` a `SOC-QA-001` queda pendiente de ejecutar tras el reinicio/recarga del frontend con la nueva compilaciÃ³n; no se escribiÃ³ directamente en Firestore.
+
 ## ConfiguraciÃ³n administrativa y afiliados â€” 2026-11-26
 
 - Defecto confirmado en configuraciÃ³n oficial: la vista mostraba `15` por fallback aunque el estado contenÃ­a `baseFeeBob=0` cuando el backend solo devolvÃ­a `baseFeeCents`. La validaciÃ³n impedÃ­a guardar una configuraciÃ³n vÃ¡lida.
