@@ -5,7 +5,7 @@ import { normalizeDocumentTemplate, templateFieldValue, TEMPLATE_FIELD_CATALOG, 
 const e = (value: unknown) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
 const labels = new Map(TEMPLATE_FIELD_CATALOG.map(field => [field.id, field.label]))
 
-export async function buildDocumentTemplateHtml(doc: UnifiedDocumentPayload, paper: Extract<PaperFormat, '58mm' | '80mm'>, input: DocumentPrintTemplate, options: { includeQr?: boolean; includeLogo?: boolean } = {}): Promise<string> {
+export async function buildDocumentTemplateHtml(doc: UnifiedDocumentPayload, paper: Extract<PaperFormat, '58mm' | '80mm'>, input: DocumentPrintTemplate, options: { includeQr?: boolean; includeLogo?: boolean; copyIndex?: 0 | 1 } = {}): Promise<string> {
   const template = normalizeDocumentTemplate(doc.documentType, input)
   const qrContent = doc.qrContent || (doc.trackingCode ? `EXPRESO-PUNATA:${doc.trackingCode}` : '')
   let qr = ''
@@ -24,9 +24,10 @@ export async function buildDocumentTemplateHtml(doc: UnifiedDocumentPayload, pap
       ${fields.map(id => id === 'qr' ? (qr ? `<div class="qr"><img src="${qr}" alt="QR"><small>Escanee para seguimiento</small></div>` : '') : `<div class="field" style="text-align:${copy.fieldStyles[id]?.alignment || (id === 'financials' ? 'right' : 'center')};${copy.fieldStyles[id]?.bold || ['title','number','tracking','financials'].includes(id) ? 'font-weight:700;' : ''}"><span>${e(labels.get(id) || id)}:</span> ${e(templateFieldValue(id, doc))}</div>`).join('')}
     </section>`
   }
-  const copies = template.secondCopyEnabled ? template.copies.map(renderCopy).join(template.cutBetweenCopies === 'page_break' ? '<div class="page-break"></div>' : '<div class="continuous-gap"></div>') : renderCopy(template.copies[0], 0)
+  const copies = options.copyIndex !== undefined ? renderCopy(template.copies[options.copyIndex], options.copyIndex) : template.secondCopyEnabled ? template.copies.map(renderCopy).join(template.cutBetweenCopies === 'page_break' ? '<div class="page-break"></div>' : '<div class="continuous-gap"></div>') : renderCopy(template.copies[0], 0)
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${e(doc.title)} · ${e(doc.documentNumber)}</title><style>
-    @page{size:${width}mm auto;margin:${template.marginsMm}mm}*{box-sizing:border-box}body{width:${width}mm;margin:0 auto;font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:${font};line-height:1.3;color:#111;padding-bottom:2mm}
+    @page{size:${width}mm auto;margin:${template.marginsMm}mm}*{box-sizing:border-box}body{width:${doc.documentType === 'shipment_guide' ? Math.min(width - 2 * template.marginsMm, width === 58 ? 48 : 72) : width}mm;margin:0 auto;font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:${font};line-height:1.3;color:#111;padding-bottom:2mm}
+    ${doc.documentType === 'shipment_guide' ? '.agency .field{margin:.55mm 0}.agency header{margin-bottom:1mm}.agency .separator{margin:1mm 0}' : ''}
     .copy{width:100%;padding:0 1mm var(--copy-pad);break-inside:avoid}header{text-align:center;margin-bottom:2mm}.company{display:block;font-size:1.2em;letter-spacing:.1px}.institution-detail{font-size:.85em}.copy-label{display:block;font-size:1.05em;margin-top:1mm}.logo{display:block;max-width:34mm;max-height:14mm;margin:0 auto 1mm}.separator{border-top:${separator};margin:2mm 0}.field{margin:1.2mm 0;overflow-wrap:anywhere}.field span{font-weight:500}.qr{text-align:center;margin:2mm}.qr img{width:28mm;height:28mm;display:block;margin:auto}.qr small{font-size:.8em}.page-break{break-after:page;height:0}.continuous-gap{height:2mm;border-top:1px dashed #aaa;margin:2mm 0}
     @media screen{body{border:1px solid #ddd;padding:3mm}.page-break{border-top:2px dashed #aaa;height:5mm}}
   </style></head><body>${copies}</body></html>`

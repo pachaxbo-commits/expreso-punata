@@ -27,7 +27,19 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
   await page.addInitScript(() => {
-    Object.defineProperty(window, 'print', { configurable: true, value: () => window.parent.postMessage({ type: 'synthetic-print-call' }, '*') })
+    const originalAppend = document.body?.appendChild || Node.prototype.appendChild
+    window.printJobs = []
+    Node.prototype.appendChild = function(child) {
+      const node = originalAppend.call(this, child)
+      if (child instanceof HTMLIFrameElement && child.style.top === '-9999px') {
+        child.contentWindow.print = () => {
+          const frame = child.contentWindow
+          window.printJobs.push({ text: frame.document.body.innerText, timestamp: performance.now() })
+          setTimeout(() => frame.dispatchEvent(new frame.Event('afterprint')), 200)
+        }
+      }
+      return node
+    }
   })
   page.on('pageerror', error => console.error('[ticket-editor e2e]', error.message))
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -52,10 +64,11 @@ try {
   await page.waitForFunction(() => document.querySelector('iframe[title="Vista previa del comprobante"]')?.contentDocument?.querySelector('style')?.textContent.includes('size:58mm auto'))
   await page.getByLabel('Ancho').selectOption('80mm')
   await page.waitForFunction(() => document.querySelector('iframe[title="Vista previa del comprobante"]')?.contentDocument?.querySelector('style')?.textContent.includes('size:80mm auto'))
-  await page.getByRole('checkbox', { name: /segunda copia dentro del mismo trabajo/ }).check()
-  await page.waitForFunction(() => document.querySelector('iframe[title="Vista previa del comprobante"]')?.contentDocument?.querySelectorAll('.copy').length === 2)
-  assert.equal(await previewFrame.locator('.field').filter({ hasText: 'EP-TEST-000001' }).count(), 2)
-  await page.getByRole('button', { name: 'COPIA AGENCIA' }).click()
+  await page.getByRole('checkbox', { name: 'Imprimir también copia de agencia' }).check()
+  assert.equal(await previewFrame.locator('.field').filter({ hasText: 'EP-TEST-000001' }).count(), 1)
+  await page.getByRole('button', { name: /COPIA AGENCIA/ }).click()
+  await previewFrame.getByText('COPIA AGENCIA').waitFor()
+  await previewFrame.getByText('EP-TEST-000001').waitFor()
   const agencyRecipientPhone = page.getByRole('checkbox', { name: 'Teléfono del destinatario', exact: true })
   if (!await agencyRecipientPhone.isChecked()) await agencyRecipientPhone.check()
   await page.getByTestId('save-ticket-template').click()
@@ -88,14 +101,20 @@ try {
   await passengerPreview.getByText('PASAJE DEL CHOFER').waitFor()
   await page.getByRole('button', { name: 'Prueba Rongta Windows', exact: true }).click()
   await page.getByTestId('rongta-print-test').waitFor()
-  await page.getByRole('button', { name: 'Imprimir ticket 80 mm' }).waitFor()
-  await page.getByText(/No interpretes “Diálogo abierto”/).waitFor()
-  await page.getByLabel('Modelo de impresora').fill('Rongta RP80 sintética')
-  await page.getByLabel('Versión/nombre del driver').fill('Driver local sintético 1.0')
   const beforeShipments = (await db.collection('shipments').get()).size
   const beforeMovements = (await db.collection('financial_movements').get()).size
-  await page.getByTestId('print-80').click()
-  await page.getByRole('status').filter({ hasText: 'Diálogo abierto; esta respuesta no confirma' }).waitFor()
+  await page.evaluate(() => { window.printJobs.length = 0 })
+  await page.getByRole('button', { name: 'Imprimir cliente + agencia' }).click()
+  await page.getByRole('status').filter({ hasText: 'Chrome recibió los trabajos de cliente y agencia' }).waitFor()
+  const jobs = await page.evaluate(() => window.printJobs)
+  assert.equal(jobs.length, 2)
+  assert.match(jobs[0].text, /Destinatario de prueba/)
+  assert.doesNotMatch(jobs[0].text, /COPIA AGENCIA/)
+  assert.match(jobs[1].text, /COPIA AGENCIA/)
+  assert.match(jobs[1].text, /70000002/)
+  assert.ok(jobs[1].timestamp - jobs[0].timestamp >= 190)
+  for (const job of jobs) assert.match(job.text, /TEST-SINTETICO-0001.*|Bs 12\.50/)
+  assert.ok(jobs.every(job => job.text.includes('TEST-SINTETICO-0001') && job.text.includes('Bs 12.50')))
   assert.equal((await db.collection('shipments').get()).size, beforeShipments)
   assert.equal((await db.collection('financial_movements').get()).size, beforeMovements)
   await page.getByRole('navigation', { name: 'Herramientas de impresión' }).getByRole('button', { name: 'Centro de plantillas', exact: true }).click()

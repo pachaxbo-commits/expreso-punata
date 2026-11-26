@@ -249,7 +249,8 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
   const handlePrintThermal = async () => {
     try {
       const docPayload = printEngine.buildFromShipment(shipment, currentUser.fullName)
-      await printEngine.printDocument(docPayload)
+      const result = await printEngine.printDocument(docPayload)
+      if (!result.success) alert(result.message)
     } catch (err) {
       console.error('Error al imprimir guía térmica:', err)
       alert('Error al enviar a impresora térmica: ' + (err instanceof Error ? err.message : 'Desconocido'))
