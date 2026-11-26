@@ -87,13 +87,21 @@ async function run() {
     })
     for (const [width, height] of [[1366, 768], [1920, 1080]]) {
       await page.setViewportSize({ width, height })
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+      const geometry = await page.evaluate(async () => {
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        window.scrollTo(0, document.documentElement.scrollHeight)
+        const header = document.querySelector('header').getBoundingClientRect()
+        const menu = document.querySelector('aside[aria-label="Navegación principal"]')
+        const sidebar = menu.getBoundingClientRect()
+        return { scroll: window.scrollY, header: header.bottom, top: sidebar.top, bottom: sidebar.bottom, height: window.innerHeight, offset: getComputedStyle(menu).top }
+      })
+      console.log('Posición de navegación al final de página', width, geometry)
       await page.waitForFunction(() => {
         const header = document.querySelector('header').getBoundingClientRect()
         const sidebar = document.querySelector('aside[aria-label="Navegación principal"]').getBoundingClientRect()
         return window.scrollY > 500 && Math.abs(sidebar.top - header.bottom) <= 1 &&
           sidebar.bottom <= window.innerHeight + 1
-      })
+      }, {}, { timeout: 5000 })
       await page.screenshot({ path: path.join(evidenceDir, 'menu-final-' + width + '.png') })
     }
     await page.setViewportSize({ width: 390, height: 844 })

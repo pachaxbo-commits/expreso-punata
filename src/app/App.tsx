@@ -729,6 +729,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
             )}
           </div>
         )}
+        <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500">
+          <p>
+            © 2026 {EXPRESO_PUNATA_COMPANY.name} — Sistema Independiente Desarrollado por PACHAX
+          </p>
+        </footer>
       </main>
       </div>
 
@@ -786,12 +791,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
         userRole={userProfile.role}
       />
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500">
-        <p>
-          © 2026 {EXPRESO_PUNATA_COMPANY.name} — Sistema Independiente Desarrollado por PACHAX
-        </p>
-      </footer>
     </div>
   )
 }
