@@ -269,7 +269,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(securityErr)
     }
 
-    const devUid = currentUser ? currentUser.uid : `dev-${role}-${branchId}`
+    // Los accesos de simulación solo pueden cambiar el perfil de una sesión
+    // autenticada en Firebase Emulator. Nunca crear un perfil local sintético
+    // sin UID Auth: Firestore Rules deben recibir siempre request.auth.
+    if (!currentUser) {
+      const securityErr = 'Simulación rechazada: inicie sesión con un usuario autenticado del emulador.'
+      setAuthError(securityErr)
+      throw new Error(securityErr)
+    }
+
+    const devUid = currentUser.uid
     const updated: UserProfile = {
       uid: devUid,
       fullName:
