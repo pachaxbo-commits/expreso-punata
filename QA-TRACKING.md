@@ -40,3 +40,11 @@
 - Regresión Entorno A repetida: `10/10` aprobadas, `0` fallos, commit `2abc898` (`test(storage): seed signature fixture in emulator`).
 - No se creó corrección de producto para el 401: es un bloqueo de infraestructura/sesión observado en B y requiere repetición tras restablecer autenticación local.
 
+## Diagnóstico adicional del 401 — 2026-11-26
+
+- Reproducción limpia con Secretaría Cochabamba desde Chrome: la interfaz mostró `Backend desconectado — Sin conexión a Firestore`, sin envíos visibles, incluso antes de abrir recepción.
+- Causa de entorno corregida localmente: Vite estaba usando los valores predeterminados `9099/8080/9199/5001` y el proyecto `demo-expreso-punata`; Entorno B usa `18099/18080/18199/18001` y `demo-expreso-punata-101`. `.env.local` fue ajustado y Vite reiniciado sin limpiar emuladores ni datos.
+- Verificación independiente con Firebase Client SDK contra Entorno B: login de `secretaria.cbba@qa.local` exitoso; UID `3UhJdmexRWRCZI9QOMjuCtuEH5Mi`; token presente sin registrar su contenido; consulta Firestore autorizada devuelve `PUN202600001` y `PUN202600002`.
+- Después del ajuste de configuración y recarga forzada, la UI todavía muestra desconexión. No se ejecutó recepción, cobro ni liquidación para evitar alterar el recorrido con una sesión cuyo estado visual/backend no es confiable.
+- Clasificación actual: bloqueo específico de inicialización/estado del frontend pendiente de observar en consola; no se confirmó defecto de Functions, reglas, Auth ni datos del manifiesto.
+
