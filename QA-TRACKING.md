@@ -203,3 +203,12 @@
 - Los manifiestos cancelados quedan excluidos y la encomienda solo puede elegirse dentro del manifiesto seleccionado. El backend conserva la validación final de tarifa, estado, conductor, sucursal, permisos e idempotencia.
 - Validación: la suite unitaria previa quedó en 91/91 aprobadas; typecheck y build aprobados después de eliminar el estado obsoleto de ID de manifiesto.
 - El recorrido comercial sigue pendiente de crear una nueva encomienda/manifiesto desde la interfaz y completar devengo/liquidación. No se generaron registros financieros directamente.
+
+## Comisión 10%: bloqueo de emisión tarifaria - 2026-11-26
+
+- Se verificó desde Chrome que la regla temporal de comisión se guardó como porcentaje sobre flete, 10%, en Entorno B.
+- Se habilitó únicamente en el frontend QA la sugerencia tarifaria automática. El asistente mostró tarifa oficial sugerida de Bs 10,00 para 2 kg y modalidad `Conductor en Ruta`.
+- Al confirmar la emisión, Functions respondió visiblemente `failed-precondition` (incidencia `ded2d3eb31614d678327dc8f368fb9b5`): `El cálculo automático de tarifas está desactivado. Ingrese manualmente el precio acordado.` No se creó una guía ni se alteraron registros.
+- Causa raíz confirmada: el backend del emulador B se ejecuta sin `ENABLE_AUTOMATIC_PARCEL_PRICING=true`; el frontend y Functions no comparten el mismo estado de activación. Un precio manual no es equivalente a flete tarifario y no debe usarse para forzar la comisión porcentual.
+- La comisión temporal no pudo restaurarse de forma verificable: el control numérico de la interfaz quedó mostrando 10 durante la interacción; no se confirmó un guardado a 0. Se requiere restaurar con el control administrativo una vez corregida la operación del emulador. No se generaron comisiones, liquidaciones ni movimientos financieros nuevos.
+- Estado: comisión comercial no operativa/no conciliada; bloqueo técnico concreto en la configuración del backend del Entorno B. `CBB202600001` y demás históricos permanecen sin modificar.
