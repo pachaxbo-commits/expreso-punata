@@ -157,7 +157,16 @@ async function run() {
     }
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.getByRole('button', { name: 'Siguiente', exact: true }).click()
+    const creation = page.waitForResponse(response =>
+      response.url().endsWith('/createShipment') && response.request().method() === 'POST',
+      { timeout: 45000 },
+    )
     await page.getByRole('button', { name: 'Confirmar y Emitir Guía' }).click()
+    const response = await creation
+    if (!response.ok()) {
+      const { error } = await response.json()
+      assert.fail('Rechazo de datos sinteticos: ' + error?.status + ' ' + error?.message)
+    }
     await page.getByText('¡Guía de Encomienda Emitida Exitosamente!').waitFor({ timeout: 15000 })
 
     const shipmentSnapshot = await db.collection('shipments').where('registeredByUid', '==', uid).limit(1).get()
