@@ -76,7 +76,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const { signOut, currentBranchId, switchBranch, hasRole } = useAuth()
   const simpleTransferEnabled = viteEnv.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
   const advancedContingency = viteEnv.VITE_ADVANCED_DISPATCH === 'true'
-  const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && isOperationalAdmin(userProfile))
+  const advancedDispatchVisible = !simpleTransferEnabled || advancedContingency
   const [counterDispatchOpen, setCounterDispatchOpen] = useState(false)
   const [requestedTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
