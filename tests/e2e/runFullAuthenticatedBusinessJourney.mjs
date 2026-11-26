@@ -3,8 +3,8 @@ process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
 process.env.FIREBASE_STORAGE_EMULATOR_HOST = '127.0.0.1:9199'
 process.env.STORAGE_EMULATOR_HOST = 'http://127.0.0.1:9199'
 
-const projectId = process.env.GCLOUD_PROJECT || 'demo-expreso-punata'
-assert.ok(projectId.startsWith('demo-'), 'El recorrido integral solo admite un proyecto demo en emuladores.')
+const projectId = process.env.GCLOUD_PROJECT
+assert.equal(projectId, 'demo-expreso-punata-finalization', 'El recorrido integral solo admite el proyecto demo aislado.')
 process.env.GCLOUD_PROJECT = projectId
 
 import assert from 'node:assert/strict'

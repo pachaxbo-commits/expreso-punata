@@ -4,8 +4,6 @@ import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import { registerShipmentContact } from '../index.js'
 
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.GCLOUD_PROJECT ||= 'demo-expreso-punata-contacts-test'
 if (getApps().length === 0) initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 const db = getFirestore()
 

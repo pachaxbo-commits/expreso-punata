@@ -61,10 +61,7 @@ test('incidente automático conserva correlación, safe fields, límites y revis
 })
 
 test('acceso de soporte en produccion exige MFA, token vigente, usuario habilitado y auth_time reciente', async () => {
-  const prior = { functions: process.env.FUNCTIONS_EMULATOR, firestore: process.env.FIRESTORE_EMULATOR_HOST, project: process.env.GCLOUD_PROJECT }
-  delete process.env.FUNCTIONS_EMULATOR
-  delete process.env.FIRESTORE_EMULATOR_HOST
-  process.env.GCLOUD_PROJECT = 'expreso-punata-production-test'
+  const productionEnv = { GCLOUD_PROJECT: 'expreso-punata-production-test' }
   const identityCalls = []
   let verificationError = null
   let disabled = false
@@ -72,27 +69,20 @@ test('acceso de soporte en produccion exige MFA, token vigente, usuario habilita
     verifyIdToken: async (token, checkRevoked) => { identityCalls.push({ token, checkRevoked }); if (verificationError) throw verificationError; return { uid, firebase: { sign_in_second_factor: 'phone' } } },
     getUser: async () => ({ disabled }),
   }
-  const { getSupportOverview, recordSupportDiagnostic } = createSupportFunctions(db, authAdmin)
+  const { getSupportOverview, recordSupportDiagnostic } = createSupportFunctions(db, authAdmin, productionEnv)
   const token = { auth_time: Math.floor(Date.now() / 1000), firebase: { sign_in_second_factor: 'phone' } }
   const prodRequest = (claims = token) => ({ auth: { uid, token: claims }, rawRequest: { headers: { authorization: 'Bearer signed-token' } }, data: {} })
-  try {
-    await assert.rejects(() => getSupportOverview.run(prodRequest({ ...token, firebase: {} })), { code: 'permission-denied' })
-    await assert.rejects(() => recordSupportDiagnostic.run({ ...prodRequest({ ...token, auth_time: 1 }), data: { module: 'support', operation: 'authCheck', code: 'ok', correlationId: `auth-test-${Math.random().toString(36).slice(2, 10)}`, status: 'pendiente' } }), { code: 'failed-precondition' })
-    verificationError = new Error('revoked')
-    await assert.rejects(() => getSupportOverview.run(prodRequest()), { code: 'unauthenticated' })
-    verificationError = null; disabled = true
-    await assert.rejects(() => getSupportOverview.run(prodRequest()), { code: 'permission-denied' })
-    disabled = false
-    await recordSupportDiagnostic.run({ ...prodRequest(), data: { module: 'support', operation: 'authCheck', code: 'ok', correlationId: `auth-test-${Math.random().toString(36).slice(2, 10)}`, status: 'pendiente' } })
-    assert.equal(identityCalls.at(-1).checkRevoked, true)
-    assert.equal(identityCalls.at(-1).token, 'signed-token')
-  } finally {
-    if (prior.functions === undefined) delete process.env.FUNCTIONS_EMULATOR; else process.env.FUNCTIONS_EMULATOR = prior.functions
-    if (prior.firestore === undefined) delete process.env.FIRESTORE_EMULATOR_HOST; else process.env.FIRESTORE_EMULATOR_HOST = prior.firestore
-    if (prior.project === undefined) delete process.env.GCLOUD_PROJECT; else process.env.GCLOUD_PROJECT = prior.project
-  }
+  await assert.rejects(() => getSupportOverview.run(prodRequest({ ...token, firebase: {} })), { code: 'permission-denied' })
+  await assert.rejects(() => recordSupportDiagnostic.run({ ...prodRequest({ ...token, auth_time: 1 }), data: { module: 'support', operation: 'authCheck', code: 'ok', correlationId: `auth-test-${Math.random().toString(36).slice(2, 10)}`, status: 'pendiente' } }), { code: 'failed-precondition' })
+  verificationError = new Error('revoked')
+  await assert.rejects(() => getSupportOverview.run(prodRequest()), { code: 'unauthenticated' })
+  verificationError = null; disabled = true
+  await assert.rejects(() => getSupportOverview.run(prodRequest()), { code: 'permission-denied' })
+  disabled = false
+  await recordSupportDiagnostic.run({ ...prodRequest(), data: { module: 'support', operation: 'authCheck', code: 'ok', correlationId: `auth-test-${Math.random().toString(36).slice(2, 10)}`, status: 'pendiente' } })
+  assert.equal(identityCalls.at(-1).checkRevoked, true)
+  assert.equal(identityCalls.at(-1).token, 'signed-token')
 })
-
 test('configuración institucional valida, audita y restaura sin modificar finanzas', async () => {
   const ref = db.collection('system_config').doc('expreso_punata')
   await ref.set({ status: 'configured', isOfficial: true, company: { tradeName: 'Expreso anterior' }, branches: { punata: { phone: '111' } }, commissions: { defaultType: 'percentage', defaultValue: 0 } })

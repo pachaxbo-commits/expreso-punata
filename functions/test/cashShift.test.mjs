@@ -13,11 +13,9 @@ import {
 } from '../index.js'
 
 // Inicializar Firebase Admin apuntando a los emuladores locales
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
 
 if (getApps().length === 0) {
-  initializeApp({ projectId: 'demo-expreso-punata-cash-test' })
+  initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 }
 
 const db = getFirestore()
@@ -793,17 +791,55 @@ test('17. IDEMPOTENCIA OBLIGATORIA Y VINCULADA AL CONTENIDO EN EGRESOS: Clave re
   assert.equal(shiftDoc.data().breakdown.expensesCents, 2000)
 })
 
-test('18. Secretaría no registra egresos aunque tenga autorización de entrega', async () => {
+test('18. Secretaría registra egresos de su sucursal; sobre Bs 150 requiere autorización de Encargado, concepto y categoría exactos', async () => {
   await createTestUser('secretaria-egreso', 'secretaria', 'punata')
-  await createTestUser('admin-egreso', 'afiliado_admin', 'punata', ['punata', 'cochabamba'])
+  await createTestUser('encargado-egreso', 'encargado_agencia', 'punata')
   const authorization = await createExpenseAuthorization.run({
-    auth: { uid: 'admin-egreso' },
+    auth: { uid: 'encargado-egreso' },
     data: { branchId: 'punata', maxAmountCents: 20000, authorizedOperatorUid: 'secretaria-egreso', concept: 'Entrega de pasajes', category: 'transporte' },
   })
+
+  const shift = await openCashShift.run({
+    auth: { uid: 'secretaria-egreso' },
+    data: { branchId: 'punata', initialCashCents: 30000 },
+  })
+
   await assert.rejects(registerCashExpense.run({
     auth: { uid: 'secretaria-egreso' },
-    data: { branchId: 'punata', amountCents: 20000, category: 'transporte', concept: 'Entrega de pasajes', authorizationCode: authorization.authCode, idempotencyKey: 'egreso-rechazado' },
+    data: { branchId: 'punata', amountCents: 20000, category: 'transporte', concept: 'Entrega de pasajes', idempotencyKey: 'egreso-sin-autorizacion' },
   }), { code: 'permission-denied' })
+  await assert.rejects(registerCashExpense.run({
+    auth: { uid: 'secretaria-egreso' },
+    data: { branchId: 'punata', amountCents: 20000, category: 'insumos', concept: 'Entrega de pasajes', authorizationCode: authorization.authCode, idempotencyKey: 'egreso-concepto-ajeno' },
+  }), { code: 'failed-precondition' })
+  assert.equal((await db.collection('expense_authorizations').doc(authorization.authCode).get()).data().status, 'approved')
+  const prematureExpenses = await db.collection('financial_movements')
+    .where('operatorUid', '==', 'secretaria-egreso')
+    .where('type', '==', 'expense')
+    .get()
+  assert.equal(prematureExpenses.size, 0)
+
+  const authorized = await registerCashExpense.run({
+    auth: { uid: 'secretaria-egreso' },
+    data: { branchId: 'punata', amountCents: 20000, category: 'transporte', concept: 'Entrega de pasajes', authorizationCode: authorization.authCode, idempotencyKey: 'egreso-autorizado-20000' },
+  })
+  assert.equal(authorized.newExpectedCashCents, 10000)
+  assert.equal((await db.collection('expense_authorizations').doc(authorization.authCode).get()).data().status, 'used')
+  const smallExpense = await registerCashExpense.run({
+    auth: { uid: 'secretaria-egreso' },
+    data: { branchId: 'punata', amountCents: 5000, category: 'insumos', concept: 'Útiles de oficina', idempotencyKey: 'egreso-menor-5000' },
+  })
+  assert.equal(smallExpense.newExpectedCashCents, 5000)
+  await assert.rejects(registerCashExpense.run({
+    auth: { uid: 'secretaria-egreso' },
+    data: { branchId: 'cochabamba', amountCents: 100, category: 'insumos', concept: 'Sucursal ajena', idempotencyKey: 'egreso-otra-sucursal' },
+  }), { code: 'permission-denied' })
+  const registeredExpenses = await db.collection('financial_movements')
+    .where('operatorUid', '==', 'secretaria-egreso')
+    .where('type', '==', 'expense')
+    .get()
+  assert.equal(registeredExpenses.size, 2)
+  assert.equal((await db.collection('cash_shifts').doc(shift.shift.id).get()).data().expectedCashCents, 5000)
 })
 
 test('19. VALIDACIÓN ESTRICTA DE ARQUEO: Rechaza denominaciones no autorizadas, cantidades fraccionarias y sumas dispares', async () => {

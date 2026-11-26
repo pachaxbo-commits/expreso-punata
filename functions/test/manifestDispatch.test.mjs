@@ -13,11 +13,9 @@ import {
 } from '../index.js'
 
 // Configurar conexión a emuladores locales
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
 
 if (getApps().length === 0) {
-  initializeApp({ projectId: 'demo-expreso-punata-manifest-test' })
+  initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 }
 
 const db = getFirestore()

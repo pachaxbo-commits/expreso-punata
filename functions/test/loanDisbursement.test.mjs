@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { getFirestore } from 'firebase-admin/firestore'
 import { createUnionLoan, disburseUnionLoan, collectUnionLoanPayment, manageUnionMember, openCashShift } from '../index.js'
 
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
 const db = getFirestore()
 
 async function user(uid, role, branchId = 'punata') {

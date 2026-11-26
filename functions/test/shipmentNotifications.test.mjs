@@ -4,9 +4,6 @@ import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import { createShipment, updateShipment, listShipmentNotifications, markShipmentNotificationRead, confirmShipmentDeparture } from '../index.js'
 
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
-process.env.GCLOUD_PROJECT ||= 'demo-expreso-punata-shipment-notifications-test'
 if (getApps().length === 0) initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 const db = getFirestore()
 
