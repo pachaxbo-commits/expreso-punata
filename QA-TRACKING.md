@@ -180,3 +180,11 @@
 - Mi cuenta del afiliado `afiliado@qa.local` mostró `PRE-2026-00001 Bs 0,00 pendiente` y saldo de préstamos Bs 0; cuota 2026-11 permaneció pagada y no mostró obligaciones pendientes.
 - Defecto confirmado y corregido: comprobante de amortización mostraba `Bs. NaN` por leer `result.amountCents`; ahora usa `result.payment.amountCents`, igual que multas.
 - Caja mostró fondo inicial Bs 500, egreso Bs 500 y recaudación de préstamos Bs 250 durante el turno; no se repitieron pagos ni desembolsos.
+-
+## Comisiones de conductores - 2026-11-26
+
+- Chrome QA confirmó sesión Directiva QA y conexión `Operativa en tiempo real`.
+- Configuración administrativa: la regla visible de comisión es porcentaje sobre flete y valor 10. Guardado temporal mediante `Guardar Cambios` confirmado con mensaje de éxito en Firestore Emulator.
+- No se modificaron registros históricos ni se alteró CBB202600001.
+- Bloqueo funcional: la navegación de Directiva no expone el botón `Comisiones de conductores` y el selector DOM tampoco encuentra esa acción, aunque `App.tsx` contiene el tab condicionado por `simpleTransferEnabled`. Por tanto no fue posible iniciar desde interfaz el devengo ni crear una encomienda nueva específicamente para comisión sin sustituir el flujo normal.
+- No se declara operativa la comisión comercial. La configuración QA del 10% debe restaurarse/confirmarse antes de continuar; no se inventó una comisión ni se insertaron registros directamente.
