@@ -101,6 +101,10 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
   const canViewAll = hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'encargado_agencia'])
   const isConductor = role === 'conductor'
   const isSecretaria = role === 'secretaria'
+  const isBranchScopedManager = role === 'encargado_agencia'
+  const selectableBranches = isBranchScopedManager
+    ? [...new Set([currentUser.primaryBranchId, ...(currentUser.allowedBranchIds || [])])].filter((branchId) => ['punata', 'cochabamba'].includes(branchId))
+    : ['punata', 'cochabamba']
 
   const [companyName, setCompanyName] = useState<string>()
   const [reportPreferences, setReportPreferences] = useState<any>()
@@ -114,7 +118,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
   const [endDate, setEndDate] = useState<string>('')
   const [period, setPeriod] = useState<string>(() => { const date = laPazDateParts(); return `${date.year}-${date.month}` })
   const [selectedBranch, setSelectedBranch] = useState<string>(
-    isSecretaria ? currentBranch.id : 'all'
+    isSecretaria ? currentBranch.id : isBranchScopedManager ? (currentUser.primaryBranchId || currentBranch.id) : 'all'
   )
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
@@ -408,14 +412,14 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
       })
     } else if (activeTab === 'drivers') {
       const data = reportData as DriversReportResult
+      const custodyAvailable = data.custodyDataScope !== 'unavailable'
       const headers = [
         'Conductor',
         'Móvil/Placa',
         'Viajes Totales',
         'Completados',
         'Envíos Transp.',
-        'Total Rendido',
-        'Custodia Pendiente',
+        ...(custodyAvailable ? ['Total Rendido', 'Custodia Pendiente'] : []),
       ]
       const rows = (data.driverSummaries || []).map((d) => [
         d.driverName,
@@ -423,8 +427,10 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         d.tripsCount,
         d.completedTripsCount,
         d.shipmentsCount,
-        formatCurrencyBob(d.totalRemittedCents, false),
-        formatCurrencyBob(d.pendingCustodyCents, false),
+        ...(custodyAvailable ? [
+          formatCurrencyBob(d.totalRemittedCents ?? 0, false),
+          formatCurrencyBob(d.pendingCustodyCents ?? 0, false),
+        ] : []),
       ])
       exportReportToPdf({ companyName,
         title: 'Reporte de Operación de Conductores y Custodia',
@@ -435,7 +441,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
           { label: 'Total Manifiestos', value: String(data.summary?.totalManifests || 0) },
           { label: 'Viajes Concluidos', value: String(data.summary?.totalTripsCompleted || 0) },
           { label: 'Envíos Movilizados', value: String(data.summary?.totalShipmentsTransported || 0) },
-          { label: 'Choferes con Saldo', value: String(data.summary?.activeDriversWithCustody || 0) },
+          ...(custodyAvailable ? [{ label: 'Choferes con Saldo', value: String(data.summary?.activeDriversWithCustody || 0) }] : []),
         ],
         tableHeaders: headers,
         tableRows: rows,
@@ -628,6 +634,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
       saveExport(`Expreso_Punata_Caja_Finanzas_${startDate || 'mes'}`, headers, rows)
     } else if (activeTab === 'drivers') {
       const data = reportData as DriversReportResult
+      const custodyAvailable = data.custodyDataScope !== 'unavailable'
       const headers = [
         'UID Conductor',
         'Nombre Conductor',
@@ -636,8 +643,7 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         'Viajes Totales',
         'Viajes Completados',
         'Envíos Transportados',
-        'Total Rendido Bs',
-        'Custodia Pendiente Bs',
+        ...(custodyAvailable ? ['Total Rendido Bs', 'Custodia Pendiente Bs'] : []),
         'Discrepancias / Incidentes',
       ]
       const rows = (data.driverSummaries || []).map((d) => [
@@ -648,8 +654,10 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
         d.tripsCount,
         d.completedTripsCount,
         d.shipmentsCount,
-        (d.totalRemittedCents / 100).toFixed(2),
-        (d.pendingCustodyCents / 100).toFixed(2),
+        ...(custodyAvailable ? [
+          ((d.totalRemittedCents || 0) / 100).toFixed(2),
+          ((d.pendingCustodyCents || 0) / 100).toFixed(2),
+        ] : []),
         d.incidentsCount,
       ])
       saveExport(`Expreso_Punata_Conductores_Custodia_${startDate || 'mes'}`, headers, rows)
@@ -818,9 +826,10 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                 onChange={(e) => setSelectedBranch(e.target.value)}
                 className="bg-transparent text-slate-800 font-bold focus:outline-none cursor-pointer"
               >
-                <option value="all">Todas las Agencias</option>
-                <option value="punata">Agencia Punata</option>
-                <option value="cochabamba">Agencia Cochabamba</option>
+                {!isBranchScopedManager && <option value="all">Todas las Agencias</option>}
+                {selectableBranches.map((branchId) => (
+                  <option key={branchId} value={branchId}>{getBranchLabel(branchId)}</option>
+                ))}
               </select>
             </div>
           )}
@@ -1006,7 +1015,9 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                     <Truck className="w-4 h-4 text-amber-600" />
                   </div>
                   <div className="text-xl font-black text-amber-700 font-mono">
-                    {formatCurrencyBob(reportData.dashboard?.drivers?.totalPendingCustodyCents || 0, true)}
+                    {reportData.dashboard?.custodyDataAvailable === false
+                      ? <span className="text-sm font-semibold text-slate-500">No disponible por alcance de sucursal</span>
+                      : formatCurrencyBob(reportData.dashboard?.drivers?.totalPendingCustodyCents, true)}
                   </div>
                   <div className="mt-2 text-[11px] text-slate-500 flex justify-between">
                     <span>Remitido a Caja:</span>
@@ -1384,7 +1395,9 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
                   <span className="text-[11px] text-slate-500">Conductores con Saldo Custodia</span>
                   <div className="text-lg font-black text-amber-700 mt-1">
-                    {reportData.summary?.activeDriversWithCustody || 0}
+                    {reportData.custodyDataScope === 'unavailable'
+                      ? <span className="text-sm font-semibold text-slate-500">No disponible por alcance de sucursal</span>
+                      : (reportData.summary?.activeDriversWithCustody ?? 0)}
                   </div>
                 </div>
               </div>
@@ -1405,8 +1418,10 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                         <th className="px-4 py-2.5">Viajes</th>
                         <th className="px-4 py-2.5">Envíos</th>
                         <th className="px-4 py-2.5">Incidentes</th>
-                        <th className="px-4 py-2.5 text-right">Rendido a Caja</th>
-                        <th className="px-4 py-2.5 text-right">Custodia Pendiente</th>
+                        {reportData.custodyDataScope !== 'unavailable' && <>
+                          <th className="px-4 py-2.5 text-right">Rendido a Caja</th>
+                          <th className="px-4 py-2.5 text-right">Custodia Pendiente</th>
+                        </>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1431,12 +1446,14 @@ export const ReportsManagementView: React.FC<ReportsManagementViewProps> = ({
                               {d.incidentsCount}
                             </span>
                           </td>
-                          <td className="px-4 py-2.5 text-right font-mono text-emerald-700 font-bold">
-                            {formatCurrencyBob(d.totalRemittedCents, true)}
-                          </td>
-                          <td className="px-4 py-2.5 text-right font-mono text-amber-700 font-black">
-                            {formatCurrencyBob(d.pendingCustodyCents, true)}
-                          </td>
+                          {reportData.custodyDataScope !== 'unavailable' && <>
+                            <td className="px-4 py-2.5 text-right font-mono text-emerald-700 font-bold">
+                              {formatCurrencyBob(d.totalRemittedCents, true)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono text-amber-700 font-black">
+                              {formatCurrencyBob(d.pendingCustodyCents, true)}
+                            </td>
+                          </>}
                         </tr>
                       ))}
                     </tbody>

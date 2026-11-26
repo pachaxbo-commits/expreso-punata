@@ -6,16 +6,19 @@ import { ref, uploadBytes, getBytes, deleteObject } from 'firebase/storage'
 import fs from 'node:fs'
 
 let testEnv
-const FIRESTORE_PORT = Number(process.env.STORAGE_RULES_FIRESTORE_PORT || 18080)
-const STORAGE_PORT = Number(process.env.STORAGE_RULES_STORAGE_PORT || 19199)
+const projectId = process.env.GCLOUD_PROJECT
+const firestoreEndpoint = /^127\.0\.0\.1:(\d+)$/.exec(process.env.FIRESTORE_EMULATOR_HOST || '')
+const storageEndpoint = /^127\.0\.0\.1:(\d+)$/.exec(process.env.FIREBASE_STORAGE_EMULATOR_HOST || '')
+if (projectId !== 'demo-expreso-punata-finalization' || !firestoreEndpoint || !storageEndpoint) {
+  throw new Error('storageRules requiere el lanzador aislado y Firestore/Storage Emulator en loopback.')
+}
+const STORAGE_PORT = Number(storageEndpoint[1])
 
 before(async () => {
-  process.env.FIREBASE_STORAGE_EMULATOR_HOST = `127.0.0.1:${STORAGE_PORT}`
-  process.env.STORAGE_EMULATOR_HOST = `http://127.0.0.1:${STORAGE_PORT}`
   testEnv = await initializeTestEnvironment({
-    projectId: 'demo-storage-rules-local',
-    firestore: { host: '127.0.0.1', port: FIRESTORE_PORT },
-    storage: { host: '127.0.0.1', port: STORAGE_PORT, rules: fs.readFileSync('storage.rules', 'utf8') },
+    projectId,
+    firestore: { host: '127.0.0.1', port: Number(firestoreEndpoint[1]) },
+    storage: { host: '127.0.0.1', port: Number(storageEndpoint[1]), rules: fs.readFileSync('storage.rules', 'utf8') },
   })
   await testEnv.withSecurityRulesDisabled(async context => {
     const db = context.firestore()
@@ -29,23 +32,16 @@ before(async () => {
     await setDoc(doc(db, 'shipments', 'ship-punata-only'), { originBranchId: 'punata', destinationBranchId: 'punata' })
   })
   await testEnv.withSecurityRulesDisabled(async context => {
-    // La foto existente representa evidencia histórica. Se prepara mediante la
+    // La foto existente representa evidencia histÃ³rica. Se prepara mediante la
     // API administrativa local del Emulator, sin activar la carga comercial.
-    const response = await fetch(
-      `http://127.0.0.1:${STORAGE_PORT}/upload/storage/v1/b/demo-storage-rules-local/o?uploadType=media&name=shipments%2Fship-punata%2Fphoto.png`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'image/png' },
-        body: Buffer.from([137, 80, 78, 71]),
-      }
-    )
-    assert.equal(response.ok, true, `No se pudo preparar la foto histórica: ${await response.text()}`)
+    const adminStorage = context.storage()
+    await uploadBytes(ref(adminStorage, 'shipments/ship-punata/photo.png'), Buffer.from([137, 80, 78, 71]), { contentType: 'image/png' })
   })
 })
 
 after(async () => { await testEnv?.cleanup() })
 
-test('Storage Rules: autenticação, sucursal, inactividad y escritura', async () => {
+test('Storage Rules: autenticaÃ§Ã£o, sucursal, inactividad y escritura', async () => {
   const bytes = new Uint8Array([137, 80, 78, 71])
   const admin = testEnv.authenticatedContext('admin-storage').storage()
   const punata = testEnv.authenticatedContext('punata-storage').storage()
