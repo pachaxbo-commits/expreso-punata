@@ -1,5 +1,7 @@
 # Seguimiento QA comercial
 
+- CorrecciÃ³n adicional `003e7e3`: tras una entrega exitosa la guÃ­a se oculta de la acciÃ³n local `Realizar entrega`, evitando reintentos visuales mientras el listener del manifiesto conserva su resumen histÃ³rico. La Function mantiene la protecciÃ³n idempotente.
+
 ## Entrega directa por conductor â€” 2026-11-26
 
 - ImplementaciÃ³n `c5f1952`: `Mis Viajes` expone `Realizar entrega` por guÃ­a solo cuando el manifiesto estÃ¡ asignado al conductor, la custodia estÃ¡ aceptada y el resumen indica `direct_driver`. La guÃ­a se recupera con `fetchCurrentShipment`; no se aceptan importes introducidos por el conductor.
