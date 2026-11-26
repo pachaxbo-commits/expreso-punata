@@ -1,5 +1,13 @@
 # Seguimiento QA comercial
 
+## VinculaciÃ³n de afiliado completada â€” 2026-11-26
+
+- Causa raÃ­z confirmada: `getUnionMembersRoster` no devolvÃ­a `branchId`; el editor de usuarios filtraba por sucursal y ocultaba `SOC-QA-001` aunque existÃ­a y estaba activo.
+- CorrecciÃ³n: el roster ahora devuelve `branchId`; el editor puede seleccionar afiliados activos de la sucursal y enviar `unionMemberId` mediante `provisionUserThroughBackend`.
+- Playwright con `domcontentloaded`: `afiliado@qa.local` vinculado desde Usuarios y Permisos a `member-soc-qa-001` (`SOC-QA-001`). Persistencia verificada en recarga.
+- Portal del afiliado: Mi cuenta muestra nombre, `SOC-QA-001`, sucursal `punata`, cuota `2026-11` Bs50 `paid`, saldo de multas Bs0, saldo de prÃ©stamos Bs0 y obligaciones pendientes 0.
+- No se ejecutaron multas ni prÃ©stamos en este bloque; permanecen independientes y pendientes.
+
 ## Estabilidad QA y vinculaciÃ³n administrativa â€” 2026-11-26
 
 - Entorno B verificado activo: Vite `5175`; Auth/Functions `18099/18001`; Firestore `18080`; Storage `18199`. Entorno A permanece separado en `170xx`.
