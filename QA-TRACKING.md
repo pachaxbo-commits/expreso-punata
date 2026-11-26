@@ -230,3 +230,12 @@
 - Se confirmó un defecto visual en la configuración: `defaultValue || 10` convertía un porcentaje persistido de 0 en 10 al renderizar. Se corrigió a `defaultValue ?? 0` en `src/modules/admin/SystemConfigView.tsx`.
 - Regresión técnica: typecheck aprobado; suite unitaria aprobada 91/91. La restauración del valor 0 debe verificarse desde la pantalla tras recargar la aplicación con esta corrección; no se declara generado ni liquidado ningún devengo.
 - Estado: custodia, devengo, liquidación y conciliación de `PUN202600003` permanecen no ejecutados por bloqueo de elegibilidad del conductor. No se hicieron escrituras directas ni se accedió a producción.
+
+## Visibilidad de manifiesto y entrega directa - 2026-11-26
+
+- Lectura de Entorno B: `MAN-PUN-2026-0003` (`1bUnTr8EKF1xn2zuqoRN`) tiene `driverUid=5UpyGclN1eGbRBAxq0Ffqz6OE4H7`, `status=dispatched`, `driverCustodyStatus=pending`; `PUN202600003` tiene modalidad `direct_driver`, flete oficial Bs 10 y pago en origen.
+- `conductor@qa.local` corresponde al mismo UID, está activo y `qa-vehicle`/Móvil QA-14 está vinculado al conductor.
+- Causa raíz de la invisibilidad: el modo simplificado ocultaba `Despachos y Ruta` a conductores por exigir `isOperationalAdmin`, aunque `DispatchManifestView` ya implementaba `Mis Viajes` y entrega directa. Se corrigió `advancedDispatchVisible` para permitir la pestaña cuando `VITE_ADVANCED_DISPATCH=true`; los controles internos y el backend conservan las validaciones de rol, manifiesto y custodia.
+- Verificación Chrome: el conductor vio `MAN-PUN-2026-0003`, aceptó custodia y luego pudo abrir `Realizar entrega · PUN202600003`. La modalidad mostrada fue entrega en ruta y el formulario exigió documento y firma.
+- Bloqueo restante: la firma manuscrita obligatoria requiere un gesto de ratón/táctil sobre el lienzo; no se ejecutó una firma sintética ni se saltó el botón deshabilitado. Por ello no se generaron cobro adicional, devengo de Bs 1, liquidación ni egreso de caja.
+- La variable `VITE_ADVANCED_DISPATCH` fue retirada de `.env.local` al terminar. No se modificaron registros directamente ni se accedió a producción.
