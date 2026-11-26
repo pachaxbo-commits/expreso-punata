@@ -48,3 +48,16 @@
 - Después del ajuste de configuración y recarga forzada, la UI todavía muestra desconexión. No se ejecutó recepción, cobro ni liquidación para evitar alterar el recorrido con una sesión cuyo estado visual/backend no es confiable.
 - Clasificación actual: bloqueo específico de inicialización/estado del frontend pendiente de observar en consola; no se confirmó defecto de Functions, reglas, Auth ni datos del manifiesto.
 
+## Corrección de conexión y continuación COD — 2026-11-26
+
+- Defecto confirmado: `subscribeManifestsByBranch` consultaba todos los manifiestos y filtraba sucursal en memoria. Firestore Rules rechazaba la lista por un documento histórico sin `originBranchId`, provocando falsamente `Backend desconectado`.
+- Corrección: la consulta ahora restringe `originBranchId`/`destinationBranchId` mediante `or(...)` antes de aplicar Rules. No se tocaron documentos históricos ni se ampliaron permisos.
+- Defecto de seguridad confirmado: el botón de simulación podía crear perfil `dev-*` sin `currentUser` Auth. Ahora se rechaza de forma controlada y exige sesión real de Firebase Emulator.
+- Chrome con login real `secretaria.cbba@qa.local`: indicador `Operativa en tiempo real`, `Conectado a Firestore`, 2 envíos persistidos visibles.
+- Recorrido COD desde interfaz continuado: recepción formal de `MAN-PUN-2026-0002` confirmada sin discrepancias; ubicación de `PUN202600002` confirmada en `MOD-1 / M-1` y el contador de almacén pasó a 1.
+- Entrega COD completada desde Chrome con firma y CI `70000004`; la interfaz confirmó `¡ENCOMIENDA ENTREGADA CONFORME!`, comprobantes de acta/ticket y cobro de Bs20.
+- La primera tentativa sin turno abierto fue rechazada por Functions (sin mutar la encomienda); se reprodujo con turno `TUR-CBB-2026-0001` abierto y se completó correctamente. La primera pantalla mostraba datos optimistas/stale durante la espera, por lo que la verificación final se hizo contra Firestore Emulator.
+- Verificación persistente: `paymentStatus=paid`, `status=delivered`, `paidShiftId=TUR-CBB-2026-0001`, movimiento `cod_income` de 2000 centavos y `expectedCashCents=2000`.
+- Cierre de caja desde Chrome: se contó 1 billete de Bs20; resultado `CONFORME`, diferencia Bs0, turno cerrado y pantalla `Sin turno abierto`.
+- Prevención de duplicado: después del cierre, la pantalla de entrega no mostró encomiendas disponibles para `PUN202600002`; Firestore conservó un único movimiento COD.
+
