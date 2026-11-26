@@ -1,5 +1,12 @@
 # Seguimiento QA comercial
 
+## ConfiguraciÃ³n administrativa y afiliados â€” 2026-11-26
+
+- Defecto confirmado en configuraciÃ³n oficial: la vista mostraba `15` por fallback aunque el estado contenÃ­a `baseFeeBob=0` cuando el backend solo devolvÃ­a `baseFeeCents`. La validaciÃ³n impedÃ­a guardar una configuraciÃ³n vÃ¡lida.
+- CorrecciÃ³n `c58ad7e`: normalizaciÃ³n de campos monetarios desde centavos y regresiÃ³n `systemConfigNormalization.test.ts`. Unitarias: `88/88`; typecheck aprobado.
+- ConfiguraciÃ³n QA del 10% no se persistiÃ³ antes de la correcciÃ³n; queda pendiente repetir guardado mediante interfaz, crear recorrido con tarifa oficial y restaurar valores iniciales.
+- Afiliado `SOC-QA-001` y cuota Bs50 pagada ya existen. La administraciÃ³n de usuarios debe vincular `afiliado@qa.local` mediante `unionMemberId`; el portal sigue mostrando cuenta no vinculada. Multas y prÃ©stamos aÃºn no ejecutados.
+
 ## Comisiones, afiliados y portal â€” 2026-11-26
 
 - ConfiguraciÃ³n inicial observada: `system_config/expreso_punata` oficial/configurada, comisiÃ³n porcentual con valor 0; `commercial_settings/commission` no autorizÃ³ una regla vÃ¡lida para el recorrido manual. La pantalla administrativa tampoco permitiÃ³ guardar la regla QA porque rechazÃ³ la tarifa base obligatoria; no se persistieron cambios ficticios.
