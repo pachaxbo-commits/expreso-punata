@@ -15,6 +15,7 @@ import type { UserProfile, SystemConfig } from '../../types/index.ts'
 import { automaticParcelPricingEnabled } from '../../config/features.ts'
 import { fetchSystemConfig, updateSystemConfig, BLANK_UNCONFIGURED_TEMPLATE } from '../../services/configService.ts'
 import { normalizeSystemConfig } from '../../domain/systemConfigNormalization.ts'
+import { commissionDisplayValue } from '../../domain/commissionConfig.ts'
 
 type ConfigSection = 'company' | 'branches' | 'tariffs' | 'commissions' | 'dues' | 'printing'
 
@@ -523,7 +524,7 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ currentUser:
                   type="number"
                   step="0.5"
                   min="0"
-                  value={config.commissions?.defaultValue || 10}
+value={commissionDisplayValue(config.commissions?.defaultValue)}
                   onChange={(e) =>
                     setConfig({
                       ...config,
