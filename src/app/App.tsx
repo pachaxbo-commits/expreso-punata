@@ -187,7 +187,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'reports', label: userProfile.role === 'secretaria' ? 'Reporte del día' : 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
     { id: 'config', label: 'Configuración', icon: Settings, visible: hasRole(['directiva_admin']) },
   ].filter(t => t.visible && (userProfile.role !== 'secretaria' ||
-    ['shipments', 'tickets', 'storage', 'reports'].includes(t.id)))
+    ['shipments', 'tickets', 'storage', 'manifests', 'cash', 'dues', 'sports-fines', 'reports'].includes(t.id)))
 
   const activeTab = tabs.some(tab => tab.id === requestedTab) ? requestedTab : tabs[0]?.id
 

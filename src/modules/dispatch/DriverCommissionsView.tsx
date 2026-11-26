@@ -88,6 +88,7 @@ export const DriverCommissionsView: React.FC<DriverCommissionsViewProps> = ({
       setLoadingRecords(true)
       const data = await fetchDriverCommissionRecords(driverUid)
       setRecords(data)
+      setFeedback(null)
     } catch (err: any) {
       console.error('Error cargando asientos de comisión:', err)
     } finally {
