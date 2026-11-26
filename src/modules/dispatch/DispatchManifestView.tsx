@@ -73,6 +73,7 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [deliveryShipment, setDeliveryShipment] = useState<Shipment | null>(null)
+  const [completedDriverShipmentIds, setCompletedDriverShipmentIds] = useState<string[]>([])
 
   // Estado para creación de manifiesto
   const [selectedShipmentIds, setSelectedShipmentIds] = useState<string[]>([])
@@ -751,9 +752,9 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
                         </span>
                       </div>
 
-                      {isAccepted && !isDelivered && trip.shipmentSummaries?.some(item => item.deliveryType === 'direct_driver') && (
+                      {isAccepted && !isDelivered && trip.shipmentSummaries?.some(item => item.deliveryType === 'direct_driver' && !completedDriverShipmentIds.includes(item.shipmentId)) && (
                         <div className="w-full border-t border-slate-100 pt-2 space-y-2">
-                          {trip.shipmentSummaries.filter(item => item.deliveryType === 'direct_driver').map(item => (
+                          {trip.shipmentSummaries.filter(item => item.deliveryType === 'direct_driver' && !completedDriverShipmentIds.includes(item.shipmentId)).map(item => (
                             <button
                               key={item.shipmentId}
                               type="button"
@@ -1197,7 +1198,10 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
         <ShipmentDeliveryModal
           isOpen={true}
           onClose={() => setDeliveryShipment(null)}
-          onSuccess={() => setDeliveryShipment(null)}
+          onSuccess={(shipment) => {
+            setCompletedDriverShipmentIds(previous => previous.includes(shipment.id) ? previous : [...previous, shipment.id])
+            setDeliveryShipment(null)
+          }}
           currentUser={currentUser}
           currentBranch={currentBranch}
           initialShipment={deliveryShipment}
