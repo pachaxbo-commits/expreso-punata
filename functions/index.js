@@ -5853,6 +5853,7 @@ export const getUnionMembersRoster = onCall({ cors: true }, async (request) => {
       retiredAt: data.retiredAt || '',
       status: data.status || 'active',
       category: data.category || '',
+      branchId: data.branchId || null,
       primaryDriverUid: data.primaryDriverUid || null,
       primaryDriverName: data.primaryDriverName || null,
       notes: data.notes || '',
