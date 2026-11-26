@@ -31,3 +31,12 @@
 - Regresión `deliveryAndLogisticsControls`: 9/10 aprobadas. La única falla es el fixture de firma ausente (`getShipmentSignatureUrl`, `not-found` en archivo sintético), clasificada como fixture incompleto; no se debilitó la aserción.
 - Nuevo recorrido B iniciado desde Chrome: `PUN202600002`, flete por cobrar/COD Bs 20, estado visible `RECIBIDO / COD`, guía emitida. Transporte, recepción, cobro en destino y liquidación aún pendientes; no se declara operativo.
 
+## Avance 2026-11-26 — COD y regresión de firmas
+
+- `PUN202600002`: manifiesto `MAN-PUN-2026-0002` creado desde la interfaz, vehículo `QA-14`, conductor QA y custodia aceptada desde sesión real de Conductor. La encomienda quedó visible como `En Ruta (Custodia Aceptada)` y `COD Bs. 20,00`.
+- Recepción en Cochabamba: bloqueada en la confirmación formal. La interfaz mostró `Debe iniciar sesión para recibir manifiestos [401]` y `Backend desconectado`; no se alteraron datos ni se declaró completado el recorrido. Requiere recuperar la sesión/autenticación del Entorno B y repetir desde Chrome.
+- Confirmación de importe: la pantalla de Conductor identifica `Total a Cobrar (COD) Bs. 20,00`; con la información visible no se puede afirmar todavía si el modelo separa flete y dinero por cuenta del cliente. Debe verificarse en la entrega y movimientos de caja.
+- Entorno A: corregido el fixture de Storage de firma en `functions/test/deliveryAndLogisticsControls.test.mjs`; se sembró el objeto sintético referenciado antes de probar la URL temporal. La aserción de ruta inexistente se conserva.
+- Regresión Entorno A repetida: `10/10` aprobadas, `0` fallos, commit `2abc898` (`test(storage): seed signature fixture in emulator`).
+- No se creó corrección de producto para el 401: es un bloqueo de infraestructura/sesión observado en B y requiere repetición tras restablecer autenticación local.
+
