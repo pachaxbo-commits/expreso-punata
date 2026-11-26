@@ -61,3 +61,12 @@
 - Cierre de caja desde Chrome: se contó 1 billete de Bs20; resultado `CONFORME`, diferencia Bs0, turno cerrado y pantalla `Sin turno abierto`.
 - Prevención de duplicado: después del cierre, la pantalla de entrega no mostró encomiendas disponibles para `PUN202600002`; Firestore conservó un único movimiento COD.
 
+## Custodia y comisiones — 2026-11-26
+
+- Entorno B inspeccionado sin mutaciones: no existen todavía documentos en `driver_custody_accounts`, `driver_custody_records`, `driver_settlements`, `driver_commission_records`, `driver_commission_accounts` ni `driver_commission_vouchers`. No se declara operativo un recorrido de conductor a partir de datos inexistentes.
+- El código y la interfaz contemplan entrega en ruta, custodia del conductor, rendición parcial/total y comisiones oficiales. La Function `deliverShipment` exige turno abierto para COD en ventanilla; `settleDriverCash` y `settleDriverCommission` validan saldo, sucursal, permisos e idempotencia.
+- Suite unitaria: 85/85 aprobadas. Typecheck y build aprobados.
+- Rules y jornada integral en Entorno A: no ejecutadas por bloqueo de infraestructura; Firebase CLI intentó descargar `cloud-firestore-emulator-v1.22.0` y terminó antes de iniciar por error de actualización/configuración local. No se clasifica como defecto del producto.
+- Pendiente de ejecución real desde Chrome: crear una nueva encomienda de prueba de cobro en ruta, aceptación de custodia, entrega directa, rendición y comisión. Requiere decidir/usar la modalidad comercial de entrega directa y conservar un turno de caja válido en la sucursal receptora.
+- Seguridad multisucursal: las Functions filtran por `primaryBranchId`/`allowedBranchIds`; las Rules contienen pruebas específicas para cuentas y registros de comisiones. La ejecución dinámica queda pendiente por el mismo bloqueo del emulador A.
+
