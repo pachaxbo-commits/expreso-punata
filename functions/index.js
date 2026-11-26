@@ -9,6 +9,7 @@ import { createSupportFunctions } from './supportCenter.js'
 import { createUserSecurityFunctions } from './userSecurity.js'
 import { createB4SettingsFunctions } from './b4Settings.js'
 import { createTicketTemplateFunctions } from './ticketTemplates.js'
+import { getStorageBucketName } from './storageConfig.js'
 
 if (getApps().length === 0) {
   initializeApp()
@@ -3804,7 +3805,7 @@ async function processAndSaveSignatureToStorage(shipmentId, signatureInput, oper
     throw new HttpsError('invalid-argument', 'La firma digital es obligatoria para certificar la entrega conforme.')
   }
 
-  const bucketName = process.env.STORAGE_BUCKET_NAME || 'expreso-punata-dev.firebasestorage.app'
+  const bucketName = getStorageBucketName()
   const bucket = storageAdmin.bucket(bucketName)
 
   // 1. Si ya es una ruta relativa o absoluta existente en Firebase Storage
@@ -4734,7 +4735,7 @@ export const getShipmentSignatureUrl = onCall({ cors: true }, async (request) =>
     throw new HttpsError('permission-denied', 'La ruta solicitada no pertenece a la encomienda.')
   }
 
-  const bucketName = process.env.STORAGE_BUCKET_NAME || 'expreso-punata-dev.firebasestorage.app'
+  const bucketName = getStorageBucketName()
   const bucket = storageAdmin.bucket(bucketName)
   const file = bucket.file(resolvedPath)
 
