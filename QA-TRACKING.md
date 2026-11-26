@@ -212,3 +212,12 @@
 - Causa raíz confirmada: el backend del emulador B se ejecuta sin `ENABLE_AUTOMATIC_PARCEL_PRICING=true`; el frontend y Functions no comparten el mismo estado de activación. Un precio manual no es equivalente a flete tarifario y no debe usarse para forzar la comisión porcentual.
 - La comisión temporal no pudo restaurarse de forma verificable: el control numérico de la interfaz quedó mostrando 10 durante la interacción; no se confirmó un guardado a 0. Se requiere restaurar con el control administrativo una vez corregida la operación del emulador. No se generaron comisiones, liquidaciones ni movimientos financieros nuevos.
 - Estado: comisión comercial no operativa/no conciliada; bloqueo técnico concreto en la configuración del backend del Entorno B. `CBB202600001` y demás históricos permanecen sin modificar.
+
+## Emulador Functions QA y manifiesto de comisión - 2026-11-26
+
+- Se levantó una instancia local exclusiva de Functions en `127.0.0.1:18002` con `ENABLE_AUTOMATIC_PARCEL_PRICING=true`, `FIRESTORE_EMULATOR_HOST=127.0.0.1:18080` y `FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:18099`. Los logs confirmaron autenticación válida y carga de `createShipment`/`createDispatchManifest`.
+- El frontend Entorno B se conectó temporalmente a esa instancia y la tarifa automática fue aceptada.
+- Nueva encomienda creada desde Chrome: `PUN202600003`, tarifa oficial Bs 10,00, modalidad `Conductor en Ruta`, pagada en origen, estado `RECIBIDO`.
+- Manifiesto creado desde Chrome: `MAN-PUN-2026-0003`, Móvil `QA-14`, Conductor QA, 1 guía/1 bulto. La interfaz confirmó despacho y lo registró en historial.
+- La continuación quedó bloqueada al cambiar de Directiva QA a Conductor QA: el botón visible `Cerrar Sesión` no produjo transición en la sesión CUA, por lo que no se aceptó custodia ni se simuló ese estado por backend.
+- Las variables temporales de frontend y la instancia secundaria fueron detenidas/restauradas al terminar. No se generó comisión ni liquidación, no se insertaron movimientos directos y no se alteraron históricos.
