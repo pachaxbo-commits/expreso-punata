@@ -155,3 +155,9 @@
 - Causa raíz frontend confirmada: `observedHttpsCallable` capturaba el error original y esperaba indefinidamente `reportClientDiagnostic`. La solicitud de diagnóstico podía quedar pendiente y ocultar el rechazo de `createUnionFine`.
 - Corrección: `reportObservedError` tiene límite de 3 s; siempre vuelve a lanzar el error original. Se conserva el timeout de 15 s de creación como segunda protección.
 - Validación posterior: 88/88 unitarias, typecheck y build aprobados. La operación comercial en B queda pendiente de repetir con Vite recargado y verificar el error/respuesta real antes de crear la multa.
+
+## Regresión observability y pendientes comerciales - 2026-11-26
+
+- Añadidas regresiones para resultado exitoso, error original, diagnóstico rechazado y diagnóstico pendiente. La prueba verifica que se conserva la misma instancia del error y que el diagnóstico vence sin bloquear.
+- Suite unitaria actual: 91/91 aprobadas. Typecheck y build aprobados.
+- No se repitió todavía la creación/cobro de multa ni el préstamo desde la interfaz en B: las pruebas automatizadas de UI anteriores no llegaron de forma fiable al formulario después del arranque frío de Vite, y no se debe declarar una operación financiera completada sin evidencia persistida.

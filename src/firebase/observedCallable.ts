@@ -6,6 +6,18 @@ type DiagnosticContext = { module: string; operation: string }
 const reportedErrors = new WeakSet<object>()
 const DIAGNOSTIC_TIMEOUT_MS = 3_000
 
+export async function settleDiagnostic<T>(request: Promise<T>, timeoutMs = DIAGNOSTIC_TIMEOUT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      request,
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('diagnostic pending')), timeoutMs) }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 function correlationId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID().replaceAll('-', '')
   if (globalThis.crypto?.getRandomValues) {
@@ -42,10 +54,10 @@ export async function reportObservedError(error: unknown, context: DiagnosticCon
   try {
     const { functions } = await import('./config.ts')
     const diagnosticCall = firebaseHttpsCallable<DiagnosticPayload, { success: boolean; correlationId: string }>(functions, 'reportClientDiagnostic')
-    const result = await Promise.race([
+    const result = await settleDiagnostic(Promise.race([
       diagnosticCall({ module: context.module, operation: context.operation, code, category, correlationId: id, frontendVersion: String(viteEnv.VITE_APP_VERSION || '1.0.0') }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('diagnóstico pendiente')), DIAGNOSTIC_TIMEOUT_MS)),
-    ])
+    ]))
     return result.data.correlationId
   } catch {
     return null
