@@ -7,6 +7,22 @@ import { functions, db, auth } from '../firebase/config.ts'
 import type { AnnualBoard, DriverDirectoryEntry, UnionMember, UnionMonthlyDue, UnionSportsAttendance, UnionSportsEvent } from '../types/index.ts'
 import { listActiveDriversThroughBackend } from './dispatchService.ts'
 
+const UNION_CALL_TIMEOUT_MS = 15_000
+
+async function callWithTimeout<T>(promise: Promise<T>, operation: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`${operation} no respondió a tiempo. Verifique la conexión e intente nuevamente.`)), UNION_CALL_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
 export interface ManageUnionMemberInput {
   id?: string
   memberNumber: string
@@ -352,7 +368,7 @@ export async function getMyUnionAccountThroughBackend(): Promise<AffiliateAccoun
 
 export async function createUnionFineThroughBackend(input: CreateUnionFineInput): Promise<UnionFine> {
   const callable = httpsCallable<CreateUnionFineInput, { success: boolean; fine: UnionFine }>(functions, 'createUnionFine')
-  return (await callable(input)).data.fine
+  return (await callWithTimeout(callable(input), 'El registro de la multa')).data.fine
 }
 
 export async function listUnionFinesThroughBackend(filters: { memberId?: string; category?: UnionFineCategory; status?: UnionFine['status'] } = {}): Promise<UnionFine[]> {
