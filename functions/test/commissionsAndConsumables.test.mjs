@@ -13,13 +13,9 @@ import {
   getSystemReport,
 } from '../index.js'
 
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
-process.env.FIREBASE_STORAGE_EMULATOR_HOST ||= '127.0.0.1:9199'
-process.env.STORAGE_EMULATOR_HOST ||= 'http://127.0.0.1:9199'
 
 if (getApps().length === 0) {
-  initializeApp({ projectId: 'demo-expreso-punata-commissions-test' })
+  initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 }
 
 const db = getFirestore()
@@ -377,6 +373,7 @@ test('afiliado_admin devenga y liquida Bs 2 una sola vez para un conductor de di
   await createTestUser('limited-admin', 'afiliado_admin', 'cochabamba')
   await db.collection('users').doc('limited-admin').update({ allowedBranchIds: ['cochabamba'], commissionAdministrationApproved: true })
   await createTestUser('technical', 'soporte_pachax')
+  await createTestUser('commission-report-directiva', 'directiva_admin', 'punata')
   const auth = { uid: 'admin-1' }
   const data = { shipmentId: 'ship-fixed', manifestId: 'MAN-FIXED' }
   await assert.rejects(accrueDriverCommission.run({ auth: { uid: 'limited-admin' }, data }), { code: 'permission-denied' })
@@ -407,7 +404,7 @@ test('afiliado_admin devenga y liquida Bs 2 una sola vez para un conductor de di
   assert.equal(record.paidAmountCents, 200)
   assert.equal((await account.get()).data().pendingCents, 0)
   const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date(first.createdAtIso || record.createdAtIso))
-  const report = await getSystemReport.run({ auth, data: { reportType: 'commissions', startDate: day, endDate: day } })
+  const report = await getSystemReport.run({ auth: { uid: 'commission-report-directiva' }, data: { reportType: 'commissions', startDate: day, endDate: day } })
   assert.equal(report.summary.totalPaidCents, 200)
   assert.equal(report.summary.totalPendingCents, 0)
   assert.equal(report.records[0].id, first.recordId)

@@ -6,7 +6,7 @@ import { collectUnionFinePayment, createUnionFine, listUnionDebtAlerts, openCash
 
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
 process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
-if (getApps().length === 0) initializeApp({ projectId: 'demo-expreso-punata-debt-alerts' })
+if (getApps().length === 0) initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 const db = getFirestore()
 
 test('Alertas de deudas: cuotas, préstamo desembolsado, multas, sucursal, saldo vigente y consulta sin escrituras financieras', async () => {
@@ -53,7 +53,10 @@ test('Alertas de deudas: cuotas, préstamo desembolsado, multas, sucursal, saldo
   assert.equal(manager.alerts.find((item) => item.type === 'loan').overdueAmountCents, 3000)
   assert.equal(manager.alerts.find((item) => item.type === 'fine' && item.category === 'deportes').amountCents, 6000)
   assert.equal(manager.alerts.some((item) => item.label === 'PRE-PENDING' || item.label === 'PRE-LEGACY'), false)
-  await assert.rejects(listUnionDebtAlerts.run({ auth: { uid: secretaryUid }, data: { memberId } }), { code: 'permission-denied' })
+  const secretaryAlerts = await listUnionDebtAlerts.run({ auth: { uid: secretaryUid }, data: { memberId } })
+  assert.equal(secretaryAlerts.alerts.every((item) => item.memberId === memberId), true)
+  assert.ok(secretaryAlerts.alerts.some((item) => item.type === 'fine' && item.category === 'transporte'))
+  await assert.rejects(() => listUnionDebtAlerts.run({ auth: { uid: secretaryUid }, data: { memberId: otherId } }), { code: 'permission-denied' })
   const affiliate = await listUnionDebtAlerts.run({ auth: { uid: affiliateUid }, data: {} })
   assert.equal(affiliate.alerts.every((item) => item.memberId === memberId), true)
   await assert.rejects(() => listUnionDebtAlerts.run({ auth: { uid: affiliateUid }, data: { memberId: otherId } }), (error) => error.code === 'permission-denied')

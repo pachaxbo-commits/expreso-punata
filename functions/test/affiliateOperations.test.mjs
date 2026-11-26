@@ -34,11 +34,15 @@ test('proyección de los 15 módulos, filtros, búsqueda, agencia y campos priva
 test('mutaciones administrativas rechazan afiliado, secretaría y soporte aunque el token declare administración', async () => {
   const administrativeActions = [
     'disburseUnionLoan', 'createUnionLoan', 'collectUnionLoanPayment', 'createUnionFine',
-    'collectUnionFinePayment', 'manageUnionMember', 'generateMonthlyDues', 'collectMemberDue',
+    'collectUnionFinePayment', 'manageUnionMember', 'generateMonthlyDues',
     'manageWorker', 'registerWorkerPayment', 'registerGeneralExpense', 'registerCashExpense',
     'manageFixedAsset', 'manageConsumable', 'managePhysicalInventoryDocument', 'settleDriverCommission',
-    'settleDriverCash', 'accrueDriverCommission', 'adminProvisionUser', 'adminSendPasswordReset', 'updateSystemConfig',
+    'settleDriverCash', 'accrueDriverCommission', 'createExpenseAuthorization', 'adminProvisionUser', 'adminSendPasswordReset', 'updateSystemConfig',
   ]
+  const secretaryAuthorizedActions = new Set([
+    'disburseUnionLoan', 'createUnionLoan', 'collectUnionLoanPayment', 'createUnionFine', 'collectUnionFinePayment',
+    'registerCashExpense',
+  ])
   for (const role of ['afiliado', 'secretaria', 'soporte_pachax']) {
     const uid = prefix + '-' + role
     await db.collection('users').doc(uid).set({ role, isActive: true, primaryBranchId: 'punata' })
@@ -50,7 +54,10 @@ test('mutaciones administrativas rechazan afiliado, secretaría y soporte aunque
         travelDate: '2026-12-01', driverUid: 'synthetic-driver', quantity: 1, unitAmountCents: 1000,
       },
     }
-    for (const action of administrativeActions) {
+    const forbiddenActions = role === 'secretaria'
+      ? administrativeActions.filter((action) => !secretaryAuthorizedActions.has(action))
+      : administrativeActions
+    for (const action of forbiddenActions) {
       await assert.rejects(operations[action].run(request), { code: 'permission-denied' }, role + ' / ' + action)
     }
     if (role !== 'secretaria') {

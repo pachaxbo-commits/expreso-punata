@@ -8,8 +8,8 @@ import { initializeApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
 
-const projectId = process.env.E2E_FIREBASE_PROJECT_ID || 'demo-expreso-punata'
-if (!projectId.startsWith('demo-')) throw new Error('Use un proyecto demo en el recorrido de navegador.')
+const projectId = process.env.E2E_FIREBASE_PROJECT_ID
+if (projectId !== 'demo-expreso-punata-finalization') throw new Error('El recorrido de navegador solo admite demo-expreso-punata-finalization.')
 if (process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' ||
     process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8080') {
   throw new Error('Ejecuta esta prueba con Auth y Firestore Emulator en los puertos locales del repositorio.')
@@ -82,19 +82,34 @@ async function runE2E() {
     fs.mkdirSync(evidenceDir, { recursive: true })
   }
 
-  const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
-  console.log(`[E2E] Conectando a Google Chrome en: ${chromePath}`)
-
-  const browser = await chromium.launch({
+  const chromePath = process.env.E2E_BROWSER_EXECUTABLE || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+  console.log(`[E2E] Conectando a navegador Chromium en: ${chromePath}`)
+  const profileDir = path.join(evidenceDir, '..', 'profiles', randomUUID())
+  fs.mkdirSync(profileDir, { recursive: true })
+  const context = await chromium.launchPersistentContext(profileDir, {
     executablePath: chromePath,
     headless: true,
+    viewport: { width: 1280, height: 800 },
+    env: process.env.E2E_BROWSER_USERPROFILE
+      ? { ...process.env, USERPROFILE: process.env.E2E_BROWSER_USERPROFILE }
+      : process.env,
   })
 
   try {
-    const context = await browser.newContext({
-      viewport: { width: 1280, height: 800 },
+    const blockedExternalRequests = []
+    const localPorts = new Set([
+      String(PORT), '5001', '8080', '9099', '9199',
+    ])
+    await context.route('**/*', async (route) => {
+      const requestedUrl = new URL(route.request().url())
+      const isAllowedLocalRequest = requestedUrl.protocol === 'http:' &&
+        ['127.0.0.1', 'localhost'].includes(requestedUrl.hostname) &&
+        localPorts.has(requestedUrl.port)
+      if (isAllowedLocalRequest) return route.continue()
+      blockedExternalRequests.push(requestedUrl.origin)
+      return route.abort('blockedbyclient')
     })
-    const page = await context.newPage()
+    const page = context.pages()[0] || await context.newPage()
     page.on('console', (msg) => console.log('[Browser Console]', msg.type(), msg.text()))
     page.on('pageerror', (err) => console.log('[Browser Error]', err.message, '\nStack:', err.stack))
 
@@ -289,9 +304,12 @@ async function runE2E() {
       }
     }
 
-    console.log('[E2E] ¡TODAS LAS PRUEBAS DE NAVEGADOR COMPLETADAS CON ÉXITO!')
+    if (blockedExternalRequests.length > 0) {
+      throw new Error(`La interfaz intentó realizar ${blockedExternalRequests.length} solicitudes fuera del Emulator/localhost: ${[...new Set(blockedExternalRequests)].join(', ')}`)
+    }
+    console.log('[E2E] ¡TODAS LAS PRUEBAS DE NAVEGADOR COMPLETADAS CON ÉXITO; solicitudes externas bloqueadas: 0!')
   } finally {
-    await browser.close()
+    await context.close()
     server.close()
   }
 }

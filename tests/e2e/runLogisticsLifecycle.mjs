@@ -1,7 +1,8 @@
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
 process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
 
-const projectId = process.env.GCLOUD_PROJECT || 'expreso-punata-dev'
+const projectId = process.env.GCLOUD_PROJECT
+if (projectId !== 'demo-expreso-punata-finalization') throw new Error('Logistics lifecycle solo admite el proyecto demo aislado.')
 process.env.GCLOUD_PROJECT = projectId
 
 import assert from 'node:assert/strict'
