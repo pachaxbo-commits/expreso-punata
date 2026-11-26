@@ -161,3 +161,11 @@
 - Añadidas regresiones para resultado exitoso, error original, diagnóstico rechazado y diagnóstico pendiente. La prueba verifica que se conserva la misma instancia del error y que el diagnóstico vence sin bloquear.
 - Suite unitaria actual: 91/91 aprobadas. Typecheck y build aprobados.
 - No se repitió todavía la creación/cobro de multa ni el préstamo desde la interfaz en B: las pruebas automatizadas de UI anteriores no llegaron de forma fiable al formulario después del arranque frío de Vite, y no se debe declarar una operación financiera completada sin evidencia persistida.
+-
+## Cobro de multa y corrección de comprobante - 2026-11-26
+
+- Chrome interactivo en Entorno B confirmó sesión real de Directiva QA, indicador `Operativa en tiempo real` y Firestore conectado.
+- Existía una multa pendiente previa para `SOC-QA-001`, `MUL-5KUHQAQM`, importe Bs 30. No se creó duplicado.
+- Se cobró desde la interfaz con turno autorizado. Resultado visible: `REC-MUL-2026-00001`, saldo Bs 0, estado `Pagada`, historial de pagos 1.
+- Defecto confirmado: el comprobante mostraba `Bs. NaN` porque la vista leía `result.amountCents`, inexistente en la respuesta. Corrección: usa `result.payment.amountCents`, fuente oficial del cobro.
+- Suite posterior: 91/91 unitarias, typecheck y build aprobados. El préstamo de Bs 500 aún no fue ejecutado desde interfaz.
