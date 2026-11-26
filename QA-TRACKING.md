@@ -1,5 +1,12 @@
 # Seguimiento QA comercial
 
+## Comisiones, afiliados y portal â€” 2026-11-26
+
+- ConfiguraciÃ³n inicial observada: `system_config/expreso_punata` oficial/configurada, comisiÃ³n porcentual con valor 0; `commercial_settings/commission` no autorizÃ³ una regla vÃ¡lida para el recorrido manual. La pantalla administrativa tampoco permitiÃ³ guardar la regla QA porque rechazÃ³ la tarifa base obligatoria; no se persistieron cambios ficticios.
+- Afiliados desde la interfaz: creado `SOC-QA-001` (Afiliado Conductor QA, activo, cuota Bs50). Emitida cuota `CUO-2026-11-SOC-QA-001`; cobro total Bs50 con recibo `REC-SOC-2026-00001`. Saldo pendiente Bs0, recaudado Bs50, movimiento y auditorÃ­a generados por el flujo oficial.
+- Portal `afiliado@qa.local`: historial de encomiendas visible y restringido a la cuenta, pero `Mi cuenta` responde que el usuario no estÃ¡ vinculado a un afiliado. VinculaciÃ³n, multas, prÃ©stamos y desembolsos quedan no ejecutados; requieren completar la vinculaciÃ³n administrativa mediante el formulario existente.
+- Decisiones comerciales pendientes: porcentaje definitivo, tratamiento de precios manuales y atribuciÃ³n multisucursal del caso 99.
+
 ## Custodia y comisiones â€” continuaciÃ³n 2026-11-26
 
 - Desde Directiva QA se abriÃ³ el turno `TUR-PUN-2026-0003` con fondo Bs0 mediante la interfaz.
