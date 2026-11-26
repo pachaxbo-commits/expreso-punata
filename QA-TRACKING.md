@@ -188,3 +188,10 @@
 - No se modificaron registros históricos ni se alteró CBB202600001.
 - Bloqueo funcional: la navegación de Directiva no expone el botón `Comisiones de conductores` y el selector DOM tampoco encuentra esa acción, aunque `App.tsx` contiene el tab condicionado por `simpleTransferEnabled`. Por tanto no fue posible iniciar desde interfaz el devengo ni crear una encomienda nueva específicamente para comisión sin sustituir el flujo normal.
 - No se declara operativa la comisión comercial. La configuración QA del 10% debe restaurarse/confirmarse antes de continuar; no se inventó una comisión ni se insertaron registros directamente.
+## Bandera de comisiones y recorrido pendiente - 2026-11-26
+
+- `simpleTransferEnabled` depende exclusivamente de `VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'`. Controla la experiencia simplificada de custodia/traslado y la visibilidad del módulo `Comisiones de conductores`; no es una autorización financiera.
+- En QA la variable no estaba definida, por lo que valía `false`. Se habilitó únicamente en `.env.local` del Entorno B y se reinició Vite. La navegación mostró `Comisiones de conductores` para Directiva QA; los roles no autorizados siguen sin ese tab.
+- El formulario de devengo exige IDs internos de `shipments` y `manifests`, no códigos públicos. El intento con `CBB202600001`/`MAN-CBBA-2026-0001` fue rechazado por backend con 404 y no creó comisión.
+- La configuración temporal 10% se restauró mediante la interfaz a 0%, con mensaje de guardado exitoso. No se generaron registros financieros ni se modificaron encomiendas históricas.
+- El recorrido comercial de comisión sigue pendiente: requiere una nueva encomienda/manifiesto legítimos y obtener sus IDs internos desde el flujo de interfaz. No se declara operativa la comisión.
