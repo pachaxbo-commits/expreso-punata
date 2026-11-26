@@ -42,6 +42,14 @@ async function clearCollections() {
     'financial_movements',
     'counters',
   ]
+  const shipmentDocs = await db.collection('shipments').get()
+  for (const shipment of shipmentDocs.docs) {
+    const auditDocs = await shipment.ref.collection('audit_logs').get()
+    if (auditDocs.empty) continue
+    const auditBatch = db.batch()
+    auditDocs.docs.forEach((audit) => auditBatch.delete(audit.ref))
+    await auditBatch.commit()
+  }
   for (const coll of collections) {
     const snap = await db.collection(coll).get()
     const batch = db.batch()
