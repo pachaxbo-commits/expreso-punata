@@ -126,6 +126,17 @@ test('4. Formateador de moneda boliviana', () => {
   assert.equal(formatCurrencyBob(1250, true), 'Bs. 12,50')
 })
 
+test('formateador financiero conserva importes límite y no imprime NaN', () => {
+  const amounts = [0, 1, 10, 30, 250, 500, 100000000]
+  for (const cents of amounts) {
+    const formatted = formatCurrencyBob(cents, true)
+    assert.ok(!formatted.includes('NaN'))
+    assert.ok(formatted.startsWith('Bs. '))
+  }
+  assert.equal(formatCurrencyBob(Number.NaN, true), 'Bs. —')
+  assert.equal(formatCurrencyBob(Number.POSITIVE_INFINITY, true), 'Bs. —')
+})
+
 test('5. Sucursales de Expreso Punata y transparencia fiscal', () => {
   assert.equal(INITIAL_BRANCHES.length, 2)
   assert.equal(INITIAL_BRANCHES[0].code, 'PUN')

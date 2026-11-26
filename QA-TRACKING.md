@@ -245,3 +245,18 @@
 - El usuario informó que revisó la firma y la entrega visualmente en Chrome.
 - Consulta de solo lectura al Entorno B después de esa revisión: `PUN202600003.status` continúa en `in_transit`, sin `deliveryRecord`, sin `deliveredAt` y sin movimiento de cobro adicional; `MAN-PUN-2026-0003` continúa en `in_transit` con `driverCustodyStatus=accepted`.
 - Resultado: la confirmación visual no quedó persistida en el emulador QA o Chrome estaba conectado a otra instancia. No se ejecutó el devengo ni la liquidación de Bs 1 para evitar contabilizar una entrega no confirmada.
+
+## Auditoría transversal de comprobantes - 2026-11-26
+
+| Familia | Generador revisado | Estado |
+|---|---|---|
+| Encomiendas/guías | `buildFromShipment`, `printShipmentGuidePdf` | Revisado; importes desde centavos y datos de sucursal/operador |
+| Almacén | `buildFromFixedAssetLabel` y etiquetas de operación | Revisado; impresión virtual cubierta por pruebas |
+| Cobros | `buildFromCashMovement`, recibos de cuotas, multas y préstamos | Revisado; no se observaron defectos confirmados en pruebas existentes |
+| Rendiciones/comisiones | `buildFromDriverSettlement`, `buildFromCommissionVoucher` | Revisado; Bs y saldos pendientes cubiertos |
+| Caja | `buildFromCashShift` y movimientos | Revisado; apertura/cierre y diferencias cubiertos |
+| Impresión | plantillas térmicas 58/80 mm, A4 y PDF | Validación virtual aprobada; impresión física no ejecutada |
+
+- Defecto confirmado: `formatCurrencyBob()` podía producir `Bs. NaN` para entradas no finitas. Ahora devuelve `Bs. —` sin convertir el valor inválido en cero.
+- Regresión añadida para Bs 0, Bs 0,01, Bs 1, Bs 10, Bs 30, Bs 250, Bs 500, importe grande, `NaN` e infinito.
+- Validación: 93/93 pruebas unitarias aprobadas, typecheck y build aprobados. No se alteraron cálculos financieros ni registros QA.

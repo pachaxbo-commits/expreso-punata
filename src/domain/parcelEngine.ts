@@ -136,7 +136,9 @@ export function validateParcelDelivery(
  * Formateador de moneda boliviana consistente
  */
 export function formatCurrencyBob(centsOrBob: number, isCents = false): string {
+  if (!Number.isFinite(centsOrBob)) return 'Bs. —'
   const amount = isCents ? centsOrBob / 100 : centsOrBob
+  if (!Number.isFinite(amount)) return 'Bs. —'
   return `Bs. ${amount.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
