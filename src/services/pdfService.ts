@@ -393,23 +393,23 @@ export async function generateCashShiftTicketPdf(
   doc.text('RESUMEN DE FONDOS Y RECAUDACIÓN', leftMargin, y)
   y += 4
 
-  printRow('Fondo Inicial (Sencillo):', formatCurrencyBob(shift.initialCashCents || 0))
-  printRow('Ingresos en Efectivo:', formatCurrencyBob(bd.cashIncomeCents || 0))
-  printRow('Ingresos por Pago QR:', formatCurrencyBob(bd.qrIncomeCents || 0))
-  printRow('Ingresos Transferencia:', formatCurrencyBob(bd.transferIncomeCents || 0))
+  printRow('Fondo Inicial (Sencillo):', formatCurrencyBob(shift.initialCashCents || 0, true))
+  printRow('Ingresos en Efectivo:', formatCurrencyBob(bd.cashIncomeCents || 0, true))
+  printRow('Ingresos por Pago QR:', formatCurrencyBob(bd.qrIncomeCents || 0, true))
+  printRow('Ingresos Transferencia:', formatCurrencyBob(bd.transferIncomeCents || 0, true))
 
   doc.setLineWidth(0.2)
   doc.line(leftMargin, y, rightMargin, y)
   y += 3.5
 
-  printRow('Total Ventas Cobradas:', formatCurrencyBob(bd.totalIncomeCents || 0), true)
+  printRow('Total Ventas Cobradas:', formatCurrencyBob(bd.totalIncomeCents || 0, true), true)
 
   if (bd.expensesCents > 0) {
-    printRow('(-) Egresos Autorizados:', `-${formatCurrencyBob(bd.expensesCents)}`)
+    printRow('(-) Egresos Autorizados:', `-${formatCurrencyBob(bd.expensesCents || 0, true)}`)
   }
 
   if (bd.pendingIncomeCents && bd.pendingIncomeCents > 0) {
-    printRow('Pendientes (No en Caja):', formatCurrencyBob(bd.pendingIncomeCents))
+    printRow('Pendientes (No en Caja):', formatCurrencyBob(bd.pendingIncomeCents || 0, true))
   }
 
   y += 1
@@ -417,9 +417,9 @@ export async function generateCashShiftTicketPdf(
   y += 4
 
   // 4. Arqueo y Diferencia
-  const expectedBob = formatCurrencyBob(shift.expectedCashCents || 0)
+  const expectedBob = formatCurrencyBob(shift.expectedCashCents || 0, true)
   const actualBob = shift.actualCashCents !== null && shift.actualCashCents !== undefined
-    ? formatCurrencyBob(shift.actualCashCents)
+    ? formatCurrencyBob(shift.actualCashCents, true)
     : 'No registrado'
   const diffCents = shift.differenceCents || 0
   const diffStatus = shift.differenceStatus || (diffCents === 0 ? 'conforme' : diffCents > 0 ? 'sobrante' : 'faltante')
@@ -430,7 +430,7 @@ export async function generateCashShiftTicketPdf(
   doc.setFont('helvetica', 'bold')
   const diffColor = diffStatus === 'conforme' ? [22, 101, 52] : diffStatus === 'sobrante' ? [37, 99, 235] : [220, 38, 38]
   doc.setTextColor(diffColor[0], diffColor[1], diffColor[2])
-  printRow(`Diferencia (${diffStatus.toUpperCase()}): `, formatCurrencyBob(diffCents), true)
+  printRow(`Diferencia (${diffStatus.toUpperCase()}): `, formatCurrencyBob(diffCents, true), true)
   doc.setTextColor(15, 23, 42)
 
   if (shift.closingNotes) {
