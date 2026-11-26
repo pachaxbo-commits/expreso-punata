@@ -1,5 +1,13 @@
 # Seguimiento QA comercial
 
+## ContinuaciÃ³n desde fa03a49 â€” 2026-11-26
+
+- Modalidad persistida de `CBB202600001`: el recorrido fue creado mediante el asistente con `deliveryType=direct_driver`; la generaciÃ³n de `MAN-CBBA-2026-0001` y el estado `TRÃNSITO` confirman que no era solo una selecciÃ³n visual.
+- Defecto confirmado y corregido: el resumen del asistente convertÃ­a cualquier modalidad distinta de `home` en `En Agencia`. Se centralizÃ³ la etiqueta para mostrar `Conductor en Ruta` cuando corresponde. RegresiÃ³n en `tests/unit/deliveryType.test.ts`.
+- Commit de correcciÃ³n: `1291f14 fix(shipments): label direct-driver delivery correctly`.
+- Custodia: repeticiÃ³n con Playwright y `conductor@qa.local` mostrÃ³ posteriormente `MAN-CBBA-2026-0001` como `En Ruta (Custodia Aceptada)`. La primera automatizaciÃ³n expirÃ³ antes de observar la actualizaciÃ³n, pero no fue un rechazo de autenticaciÃ³n ni de permisos.
+- RegresiÃ³n local: `87/87` unitarias aprobadas; typecheck y build aprobados. No se ejecutÃ³ todavÃ­a la entrega directa, cobro, liquidaciÃ³n o comisiÃ³n porque el conductor no dispone de una acciÃ³n de entrega visible en `Mis Viajes`; debe resolverse si el flujo comercial exige una nueva acciÃ³n UI para conductor o una entrega desde la pantalla operativa autorizada.
+
 ## EjecuciÃ³n autÃ³noma â€” 2026-11-26 â€” Entrega directa por conductor
 
 - Entorno A recuperado sin tocar Entorno B: puertos 17001/17080/17099/17199; cachÃ© aislada con cloud-firestore-emulator-v1.22.0.jar y configuraciÃ³n .qa-automated/firebase-a.json.
