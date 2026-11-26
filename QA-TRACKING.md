@@ -140,3 +140,10 @@
 - Pendiente de ejecución real desde Chrome: crear una nueva encomienda de prueba de cobro en ruta, aceptación de custodia, entrega directa, rendición y comisión. Requiere decidir/usar la modalidad comercial de entrega directa y conservar un turno de caja válido en la sucursal receptora.
 - Seguridad multisucursal: las Functions filtran por `primaryBranchId`/`allowedBranchIds`; las Rules contienen pruebas específicas para cuentas y registros de comisiones. La ejecución dinámica queda pendiente por el mismo bloqueo del emulador A.
 
+-
+## Guardado de multas - 2026-11-26
+
+- Reproducción desde Playwright con `domcontentloaded`: el formulario llegó a `Guardando…` y la callable `createUnionFine` no resolvió dentro de la espera observada; no se encontró documento nuevo en `union_fines`, por lo que no se reintentó para evitar duplicados.
+- La Function exige autenticación y rol `directiva_admin`, valida afiliado, fecha, importe en centavos y persiste multa/auditoría en una transacción. No se modificaron permisos ni se insertaron datos manualmente.
+- Corrección aplicada en `src/services/unionService.ts`: la llamada de creación ahora tiene timeout de 15 s y devuelve un error operativo comprensible si queda pendiente; el formulario conserva su `finally` para liberar `Guardando…` y permitir recuperación controlada.
+- Validación: 88/88 unitarias, typecheck y build aprobados. La creación y el cobro completos siguen pendientes hasta repetir con una sesión callable que responda correctamente; no se declaran operativos.
