@@ -147,3 +147,11 @@
 - La Function exige autenticación y rol `directiva_admin`, valida afiliado, fecha, importe en centavos y persiste multa/auditoría en una transacción. No se modificaron permisos ni se insertaron datos manualmente.
 - Corrección aplicada en `src/services/unionService.ts`: la llamada de creación ahora tiene timeout de 15 s y devuelve un error operativo comprensible si queda pendiente; el formulario conserva su `finally` para liberar `Guardando…` y permitir recuperación controlada.
 - Validación: 88/88 unitarias, typecheck y build aprobados. La creación y el cobro completos siguen pendientes hasta repetir con una sesión callable que responda correctamente; no se declaran operativos.
+
+## Diagnóstico aislado de createUnionFine - 2026-11-26
+
+- Entorno A: `functions/test/unionFines.test.mjs` ejecutada con Auth/Firestore/Storage en `17099/17080/17199`: 1/1 suite aprobada en 5.3 s. Cubre creación válida, importe inválido, usuario no autorizado, cobro, idempotencia y concurrencia.
+- La implementación de `createUnionFine` alcanza autenticación, permisos, validación de afiliado y transacción; no se observó bloqueo en Entorno A.
+- Causa raíz frontend confirmada: `observedHttpsCallable` capturaba el error original y esperaba indefinidamente `reportClientDiagnostic`. La solicitud de diagnóstico podía quedar pendiente y ocultar el rechazo de `createUnionFine`.
+- Corrección: `reportObservedError` tiene límite de 3 s; siempre vuelve a lanzar el error original. Se conserva el timeout de 15 s de creación como segunda protección.
+- Validación posterior: 88/88 unitarias, typecheck y build aprobados. La operación comercial en B queda pendiente de repetir con Vite recargado y verificar el error/respuesta real antes de crear la multa.

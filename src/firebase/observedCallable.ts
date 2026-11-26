@@ -4,6 +4,7 @@ import { viteEnv } from '../config/viteEnv.ts'
 type DiagnosticPayload = { module: string; operation: string; code: string; category: string; correlationId: string; frontendVersion: string }
 type DiagnosticContext = { module: string; operation: string }
 const reportedErrors = new WeakSet<object>()
+const DIAGNOSTIC_TIMEOUT_MS = 3_000
 
 function correlationId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID().replaceAll('-', '')
@@ -41,7 +42,10 @@ export async function reportObservedError(error: unknown, context: DiagnosticCon
   try {
     const { functions } = await import('./config.ts')
     const diagnosticCall = firebaseHttpsCallable<DiagnosticPayload, { success: boolean; correlationId: string }>(functions, 'reportClientDiagnostic')
-    const result = await diagnosticCall({ module: context.module, operation: context.operation, code, category, correlationId: id, frontendVersion: String(viteEnv.VITE_APP_VERSION || '1.0.0') })
+    const result = await Promise.race([
+      diagnosticCall({ module: context.module, operation: context.operation, code, category, correlationId: id, frontendVersion: String(viteEnv.VITE_APP_VERSION || '1.0.0') }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('diagnóstico pendiente')), DIAGNOSTIC_TIMEOUT_MS)),
+    ])
     return result.data.correlationId
   } catch {
     return null
