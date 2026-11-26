@@ -17,6 +17,7 @@ import {
   getShipmentSignatureUrl,
   openCashShift,
 } from '../index.js'
+import { getStorageBucketName } from '../storageConfig.js'
 
 process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
 process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
@@ -632,7 +633,7 @@ test('10. SEGURIDAD DE FIRMAS: getShipmentSignatureUrl genera URL temporal y blo
   // emulator evita confundir un fixture incompleto con un fallo del producto.
   const signaturePath = 'shipments/ship-sig-test/signatures/signature_test.png'
   await getStorage()
-    .bucket(process.env.STORAGE_BUCKET_NAME || 'expreso-punata-dev.firebasestorage.app')
+    .bucket(getStorageBucketName())
     .file(signaturePath)
     .save(Buffer.from('synthetic-signature-fixture'), { contentType: 'image/png' })
   await db.collection('shipments').doc('ship-sig-test').update({
