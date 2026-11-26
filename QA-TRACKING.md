@@ -267,3 +267,14 @@
 - Defecto confirmado: `formatCurrencyBob()` podía producir `Bs. NaN` para entradas no finitas. Ahora devuelve `Bs. —` sin convertir el valor inválido en cero.
 - Regresión añadida para Bs 0, Bs 0,01, Bs 1, Bs 10, Bs 30, Bs 250, Bs 500, importe grande, `NaN` e infinito.
 - Validación: 93/93 pruebas unitarias aprobadas, typecheck y build aprobados. No se alteraron cálculos financieros ni registros QA.
+## Entrega PUN202600003 y comisión verificada - 2026-11-26
+
+- Causa raíz confirmada de la no persistencia: `processAndSaveSignatureToStorage` usaba como respaldo `expreso-punata-dev.firebasestorage.app`, incluso cuando Functions corría contra el Storage Emulator del proyecto `demo-expreso-punata-101`. La subida fallaba antes de la transacción que actualiza Firestore.
+- Corrección aplicada: `functions/storageConfig.js` selecciona `${GCLOUD_PROJECT}.appspot.com` cuando existe `FIREBASE_STORAGE_EMULATOR_HOST`/`STORAGE_EMULATOR_HOST`, conserva `STORAGE_BUCKET_NAME` explícito y mantiene el bucket de desarrollo solo fuera del emulador. Se aplicó también a la lectura de firmas.
+- Regresión agregada: `functions/test/storageConfig.test.mjs` verifica bucket de emulador y precedencia del bucket explícito (2/2 aprobadas).
+- Reproducción desde Chrome QA con eventos reales de ratón sobre el canvas: formulario con documento `70000006`, botón pasó a `Procesando entrega...` y la ficha desapareció tras respuesta exitosa. No se escribieron estados directamente.
+- Evidencia persistida en Entorno B: `PUN202600003.status=delivered`; `deliveryRecord.deliveredByUid=5UpyGclN1eGbRBAxq0Ffqz6OE4H7`; firma verificada en `shipments/PUN202600003/signatures/signature_1795733284736_4c932d5f.png`, objeto existente en Storage Emulator.
+- Devengo desde Comisiones de conductores: guía `PUN202600003`, flete base Bs 10, regla temporal 10%, resultado Bs 1. Liquidación desde la interfaz: vale `COM-2026-00001`, egreso `mov_com_qkThLaw7A3yFMkqrmqSq` por 100 centavos, comisión `ACR-d5752592c7eaf85bdc2a2a3ae471c988dee95732e435b231de6e63d04e841625` en estado `paid`, saldo pendiente Bs 0.
+- Auditoría: existe `commission_accrual_d5752592c7eaf85bdc2a2a3ae471c988dee95732e435b231de6e63d04e841625`; el comprobante visible fue `COM-2026-00001`. No se observó duplicación.
+- Restauración completada desde Configuración administrativa: `system_config/expreso_punata.commissions.defaultValue=0`, verificado después del guardado. La regla histórica de devengo conserva el 10% aplicado al registro QA, sin convertirlo en predeterminado.
+- Validación técnica parcial: regresión de bucket 2/2, unitarias del proyecto 93/93, typecheck/build previos aprobados. La suite completa de Functions no se declara aprobada en esta ejecución porque quedó interrumpida por falta de salida durante su ejecución.
