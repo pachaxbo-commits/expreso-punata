@@ -28,7 +28,7 @@ test('default shipment presentation is centered and the agency copy is compact a
   const template = createDefaultDocumentTemplate('shipment_guide')
   const html = await buildDocumentTemplateHtml(sample('shipment_guide'), '80mm', template)
   assert.match(html, /text-align:center/)
-  assert.match(html, /COPIA AGENCIA/)
+  assert.match(html, /COPIA CLIENTE/)
   assert.equal((html.match(/class="copy /g) || []).length, 2)
   assert.match(html, /Remitente de prueba/)
   assert.match(html, /Destinatario de prueba/)
@@ -37,6 +37,34 @@ test('default shipment presentation is centered and the agency copy is compact a
   assert.ok(agencySection)
   assert.doesNotMatch(agencySection, /Dirección de prueba|Teléfono institucional/)
   assert.equal(await buildDocumentHtml(sample('shipment_guide'), '80mm', { documentTemplate: template }), html)
+})
+
+test('shipment client copy shows real paid amount, balance and payment method without changing the original guide', async () => {
+  const template = createDefaultDocumentTemplate('shipment_guide')
+  const doc = sample('shipment_guide')
+  doc.metadata = { ...doc.metadata, paidAmountCents: 750, balanceDueCents: 1250, paymentMethodLabel: 'Efectivo' }
+  const original = await buildDocumentTemplateHtml(doc, '80mm', template, { copyIndex: 0 })
+  const client = await buildDocumentTemplateHtml(doc, '80mm', template, { copyIndex: 1 })
+  assert.match(client, /COPIA CLIENTE/)
+  assert.match(client, /Bs 7\.50/)
+  assert.match(client, /Bs 12\.50/)
+  assert.match(client, /Efectivo/)
+  assert.match(client, /Destinatario de prueba/)
+  assert.match(original, /Bs 20\.00/)
+})
+
+test('legacy shipment templates migrate the client copy to the financial receipt fields', () => {
+  const legacy = normalizeDocumentTemplate('shipment_guide', {
+    ...createDefaultDocumentTemplate('shipment_guide'),
+    copies: [
+      createDefaultDocumentTemplate('shipment_guide').copies[0],
+      { label: 'COPIA AGENCIA', visibleFields: ['title', 'tracking', 'route'], fieldStyles: {}, compact: true },
+    ],
+  })
+  assert.equal(legacy.copies[1].label, 'COPIA CLIENTE')
+  assert.ok(legacy.copies[1].visibleFields.includes('paidAmount'))
+  assert.ok(legacy.copies[1].visibleFields.includes('balanceDue'))
+  assert.ok(legacy.copies[1].visibleFields.includes('paymentMethod'))
 })
 
 test('field allowlist, required fields, financial alignment, 58/80 mm and optional omissions are safe', async () => {
@@ -105,12 +133,12 @@ test('guide blocks follow saved field order and omit disabled or empty content a
     assert.doesNotMatch(client, /class="qr"|field-senderPhone/)
     assert.equal(client, await buildDocumentHtml(doc, width, { ...options, documentTemplate: template }))
     const agency = await buildDocumentTemplateHtml(doc, width, template, { copyIndex: 1 })
-    assert.match(agency, /COPIA AGENCIA/)
+    assert.match(agency, /COPIA CLIENTE/)
     for (const html of [client, agency]) {
       assert.equal((html.match(/class="copy /g) || []).length, 1)
       assert.match(html, /EP-TEST-001/)
-      assert.match(html, /Bs 20\.00/)
     }
+    assert.match(client, /Bs 20\.00/)
     const edited = structuredClone(template)
     edited.copies[0].visibleFields = edited.copies[0].visibleFields.filter(id => !['sender', 'recipient', 'items', 'financials', 'payment'].includes(id))
     const compact = await buildDocumentTemplateHtml(doc, width, edited, options)
@@ -134,7 +162,7 @@ test('guide prints both official addresses before a single notice in each copy',
       assert.match(html, /Detalle<\/span>.*Cajas <b>\(2\)<\/b>/)
       assert.match(html, /Dirección PUN.*Dirección CBB[^]*?block-notice[^]*?No constituye una factura fiscal<\/div><\/div>\s*<\/section>/)
       assert.equal((html.match(/AVISOS OFICIALES/g) || []).length, 1)
-      assert.match(html, />Pagado</)
+      if (copyIndex === 0) assert.match(html, />Pagado</)
     }
   }
   assert.match(await buildDocumentTemplateHtml(doc, '58mm', template, { copyIndex: 0 }), />Pagado</)

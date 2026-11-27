@@ -257,6 +257,17 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
     }
   }
 
+  const handlePrintThermalCopy = async (copyIndex: 0 | 1) => {
+    try {
+      const docPayload = printEngine.buildFromShipment(shipment, currentUser.fullName)
+      const result = await printEngine.printDocument(docPayload, undefined, undefined, copyIndex)
+      if (!result.success) alert(result.message)
+    } catch (err) {
+      console.error('Error al reimprimir copia térmica:', err)
+      alert('Error al enviar la copia a impresora térmica: ' + (err instanceof Error ? err.message : 'Desconocido'))
+    }
+  }
+
   const handlePrintPdf = () => {
     printShipmentGuidePdf(shipment)
   }
@@ -1006,6 +1017,22 @@ export const ShipmentDetailModal: React.FC<ShipmentDetailModalProps> = ({
             >
               <FileText className="w-3.5 h-3.5" />
               <span>Guía PDF</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePrintThermalCopy(0)}
+              className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl font-bold flex items-center gap-1.5 text-xs transition"
+              title="Reimprimir únicamente la guía original"
+            >
+              <span>Reimprimir guía</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePrintThermalCopy(1)}
+              className="px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl font-bold flex items-center gap-1.5 text-xs transition"
+              title="Reimprimir únicamente la copia compacta del cliente"
+            >
+              <span>Reimprimir copia cliente</span>
             </button>
             {isDelivered && (
               <button

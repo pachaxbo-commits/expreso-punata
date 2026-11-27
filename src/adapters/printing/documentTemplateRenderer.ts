@@ -4,6 +4,9 @@ import { getRequiredTemplateFields, normalizeDocumentTemplate, templateFieldValu
 
 const e = (value: unknown) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
 const labels = new Map(TEMPLATE_FIELD_CATALOG.map(field => [field.id, field.label]))
+labels.set('paidAmount', 'Importe pagado')
+labels.set('balanceDue', 'Saldo pendiente')
+labels.set('paymentMethod', 'Metodo de pago')
 
 export async function buildDocumentTemplateHtml(doc: UnifiedDocumentPayload, paper: Extract<PaperFormat, '58mm' | '80mm'>, input: DocumentPrintTemplate, options: { includeQr?: boolean; includeLogo?: boolean; copyIndex?: 0 | 1 } = {}): Promise<string> {
   const template = normalizeDocumentTemplate(doc.documentType, input)
