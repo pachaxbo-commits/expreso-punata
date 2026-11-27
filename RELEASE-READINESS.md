@@ -33,6 +33,10 @@ La rama `codex/integration-2026-11` está publicada y lista para revisión y Pul
 
 ## Pendientes antes de merge
 
+- Physical printing remains pending hardware validation; virtual, PDF and thermal-ticket printing were verified.
+- Production external services must be configured and validated outside the emulator before launch.
+- The original 101-case matrix is not claimed as one monolithic execution; evidence is covered by verified groups and journeys.
+
 - Revisión humana del Pull Request.
 - Decisión de merge a `main`.
 
