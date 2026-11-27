@@ -2,26 +2,38 @@
 
 Fecha: 2026-11-27
 
-## Aprobado
+## Validación final QA
 
-- Functions: 37 archivos / 204 pruebas, dos ejecuciones consecutivas, código 0.
-- Firestore Rules: 34/34 en la suite actual.
-- Unitarias: 96/96.
-- Typecheck y build: aprobados previamente sobre la rama consolidada.
-- Caso 99: atribución nueva a sucursal de origen, con sucursal de cobro/liquidación separada y lectura de comisiones por backend.
-- Bien fijo QA: creado, editado y persistido desde Chrome.
+- Node portátil: `v22.17.0`.
+- Unitarias: `97/97`, fallos `0`, omitidas `0`.
+- Typecheck y build: aprobados.
+- Functions: `37/37` archivos, `204/204` pruebas, código `0` en dos ejecuciones consecutivas.
+- Firestore/Storage Rules: `37/37` pruebas combinadas aprobadas en el entorno aislado, sin debilitar reglas.
+- Integración: `1/1` aprobada, incluyendo reportes y exportaciones.
+- Caja: `TUR-CBB-2026-0002` cerrado, diferencia final `Bs 0`, comprobante y auditoría presentes, sin movimientos duplicados.
+- `TUR-PUN-2026-0004` permanece intacto y abierto, con cinco movimientos existentes.
+- Reportes: bloqueo de caché Vite resuelto; exportación XLSX verificada desde Chrome.
+- Caso 99: custodia y comisiones atribuidas a la sucursal de origen; sucursal de cobro/liquidación separada.
 
-## Pendiente antes de merge a main
+## Estado de integración
 
-- Ejecutar Storage Rules con el fixture corregido y el entorno aislado.
-- Ejecutar integración con Node 22.17.0.
-- Resolver el bloqueo visual de Reportes que permanece en “Cargando reportes…” en Chrome antes de aprobar exportaciones comerciales.
-- Abrir y cerrar un turno nuevo únicamente cuando no exista un turno QA activo.
-- Storage Rules: aislar y corregir el fixture/bucket que produce `storage/unauthorized` sin cambiar las reglas.
+La rama `codex/integration-2026-11` está publicada y lista para revisión y Pull Request hacia `main`.
 
-La rama `codex/integration-2026-11` queda preparada para revisión, pero estos pendientes impiden declarar readiness comercial completa o hacer merge a main.
-- Reportes: bloqueo resuelto operacionalmente; causa confirmada en caché Vite (`Outdated Optimize Dep`), exportación XLSX verificada desde Chrome.
-- `origin/main` integrado hasta `becf623`; se conservan los cambios de guías, latencia, seguridad y runner QA. El conflicto de soporte fue resuelto y `supportCenter.test.mjs` pasó 17/17.
-- Runner Functions posterior a la integración: 37/37 archivos y 204/204 pruebas aprobadas.
-- Caja QA independiente completada: `TUR-CBB-2026-0002` cerrado con Bs 0 de diferencia, comprobante y auditoría verificados; el turno histórico `TUR-PUN-2026-0004` permanece intacto.
-- Node 22.17.0 portátil validado; integración 1/1 y Rules combinadas 37/37 aprobadas.
+- `origin/main` integrado hasta `becf623`.
+- Se conservaron las funcionalidades del equipo y las correcciones QA.
+- No se hizo merge a `main` ni despliegue.
+- El cierre definitivo se ejecutó exclusivamente contra Firebase Emulator.
+
+## Evidencia de caja
+
+- `TUR-CBB-2026-0002`: `closed`, esperado Bs 90, contado Bs 90, diferencia Bs 0.
+- Movimiento autorizado: `REC-QA-CBB-0001`, egreso Bs 10.
+- Persistencia, comprobante, auditoría y ausencia de duplicados verificadas.
+- `TUR-PUN-2026-0004`: sin modificaciones; permanece `open` con cinco movimientos.
+
+## Pendientes antes de merge
+
+- Revisión humana del Pull Request.
+- Decisión de merge a `main`.
+
+No hay un pendiente técnico de Storage Rules, integración, caja, unitarias, typecheck o build que impida preparar el Pull Request en este entorno QA.
