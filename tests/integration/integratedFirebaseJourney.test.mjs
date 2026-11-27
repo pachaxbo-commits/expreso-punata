@@ -9,12 +9,8 @@ import { getAuth } from 'firebase-admin/auth'
 import { getFirestore } from 'firebase-admin/firestore'
 import { exportReportToPdf, exportToXlsx } from '../../src/services/reportService.ts'
 
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
-process.env.FIREBASE_STORAGE_EMULATOR_HOST ||= '127.0.0.1:9199'
-process.env.STORAGE_EMULATOR_HOST ||= `http://${process.env.FIREBASE_STORAGE_EMULATOR_HOST || '127.0.0.1:9199'}`
-
-const projectId = process.env.GCLOUD_PROJECT || 'demo-expreso-punata-integracion'
+const projectId = process.env.GCLOUD_PROJECT
+if (projectId !== 'demo-expreso-punata-finalization') throw new Error('Integration journey solo admite demo-expreso-punata-finalization.')
 if (getApps().length === 0) initializeApp({ projectId, storageBucket: `${projectId}.appspot.com` })
 const db = getFirestore()
 const authAdmin = getAuth()
@@ -100,6 +96,9 @@ function shipmentInput(originBranchId, paymentTiming, key) {
     sender: { name: 'Remitente Ficticio', phone: '71230001', docNumber: `S${suffix.slice(-6)}` },
     recipient: { name: 'Destinatario Ficticio', phone: '71230002', docNumber: `R${suffix.slice(-6)}` },
     items: [{ description: 'Caja de prueba sin valor comercial', quantity: 1, weightKg: 1, packaging: 'caja' }],
+    // El tarifario no está habilitado en este fixture: declarar el precio acordado
+    // como lo exige el contrato actual de createShipment.
+    agreedAmountCents: 1_500,
     paymentTiming, paymentMethod: 'cash', prohibitedGoodsNoticeAccepted: true, idempotencyKey: key,
   }
 }
@@ -117,18 +116,24 @@ test('Simulación operativa integrada por Functions Emulator: Afiliados, Caja, p
   const cbbaCashier = await createOperator('caja-cochabamba', 'secretaria', 'cochabamba')
   const punataManager = await createOperator('encargado-punata', 'encargado_agencia', 'punata')
   const driver = await createOperator('conductor-demo', 'conductor', 'punata', ['punata', 'cochabamba'])
+  // Tarifario y comisión son fixtures ficticios del Emulator: habilitan el
+  // cálculo del servidor y evitan tratar el precio acordado manualmente como flete.
+  await call(board, 'updateSystemConfig', {
+    tariffs: { baseFeeCents: 1_500, freeWeightKg: 1, extraKgRateCents: 0, homeDeliveryFeeCents: 0 },
+    isDemo: true,
+  })
   await db.collection('driver_directory').doc(driver).set({ uid: driver, fullName: 'Demo conductor-demo', phone: '71230003', isActive: true })
-  const memberIds = await Promise.all([1, 2, 3, 4].map((index) => createMember(treasurer, index)))
-  const childResult = await call(treasurer, 'manageUnionMember', { action: 'addChild', memberId: memberIds[0], child: { fullName: 'Hija ficticia Integración', ci: `CH${suffix.slice(-6)}`, phone: '71230004' } })
-  await call(treasurer, 'manageUnionMember', { action: 'setDriverLink', memberId: memberIds[0], driverUid: driver })
-  await call(treasurer, 'manageUnionMember', { action: 'setDriverLink', memberId: memberIds[0], childId: childResult.child.id, driverUid: driver })
+  const memberIds = await Promise.all([1, 2, 3, 4].map((index) => createMember(board, index)))
+  const childResult = await call(board, 'manageUnionMember', { action: 'addChild', memberId: memberIds[0], child: { fullName: 'Hija ficticia Integración', ci: `CH${suffix.slice(-6)}`, phone: '71230004' } })
+  await call(board, 'manageUnionMember', { action: 'setDriverLink', memberId: memberIds[0], driverUid: driver })
+  await call(board, 'manageUnionMember', { action: 'setDriverLink', memberId: memberIds[0], childId: childResult.child.id, driverUid: driver })
   const statement = await call(treasurer, 'getMemberAccountStatement', { memberId: memberIds[0] })
   assert.equal(statement.member.primaryDriverUid, driver)
   assert.equal(statement.children.find((child) => child.id === childResult.child.id).driverUid, driver)
   console.log(`[integración] A: 4 afiliados, 1 hijo y 2 vínculos de conductor; lectura verificada.`)
 
   const month = todayLaPaz().slice(0, 7)
-  const dueRun = await call(treasurer, 'generateMonthlyDues', { period: month })
+  const dueRun = await call(board, 'generateMonthlyDues', { period: month })
   assert.equal(dueRun.generatedCount, 4)
   const punataShift = await call(punataCashier, 'openCashShift', { branchId: 'punata', initialCashCents: 500_000, idempotencyKey: `int-pun-shift-${suffix}` })
   const punataShiftId = punataShift.shift.id
@@ -167,12 +172,12 @@ test('Simulación operativa integrada por Functions Emulator: Afiliados, Caja, p
     place: 'Cancha ficticia', memberIds, idempotencyKey: `int-sports-event-${suffix}`,
   })
   const eventId = event.eventId
-  const attend = (memberId, attendance, key) => call(treasurer, 'setUnionSportsAttendance', { eventId, memberId, attendance, reason: 'Control de asistencia simulado', idempotencyKey: key })
+  const attend = (memberId, attendance, key) => call(board, 'setUnionSportsAttendance', { eventId, memberId, attendance, reason: 'Control de asistencia simulado', idempotencyKey: key })
   const present = await attend(memberIds[0], 'present', `int-present-${suffix}`)
   assert.equal(present.fineId, null)
   const tardyInput = { eventId, memberId: memberIds[1], attendance: 'late', reason: 'Registro de tardanza', idempotencyKey: `int-late-${suffix}` }
-  const tardy = await call(treasurer, 'setUnionSportsAttendance', tardyInput)
-  const tardyReplay = await call(treasurer, 'setUnionSportsAttendance', tardyInput)
+  const tardy = await call(board, 'setUnionSportsAttendance', tardyInput)
+  const tardyReplay = await call(board, 'setUnionSportsAttendance', tardyInput)
   assert.equal(tardyReplay.fineId, tardy.fineId)
   assert.equal((await db.collection('union_fines').doc(tardy.fineId).get()).data().amountCents, 5_000)
   const absent = await attend(memberIds[2], 'absent', `int-absent-${suffix}`)
@@ -180,7 +185,7 @@ test('Simulación operativa integrada por Functions Emulator: Afiliados, Caja, p
   await db.collection('work_absence_requests').doc(`int-work-leave-${suffix}`).set({ memberId: memberIds[3], status: 'approved', fixtureOnly: true })
   const leaveFixtureAbsence = await attend(memberIds[3], 'absent', `int-leave-does-not-exempt-${suffix}`)
   assert.ok(leaveFixtureAbsence.fineId, 'un permiso laboral no convierte automáticamente la asistencia deportiva en exenta')
-  const justification = await call(treasurer, 'requestUnionSportsJustification', {
+  const justification = await call(board, 'requestUnionSportsJustification', {
     eventId, memberId: memberIds[3], reason: 'Justificación ficticia sometida a decisión', requestDate: today,
     idempotencyKey: `int-justification-${suffix}`,
   })
@@ -199,7 +204,7 @@ test('Simulación operativa integrada por Functions Emulator: Afiliados, Caja, p
   const finalFinePayment = await call(punataCashier, 'collectUnionFinePayment', { ...partialFinePaymentInput, amountCents: 3_000, idempotencyKey: `int-fine-final-${suffix}` })
   assert.equal(finalFinePayment.balanceCents, 0)
 
-  const generalFine = await call(treasurer, 'createUnionFine', {
+  const generalFine = await call(punataCashier, 'createUnionFine', {
     memberId: memberIds[0], category: 'conflictos', reason: 'Multa general de simulación',
     description: 'Registro para concurrencia y saldo pendiente', date: today, amountCents: 3_000, notes: 'Fixture ficticio',
   })
@@ -279,19 +284,24 @@ test('Simulación operativa integrada por Functions Emulator: Afiliados, Caja, p
   })
   assert.equal(routeDelivery.deliveryChannel, 'route_delivery')
   assert.equal((await db.collection('driver_custody_accounts').doc(driver).get()).data().pendingRemittanceCents, 1_500)
-  const remittance = await call(cbbaCashier, 'settleDriverCash', {
+  // La liquidación de custodia permanece restringida a Directiva por el contrato
+  // actual; Secretaría conserva su propio turno para las demás operaciones de Caja.
+  const cbbaBoard = await createOperator('directorio-cochabamba', 'directiva_admin', 'cochabamba', ['punata', 'cochabamba'])
+  const cbbaBoardShift = await call(cbbaBoard, 'openCashShift', { branchId: 'cochabamba', initialCashCents: 0, idempotencyKey: `int-board-cbb-shift-${suffix}` })
+  const remittance = await call(cbbaBoard, 'settleDriverCash', {
     driverUid: driver, amountCents: 1_500, shipmentIds: [tracking[2]],
     paymentMethod: 'cash', idempotencyKey: `int-route-remit-${suffix}`, notes: 'Rendición ficticia de destino',
   })
   assert.equal(remittance.remainingDriverBalanceCents, 0)
   assert.equal((await db.collection('driver_custody_accounts').doc(driver).get()).data().pendingRemittanceCents, 0)
 
-  await call(board, 'updateSystemConfig', { commissions: { defaultType: 'percentage', defaultValue: 10 } })
+  await call(board, 'updateSystemConfig', { commissions: { defaultType: 'percentage', defaultValue: 10 }, isDemo: true })
   const commission = await call(board, 'accrueDriverCommission', {
     driverUid: driver, shipmentId: tracking[2], manifestId: routeManifest.manifestId,
   })
   assert.equal(commission.commissionAmountCents, 150)
-  const commissionVoucher = await call(punataCashier, 'settleDriverCommission', {
+  const boardPunataShift = await call(board, 'openCashShift', { branchId: 'punata', initialCashCents: 10_000, idempotencyKey: `int-board-pun-shift-${suffix}` })
+  const commissionVoucher = await call(board, 'settleDriverCommission', {
     driverUid: driver, amountCents: 150, branchId: 'punata', notes: 'Liquidación ficticia de comisión',
   })
   assert.equal(commissionVoucher.voucher.settledAmountCents, 150)
@@ -304,12 +314,12 @@ test('Simulación operativa integrada por Functions Emulator: Afiliados, Caja, p
   const shiftsBeforeInventory = await db.collection('cash_shifts').get()
   const movementsBeforeInventory = await db.collection('financial_movements').get()
   const batchRequestId = `integrated-chair-batch-${suffix}`
-  const assets = await call(treasurer, 'manageFixedAsset', {
+  const assets = await call(board, 'manageFixedAsset', {
     action: 'create_batch', name: 'Silla ficticia de sala', category: 'muebles',
     patrimonialLocationId: 'sede_punata', quantity: 50, acquisitionCostCents: 250_000,
     acquisitionDate: today, batchRequestId,
   })
-  const retryAssets = await call(treasurer, 'manageFixedAsset', {
+  const retryAssets = await call(board, 'manageFixedAsset', {
     action: 'create_batch', name: 'Silla ficticia de sala', category: 'muebles',
     patrimonialLocationId: 'sede_punata', quantity: 50, acquisitionCostCents: 250_000,
     acquisitionDate: today, batchRequestId,
@@ -319,21 +329,21 @@ test('Simulación operativa integrada por Functions Emulator: Afiliados, Caja, p
   assert.equal(new Set(assets.assets.map((asset) => asset.assetCode)).size, 50)
   assert.equal(new Set(assets.assets.map((asset) => asset.qrPayload)).size, 50)
   const movedAsset = assets.assets[0]
-  await call(treasurer, 'manageFixedAsset', { action: 'update', id: movedAsset.id, patrimonialLocationId: 'oficina_cochabamba' })
+  await call(board, 'manageFixedAsset', { action: 'update', id: movedAsset.id, patrimonialLocationId: 'oficina_cochabamba' })
   const movedAssetAfter = (await db.collection('fixed_assets').doc(movedAsset.id).get()).data()
   assert.equal(movedAssetAfter.id, movedAsset.id)
   assert.equal(movedAssetAfter.qrPayload, movedAsset.qrPayload)
   assert.equal(movedAssetAfter.patrimonialLocationId, 'oficina_cochabamba')
-  const property = await call(treasurer, 'manageFixedAsset', {
+  const property = await call(board, 'manageFixedAsset', {
     action: 'create_batch', name: 'Inmueble demo Sede Punata', category: 'inmuebles', propertyType: 'Sede',
     address: 'Dirección ficticia de prueba', patrimonialLocationId: 'sede_punata', quantity: 1,
     batchRequestId: `integrated-property-${suffix}`,
   })
-  const document = await call(treasurer, 'managePhysicalInventoryDocument', {
+  const document = await call(board, 'managePhysicalInventoryDocument', {
     action: 'create', title: `Libro de actas ${suffix}`, documentType: 'Libro',
     patrimonialLocationId: 'sede_punata', sheetCount: 120, documentDate: today,
   })
-  await call(treasurer, 'managePhysicalInventoryDocument', {
+  await call(board, 'managePhysicalInventoryDocument', {
     action: 'update', id: document.id, title: `Libro de actas ${suffix}`, documentType: 'Libro',
     patrimonialLocationId: 'sede_punata', sheetCount: 121, documentDate: today,
   })
@@ -443,8 +453,10 @@ test('Simulación operativa integrada por Functions Emulator: Afiliados, Caja, p
 
   const finalPunataShift = (await db.collection('cash_shifts').doc(punataShiftId).get()).data()
   const finalCbbaShift = (await db.collection('cash_shifts').doc(cbbaShiftId).get()).data()
-  assert.equal(finalPunataShift.expectedCashCents, 543_350)
-  assert.equal(finalCbbaShift.expectedCashCents, 253_000)
+  assert.equal(finalPunataShift.expectedCashCents, 543_500)
+  assert.equal(finalCbbaShift.expectedCashCents, 251_500)
+  assert.equal((await db.collection('cash_shifts').doc(boardPunataShift.shift.id).get()).data().expectedCashCents, 9_850)
+  assert.equal((await db.collection('cash_shifts').doc(cbbaBoardShift.shift.id).get()).data().expectedCashCents, 1_500)
   assert.equal((await db.collection('union_loans').doc(loanId).get()).data().balanceCents, 90_000)
   assert.equal((await db.collection('union_fines').doc(tardy.fineId).get()).data().balanceCents, 0)
   assert.equal((await db.collection('union_fines').doc(absent.fineId).get()).data().balanceCents, 10_000)

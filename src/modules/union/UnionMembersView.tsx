@@ -101,7 +101,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
     const d = new Date()
     const m = String(d.getMonth() + 1).padStart(2, '0')
     return `${d.getFullYear()}-${m}`
-  }, [])
+  }, [currentUser.uid])
 
   const [selectedPeriod, setSelectedPeriod] = useState<string>(currentPeriodStr)
   const [dues, setDues] = useState<UnionMonthlyDue[]>([])
@@ -176,7 +176,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
       }
     )
     return () => unsubscribe()
-  }, [selectedPeriod])
+  }, [currentUser.uid, selectedPeriod])
 
   // Filtrado de socios
   const filteredMembers = useMemo(() => {
@@ -836,7 +836,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
         />
         </div>
       )}
-      {activeTab === 'fines' && <div data-tutorial-target="union-fines-panel"><UnionFinesView members={members} canCreate={isOperationalAdmin(currentUser)} canCollect={isOperationalAdmin(currentUser)} activeShift={effectiveShift} branchId={currentBranch.id} /></div>}
+      {activeTab === 'fines' && <div data-tutorial-target="union-fines-panel"><UnionFinesView members={members} canCreate={hasOperationalRole(currentUser, ['directiva_admin', 'secretaria'])} canCollect={hasOperationalRole(currentUser, ['directiva_admin', 'tesoreria', 'secretaria'])} activeShift={effectiveShift} branchId={currentBranch.id} /></div>}
       {activeTab === 'sports' && <div data-tutorial-target="union-sports-panel"><UnionSportsView members={members} canManage={isManagement} canDecide={isOperationalAdmin(currentUser)} /></div>}
       {activeTab === 'debts' && <div data-tutorial-target="union-debts-panel"><UnionDebtAlertsView onOpenMember={(memberId) => { const member = members.find((item) => item.id === memberId); if (member) void handleOpenStatement(member) }} /></div>}
       {activeTab === 'annual-board' && isManagement && <div data-tutorial-target="union-annual-board-panel"><AnnualBoardView members={members} /></div>}

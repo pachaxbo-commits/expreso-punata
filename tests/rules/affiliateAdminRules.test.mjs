@@ -3,10 +3,15 @@ import { readFileSync } from 'node:fs'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 
-const port = Number(process.env.FIRESTORE_RULES_PORT || 16080)
+const projectId = process.env.GCLOUD_PROJECT
+const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || ''
+const emulator = /^127\.0\.0\.1:(\d+)$/.exec(firestoreHost)
+if (projectId !== 'demo-expreso-punata-finalization' || !emulator) {
+  throw new Error('affiliateAdminRules requiere el lanzador aislado y Firestore Emulator en loopback.')
+}
 const env = await initializeTestEnvironment({
-  projectId: 'demo-affiliate-admin-rules',
-  firestore: { rules: readFileSync('firestore.rules', 'utf8'), host: '127.0.0.1', port },
+  projectId,
+  firestore: { rules: readFileSync('firestore.rules', 'utf8'), host: '127.0.0.1', port: Number(emulator[1]) },
 })
 
 await env.withSecurityRulesDisabled(async (context) => {

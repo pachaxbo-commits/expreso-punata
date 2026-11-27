@@ -13,11 +13,9 @@ import {
 } from '../index.js'
 
 // Configurar conexión a emuladores locales
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
 
 if (getApps().length === 0) {
-  initializeApp({ projectId: 'demo-expreso-punata-manifest-test' })
+  initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 }
 
 const db = getFirestore()
@@ -31,8 +29,14 @@ async function clearCollections() {
     'counters',
     'audit_logs',
     'idempotency_keys',
+    'shipment_notifications',
   ]
+  for (const col of ['shipments', 'manifests']) {
+    const snapshot = await db.collection(col).get()
+    for (const doc of snapshot.docs) await db.recursiveDelete(doc.ref)
+  }
   for (const col of collections) {
+    if (col === 'shipments' || col === 'manifests') continue
     const snapshot = await db.collection(col).get()
     const batch = db.batch()
     snapshot.docs.forEach((d) => batch.delete(d.ref))

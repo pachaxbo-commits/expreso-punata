@@ -15,7 +15,7 @@ import {
   adminProvisionUser,
 } from '../index.js'
 
-if (getApps().length === 0) initializeApp({ projectId: 'demo-affiliate-admin-security' })
+if (getApps().length === 0) initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 const db = getFirestore()
 const auth = getAuth()
 const runId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`

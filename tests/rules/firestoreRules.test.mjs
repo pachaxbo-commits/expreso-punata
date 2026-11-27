@@ -9,6 +9,12 @@ import {
 import { doc, getDoc, collection, getDocs, query, where, setDoc, updateDoc, deleteDoc } from 'firebase/firestore'
 
 let testEnv
+const projectId = process.env.GCLOUD_PROJECT
+const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || ''
+const firestoreEndpoint = /^127\.0\.0\.1:(\d+)$/.exec(firestoreHost)
+if (projectId !== 'demo-expreso-punata-finalization' || !firestoreEndpoint) {
+  throw new Error('firestoreRules requiere el lanzador aislado y Firestore Emulator en loopback.')
+}
 
 test('soporte no puede escribir ni leer respaldos o auditoría directamente', async () => {
   await testEnv.withSecurityRulesDisabled(async context => {
@@ -119,11 +125,11 @@ test('versiones comerciales e institucionales solo se administran mediante Funct
 before(async () => {
   const rules = readFileSync('firestore.rules', 'utf8')
   testEnv = await initializeTestEnvironment({
-      projectId: process.env.FIRESTORE_RULES_PROJECT_ID || process.env.GCLOUD_PROJECT || 'demo-expreso-punata-101',
+    projectId,
     firestore: {
       rules,
       host: '127.0.0.1',
-        port: Number(process.env.FIRESTORE_RULES_PORT || process.env.FIRESTORE_EMULATOR_PORT || 8080),
+      port: Number(firestoreEndpoint[1]),
     },
   })
 })
@@ -984,7 +990,11 @@ test('only the active company administrator can read the global commissions ledg
     for (const [id, role, isActive] of [
       ['ledger-admin', 'directiva_admin', true], ['ledger-inactive', 'directiva_admin', false],
       ['ledger-secretary', 'secretaria', true], ['ledger-affiliate', 'afiliado', true],
+      ['ledger-full-affiliate-admin', 'afiliado_admin', true],
     ]) await setDoc(doc(seed, 'users', id), { role, isActive })
+    await setDoc(doc(seed, 'users', 'ledger-full-affiliate-admin'), {
+      role: 'afiliado_admin', isActive: true, primaryBranchId: 'punata', allowedBranchIds: ['punata', 'cochabamba'],
+    })
     await setDoc(doc(seed, 'driver_commission_accounts', 'ledger-driver'), { pendingCents: 200 })
     await setDoc(doc(seed, 'driver_commission_records', 'ledger-record'), { amountCents: 200 })
   })
@@ -994,7 +1004,7 @@ test('only the active company administrator can read the global commissions ledg
     const ref = uid => doc(testEnv.authenticatedContext(uid).firestore(), collectionName, id)
     await assertSucceeds(getDoc(ref('ledger-admin')))
     await assertFails(updateDoc(ref('ledger-admin'), { pendingCents: 0 }))
-    for (const uid of ['ledger-inactive', 'ledger-secretary', 'ledger-affiliate']) await assertFails(getDoc(ref(uid)))
+    for (const uid of ['ledger-inactive', 'ledger-secretary', 'ledger-affiliate', 'ledger-full-affiliate-admin']) await assertFails(getDoc(ref(uid)))
   }
 })
 
@@ -1031,6 +1041,7 @@ test('administración institucional y perfiles de agencia mantienen fronteras de
     const seed = context.firestore()
     for (const [uid, role, agencies] of [
       ['scope-full', 'afiliado_admin', ['punata', 'cochabamba']],
+      ['scope-directiva', 'directiva_admin', ['punata', 'cochabamba']],
       ['scope-limit', 'afiliado_admin', ['punata']],
       ['scope-secretary', 'secretaria', ['punata']],
       ['scope-member', 'afiliado', ['punata']],
@@ -1048,19 +1059,26 @@ test('administración institucional y perfiles de agencia mantienen fronteras de
   const full = testEnv.authenticatedContext('scope-full').firestore()
   const limited = testEnv.authenticatedContext('scope-limit').firestore()
   const secretary = testEnv.authenticatedContext('scope-secretary').firestore()
-  await assertFails(getDoc(doc(secretary, 'financial_movements', 'scope-financial-own-branch')))
+  await assertSucceeds(getDoc(doc(secretary, 'financial_movements', 'scope-financial-own-branch')))
+  await assertFails(getDoc(doc(secretary, 'financial_movements', 'scope-financial')))
   await assertSucceeds(getDoc(doc(limited, 'union_members', 'scope-member-punata')))
   await assertFails(getDoc(doc(limited, 'union_members', 'scope-member-cocha')))
   for (const [collectionId, id] of [
     ['driver_commission_accounts', 'scope-driver'],
     ['driver_commission_records', 'scope-record'],
-    ['financial_movements', 'scope-financial'],
   ]) {
-    await assertSucceeds(getDoc(doc(full, collectionId, id)))
-    await assertFails(updateDoc(doc(full, collectionId, id), { amountCents: 0 }))
-    for (const uid of ['scope-limit', 'scope-secretary', 'scope-member', 'scope-support']) {
+    await assertSucceeds(getDoc(doc(testEnv.authenticatedContext('scope-directiva').firestore(), collectionId, id)))
+    await assertFails(updateDoc(doc(testEnv.authenticatedContext('scope-directiva').firestore(), collectionId, id), { amountCents: 0 }))
+    for (const uid of ['scope-full', 'scope-limit', 'scope-secretary', 'scope-member', 'scope-support']) {
       const db = testEnv.authenticatedContext(uid, { role: 'directiva_admin' }).firestore()
       await assertFails(getDoc(doc(db, collectionId, id)))
     }
   }
+  const financial = uid => doc(testEnv.authenticatedContext(uid).firestore(), 'financial_movements', 'scope-financial')
+  await assertSucceeds(getDoc(financial('scope-directiva')))
+  await assertSucceeds(getDoc(doc(secretary, 'financial_movements', 'scope-financial-own-branch')))
+  await assertFails(getDoc(financial('scope-secretary')))
+  await assertFails(getDoc(financial('scope-full')))
+  await assertFails(getDoc(financial('scope-limit')))
+  await assertFails(updateDoc(financial('scope-directiva'), { amountCents: 0 }))
 })

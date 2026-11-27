@@ -42,27 +42,47 @@ service firebase.storage {
       return isAuthoritativeActiveUser() && (getUserRole() == 'tesoreria' || isAdmin());
     }
 
+    function shipmentPhotosEnabled() {
+      let configPath = /databases/(default)/documents/system_config/expreso_punata;
+      return firestore.exists(configPath) &&
+        firestore.get(configPath).data.get('storagePhotosEnabled', false) == true;
+    }
+
     function getShipment(shipmentId) {
       return firestore.get(/databases/(default)/documents/shipments/$(shipmentId)).data;
     }
 
     function canAccessShipment(shipmentId) {
-      return isAuthoritativeActiveUser() &&
-        (isAdmin() || getUserRole() in ['secretaria', 'encargado_agencia', 'tesoreria', 'conductor']) &&
-        firestore.exists(/databases/(default)/documents/shipments/$(shipmentId)) && (
-        isAdmin() ||
-        isTreasury() ||
-        (getUserBranch() != null && (
-          getShipment(shipmentId).originBranchId == getUserBranch() ||
-          getShipment(shipmentId).destinationBranchId == getUserBranch()
-        )) ||
-        (getUserRole() == 'conductor' && (
-          (('assignedVehicle' in getShipment(shipmentId)) &&
-           getShipment(shipmentId).assignedVehicle.driverUid == request.auth.uid) ||
-          (('collectedByDriverUid' in getShipment(shipmentId)) &&
-           getShipment(shipmentId).collectedByDriverUid == request.auth.uid)
-        ))
-      );
+      let userExists = isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+      let user = userExists ? getUserDoc() : {};
+      let role = user.get('role', '');
+      let profileActive = userExists &&
+        role != 'soporte_pachax' &&
+        role != 'afiliado' &&
+        user.get('isActive', false) == true &&
+        (!('isActive' in request.auth.token) || request.auth.token.isActive == true);
+      let admin = role == 'directiva_admin' ||
+        (role == 'afiliado_admin' &&
+          user.get('primaryBranchId', '') in ['punata', 'cochabamba'] &&
+          user.get('allowedBranchIds', []) is list &&
+          user.get('allowedBranchIds', []).hasAll(['punata', 'cochabamba']));
+      let branch = user.get('primaryBranchId', null);
+      let shipmentExists = profileActive &&
+        firestore.exists(/databases/(default)/documents/shipments/$(shipmentId));
+      let shipment = shipmentExists ? getShipment(shipmentId) : {};
+      let branchMatch = branch != null &&
+        (shipment.get('originBranchId', '') == branch ||
+         shipment.get('destinationBranchId', '') == branch);
+      let assignedToConductor = role == 'conductor' && (
+        (('assignedVehicle' in shipment) &&
+          shipment.assignedVehicle.driverUid == request.auth.uid) ||
+        (('collectedByDriverUid' in shipment) &&
+          shipment.collectedByDriverUid == request.auth.uid));
+      return profileActive &&
+        (admin || role in ['secretaria', 'encargado_agencia', 'tesoreria', 'conductor']) &&
+        shipmentExists &&
+        (admin || role == 'tesoreria' || branchMatch || assignedToConductor);
     }
 
     // Comprobantes de encomiendas y firmas de entrega (restringidos a imágenes < 2MB)
@@ -73,7 +93,7 @@ service firebase.storage {
         (getUserRole() == 'conductor')
       ) && request.resource.size < 2 * 1024 * 1024
         && request.resource.contentType.matches('image/.*')
-        && firestore.get(/databases/(default)/documents/system_config/expreso_punata).data.storagePhotosEnabled == true;
+        && shipmentPhotosEnabled();
       allow update, delete: if false;
     }
 

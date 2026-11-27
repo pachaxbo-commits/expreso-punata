@@ -17,14 +17,11 @@ import {
   getShipmentSignatureUrl,
   openCashShift,
 } from '../index.js'
+import { getStorageBucketName } from '../storageConfig.js'
 
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
-process.env.FIREBASE_STORAGE_EMULATOR_HOST ||= '127.0.0.1:9199'
-process.env.STORAGE_EMULATOR_HOST ||= 'http://127.0.0.1:9199'
 
 if (getApps().length === 0) {
-  initializeApp({ projectId: 'demo-expreso-punata-delivery-test' })
+  initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 }
 
 const db = getFirestore()
@@ -626,6 +623,17 @@ test('10. SEGURIDAD DE FIRMAS: getShipmentSignatureUrl genera URL temporal y blo
       recipientRelationship: 'titular',
       signatureDataUrl: testPng,
     },
+  })
+
+  // El documento de entrega referencia este objeto; sembrarlo en el Storage
+  // emulator evita confundir un fixture incompleto con un fallo del producto.
+  const signaturePath = 'shipments/ship-sig-test/signatures/signature_test.png'
+  await getStorage()
+    .bucket(getStorageBucketName())
+    .file(signaturePath)
+    .save(Buffer.from('synthetic-signature-fixture'), { contentType: 'image/png' })
+  await db.collection('shipments').doc('ship-sig-test').update({
+    'deliveryRecord.signature.storagePath': signaturePath,
   })
 
   // 1) Acceso autorizado por secretaria de destino

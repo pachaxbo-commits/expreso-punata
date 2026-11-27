@@ -1,7 +1,6 @@
 import { observedHttpsCallable as httpsCallable } from '../firebase/observedCallable.ts'
-import {
-  collection, doc, query, where, orderBy, limit } from 'firebase/firestore'
-import { getDoc, getDocs } from '../firebase/observedFirestore.ts'
+import { doc } from 'firebase/firestore'
+import { getDoc } from '../firebase/observedFirestore.ts'
 import { functions, db } from '../firebase/config.ts'
 import type {
   DriverCommissionAccount,
@@ -19,23 +18,20 @@ export async function fetchDriverCommissionAccount(
 }
 
 export async function fetchAllDriverCommissionAccounts(): Promise<DriverCommissionAccount[]> {
-  const ref = collection(db, 'driver_commission_accounts')
-  const snap = await getDocs(ref)
-  return snap.docs.map((d) => d.data() as DriverCommissionAccount)
+  const fn = httpsCallable(functions, 'getDriverCommissionOverview')
+  const res = await fn({})
+  return (res.data as { accounts: DriverCommissionAccount[] }).accounts || []
 }
 
 export async function fetchDriverCommissionRecords(
   driverUid: string,
   maxRecords = 50
 ): Promise<DriverCommissionRecord[]> {
-  const q = query(
-    collection(db, 'driver_commission_records'),
-    where('driverUid', '==', driverUid),
-    orderBy('createdAtIso', 'desc'),
-    limit(maxRecords)
-  )
-  const snap = await getDocs(q)
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as DriverCommissionRecord))
+  const fn = httpsCallable(functions, 'getDriverCommissionOverview')
+  const res = await fn({})
+  return ((res.data as { records: DriverCommissionRecord[] }).records || [])
+    .filter((record) => record.driverUid === driverUid)
+    .slice(0, maxRecords)
 }
 
 export async function accrueDriverCommission(params: {

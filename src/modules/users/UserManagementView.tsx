@@ -128,7 +128,7 @@ export const UserManagementView: React.FC = () => {
     }
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim()
-      const matchName = u.fullName.toLowerCase().includes(q)
+      const matchName = (u.fullName || '').toLowerCase().includes(q)
       const matchEmail = (u.email || '').toLowerCase().includes(q)
       const matchPhone = (u.phone || '').includes(q)
       const matchCi = (u.ci || '').toLowerCase().includes(q)
@@ -489,11 +489,11 @@ export const UserManagementView: React.FC = () => {
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-[#064e3b]/10 text-[#064e3b] font-extrabold flex items-center justify-center shrink-0 uppercase text-xs">
-                            {u.fullName.slice(0, 2)}
+                            {(u.fullName || 'Operador').slice(0, 2).toUpperCase()}
                           </div>
                           <div>
                             <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                              <span>{u.fullName}</span>
+                              <span>{u.fullName || 'Operador'}</span>
                               {u.syncStatus === 'synced' && (
                                 <span title="Claims sincronizados con Firebase Auth" className="text-emerald-600">
                                   <CheckCircle className="w-3.5 h-3.5" />
@@ -1183,8 +1183,17 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
   const [allowedBranches, setAllowedBranches] = useState<string[]>(user.allowedBranchIds || [user.primaryBranchId])
   const [vehiclePlate, setVehiclePlate] = useState(user.assignedVehiclePlate || '')
   const [mobileNumber, setMobileNumber] = useState(user.assignedMobileNumber || '')
+  const [unionMemberId, setUnionMemberId] = useState(user.unionMemberId || '')
+  const [availableMembers, setAvailableMembers] = useState<UnionRosterMember[]>([])
   const [loading, setLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!['afiliado', 'afiliado_admin'].includes(user.role)) return
+    getUnionMembersRosterThroughBackend()
+      .then(members => setAvailableMembers(members.filter(member => member.branchId === primaryBranchId && member.status === 'active')))
+      .catch(err => setFormError(err.message || 'No se pudieron cargar los afiliados disponibles.'))
+  }, [primaryBranchId, user.role])
 
   const handleBranchCheckbox = (branchId: string) => {
     if (branchId === primaryBranchId) return
@@ -1221,6 +1230,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
               : [primaryBranchId, ...allowedBranches],
         assignedVehiclePlate: user.role === 'conductor' ? vehiclePlate.trim() : undefined,
         assignedMobileNumber: user.role === 'conductor' ? mobileNumber.trim() : undefined,
+        unionMemberId: ['afiliado', 'afiliado_admin'].includes(user.role) ? (unionMemberId || undefined) : undefined,
         isActive: user.isActive,
       }
 
@@ -1384,6 +1394,17 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
                   />
                 </div>
               </div>
+            </div>
+          )}
+
+          {['afiliado', 'afiliado_admin'].includes(user.role) && (
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Afiliado vinculado</label>
+              <select value={unionMemberId} onChange={(e) => setUnionMemberId(e.target.value)} className="w-full p-2.5 border border-slate-300 rounded-lg bg-white">
+                <option value="">Sin vinculación</option>
+                {availableMembers.map(member => <option key={member.id} value={member.id}>{member.memberNumber} · {member.fullName}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">La vinculación se valida nuevamente en Cloud Functions.</p>
             </div>
           )}
 

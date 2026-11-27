@@ -34,6 +34,8 @@ import {
   printDispatchManifestTicket80mm,
 } from '../../services/pdfService.ts'
 import { formatCurrencyBob } from '../../domain/parcelEngine.ts'
+import { fetchCurrentShipment } from '../../services/shipmentService.ts'
+import { ShipmentDeliveryModal } from '../shipments/ShipmentDeliveryModal.tsx'
 
 interface DispatchManifestViewProps {
   currentUser: UserProfile
@@ -70,6 +72,8 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [deliveryShipment, setDeliveryShipment] = useState<Shipment | null>(null)
+  const [completedDriverShipmentIds, setCompletedDriverShipmentIds] = useState<string[]>([])
 
   // Estado para creación de manifiesto
   const [selectedShipmentIds, setSelectedShipmentIds] = useState<string[]>([])
@@ -224,6 +228,31 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
     } catch (err: any) {
       console.error('[handleDriverAcceptCustody] Error:', err)
       setErrorMsg(err.message || 'Error al confirmar custodia.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleOpenDirectDelivery = async (manifest: DispatchManifest, shipmentId: string) => {
+    setErrorMsg(null)
+    if (manifest.driverCustodyStatus !== 'accepted') {
+      setErrorMsg('Debe aceptar la custodia del manifiesto antes de entregar una encomienda.')
+      return
+    }
+    const summary = manifest.shipmentSummaries?.find(item => item.shipmentId === shipmentId)
+    if (summary?.deliveryType !== 'direct_driver') {
+      setErrorMsg('Esta encomienda no está configurada para entrega por conductor.')
+      return
+    }
+    setLoading(true)
+    try {
+      const shipment = await fetchCurrentShipment(shipmentId)
+      if (!shipment) throw new Error('No se pudo consultar la encomienda asignada.')
+      if (shipment.deliveryType !== 'direct_driver') throw new Error('La modalidad persistida no permite entrega por conductor.')
+      if (shipment.status === 'delivered') throw new Error('La encomienda ya fue entregada.')
+      setDeliveryShipment(shipment)
+    } catch (err: any) {
+      setErrorMsg(err.message || 'No se pudo abrir la entrega directa.')
     } finally {
       setLoading(false)
     }
@@ -722,6 +751,22 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
                           {isDelivered ? 'Entregado en Destino' : isAccepted ? 'En Ruta (Custodia Aceptada)' : 'Pendiente de Custodia'}
                         </span>
                       </div>
+
+                      {isAccepted && !isDelivered && trip.shipmentSummaries?.some(item => item.deliveryType === 'direct_driver' && !completedDriverShipmentIds.includes(item.shipmentId)) && (
+                        <div className="w-full border-t border-slate-100 pt-2 space-y-2">
+                          {trip.shipmentSummaries.filter(item => item.deliveryType === 'direct_driver' && !completedDriverShipmentIds.includes(item.shipmentId)).map(item => (
+                            <button
+                              key={item.shipmentId}
+                              type="button"
+                              onClick={() => handleOpenDirectDelivery(trip, item.shipmentId)}
+                              disabled={loading}
+                              className="w-full sm:w-auto px-4 py-2 bg-amber-400 hover:bg-amber-300 text-emerald-950 font-extrabold text-xs rounded-lg shadow disabled:opacity-50"
+                            >
+                              Realizar entrega · {item.trackingCode}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200">
@@ -1147,6 +1192,20 @@ export const DispatchManifestView: React.FC<DispatchManifestViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {deliveryShipment && (
+        <ShipmentDeliveryModal
+          isOpen={true}
+          onClose={() => setDeliveryShipment(null)}
+          onSuccess={(shipment) => {
+            setCompletedDriverShipmentIds(previous => previous.includes(shipment.id) ? previous : [...previous, shipment.id])
+            setDeliveryShipment(null)
+          }}
+          currentUser={currentUser}
+          currentBranch={currentBranch}
+          initialShipment={deliveryShipment}
+        />
       )}
     </div>
   )

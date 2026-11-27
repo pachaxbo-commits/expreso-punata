@@ -11,13 +11,9 @@ import {
   openCashShift,
 } from '../index.js'
 
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
-process.env.FIREBASE_STORAGE_EMULATOR_HOST ||= '127.0.0.1:9199'
-process.env.STORAGE_EMULATOR_HOST ||= 'http://127.0.0.1:9199'
 
 if (getApps().length === 0) {
-  initializeApp({ projectId: 'demo-expreso-punata-union-test' })
+  initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 }
 
 const db = getFirestore()
@@ -466,7 +462,7 @@ test('10. collectMemberDue: Rechaza reintentos con payload fingerprint alterado 
   }, (err) => err.code === 'failed-precondition')
 })
 
-test('11. getMemberAccountStatement: Secretaría y conductor permanecen bloqueados', async () => {
+test('11. getMemberAccountStatement: Secretaría consulta su sucursal y conductor permanece bloqueado', async () => {
   await createTestUser('sec-1', 'secretaria', 'punata')
   await createTestUser('driver-1', 'conductor', 'punata')
   await createTestUser('admin-1', 'afiliado_admin', 'punata')
@@ -476,10 +472,11 @@ test('11. getMemberAccountStatement: Secretaría y conductor permanecen bloquead
     data: { id: 'm-sec-view', memberNumber: 'SOC-300', fullName: 'Socio Vista', monthlyFeeBob: 50, status: 'active', branchId: 'punata' },
   })
 
-  await assert.rejects(getMemberAccountStatement.run({
+  const statement = await getMemberAccountStatement.run({
     auth: { uid: 'sec-1' },
     data: { memberId: 'm-sec-view' },
-  }), { code: 'permission-denied' })
+  })
+  assert.equal(statement.member.fullName, 'Socio Vista')
 
   await assert.rejects(async () => {
     await getMemberAccountStatement.run({
@@ -732,6 +729,7 @@ test('17. Padrón imprimible: devuelve afiliados, hijos y vínculos con los role
   })
 
   const fullRoster = await getUnionMembersRoster.run({ auth, data: {} })
+  assert.equal(fullRoster.members.find(member => member.id === memberId).branchId, 'punata')
   assert.equal(fullRoster.success, true)
   assert.equal(fullRoster.members.length, 2)
   const currentEntry = fullRoster.members.find((member) => member.id === memberId)

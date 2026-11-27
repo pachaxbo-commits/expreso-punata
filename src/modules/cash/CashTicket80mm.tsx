@@ -151,37 +151,37 @@ export const CashTicket80mm: React.FC<CashTicket80mmProps> = ({ shift, onClose }
 
               <div className="flex justify-between">
                 <span>Fondo Inicial (Sencillo):</span>
-                <span className="font-semibold">{formatCurrencyBob(shift.initialCashCents || 0)}</span>
+                <span className="font-semibold">{formatCurrencyBob(shift.initialCashCents || 0, true)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Ingresos en Efectivo:</span>
-                <span className="font-semibold text-emerald-800">{formatCurrencyBob(bd.cashIncomeCents || 0)}</span>
+                <span className="font-semibold text-emerald-800">{formatCurrencyBob(bd.cashIncomeCents || 0, true)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Ingresos por Pago QR:</span>
-                <span className="font-semibold text-blue-700">{formatCurrencyBob(bd.qrIncomeCents || 0)}</span>
+                <span className="font-semibold text-blue-700">{formatCurrencyBob(bd.qrIncomeCents || 0, true)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Ingresos Transferencia:</span>
-                <span className="font-semibold text-purple-700">{formatCurrencyBob(bd.transferIncomeCents || 0)}</span>
+                <span className="font-semibold text-purple-700">{formatCurrencyBob(bd.transferIncomeCents || 0, true)}</span>
               </div>
 
               <div className="border-t border-dotted border-slate-300 pt-1 flex justify-between font-bold">
                 <span>Total Ventas Cobradas:</span>
-                <span>{formatCurrencyBob(bd.totalIncomeCents || 0)}</span>
+                <span>{formatCurrencyBob(bd.totalIncomeCents || 0, true)}</span>
               </div>
 
               {bd.expensesCents > 0 && (
                 <div className="flex justify-between text-red-600">
                   <span>(-) Egresos Autorizados:</span>
-                  <span>-{formatCurrencyBob(bd.expensesCents)}</span>
+                  <span>-{formatCurrencyBob(bd.expensesCents || 0, true)}</span>
                 </div>
               )}
 
               {bd.pendingIncomeCents && bd.pendingIncomeCents > 0 ? (
                 <div className="flex justify-between text-amber-700 text-[9px] italic">
                   <span>Pendientes (No en Caja):</span>
-                  <span>{formatCurrencyBob(bd.pendingIncomeCents)}</span>
+                  <span>{formatCurrencyBob(bd.pendingIncomeCents || 0, true)}</span>
                 </div>
               ) : null}
             </div>
@@ -192,13 +192,13 @@ export const CashTicket80mm: React.FC<CashTicket80mmProps> = ({ shift, onClose }
             <div className="space-y-1 text-[10px]">
               <div className="flex justify-between font-bold">
                 <span>Efectivo Esperado:</span>
-                <span className="text-slate-900">{formatCurrencyBob(shift.expectedCashCents || 0)}</span>
+                <span className="text-slate-900">{formatCurrencyBob(shift.expectedCashCents || 0, true)}</span>
               </div>
               <div className="flex justify-between font-bold">
                 <span>Efectivo Contado:</span>
                 <span className="text-slate-900">
                   {shift.actualCashCents !== null && shift.actualCashCents !== undefined
-                    ? formatCurrencyBob(shift.actualCashCents)
+                    ? formatCurrencyBob(shift.actualCashCents, true)
                     : 'No registrado'}
                 </span>
               </div>
@@ -222,7 +222,7 @@ export const CashTicket80mm: React.FC<CashTicket80mmProps> = ({ shift, onClose }
                   )}
                   <span>DIFERENCIA ({diffStatus.toUpperCase()}):</span>
                 </div>
-                <span>{formatCurrencyBob(diffCents)}</span>
+                <span>{formatCurrencyBob(diffCents, true)}</span>
               </div>
 
               {shift.closingNotes && (

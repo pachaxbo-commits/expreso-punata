@@ -4,7 +4,7 @@ import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import { accrueDriverCommission, listBranchCommissionAccruals } from '../index.js'
 
-if (getApps().length === 0) initializeApp({ projectId: process.env.GCLOUD_PROJECT || 'demo-expreso-punata-101' })
+if (getApps().length === 0) initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 const db = getFirestore()
 const profile = (uid, role, extra = {}) => ({ uid, role, isActive: true, fullName: `Fixture ${role}`, primaryBranchId: 'punata', allowedBranchIds: ['punata'], ...extra })
 

@@ -113,9 +113,8 @@ service cloud.firestore {
     // =========================================================================
     match /financial_movements/{movementId} {
       allow read: if isActive() && (
-        isAdmin() ||
-        isTreasury() ||
-        (isAgencyManager() && isBranchAllowed(resource.data.branchId))
+        getUserRole() in ['directiva_admin', 'tesoreria'] ||
+        (getUserRole() in ['secretaria', 'encargado_agencia'] && isBranchAllowed(resource.data.branchId))
       );
       allow write: if false; // Solo backend en transacciones atómicas
     }
@@ -222,8 +221,8 @@ service cloud.firestore {
       allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        isAgencyManager() ||
-        isCashier() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) &&
+          resource.data.get('financialBranchIds', []).hasAny(getUserData().get('allowedBranchIds', [getUserData().get('primaryBranchId', '')]))) ||
         (isDriver() && request.auth.uid == driverUid)
       );
       allow write: if false; // Exclusivo de transacciones backend en Cloud Functions
@@ -236,8 +235,9 @@ service cloud.firestore {
       allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        isAgencyManager() ||
-        isCashier() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) &&
+          (resource.data.get('financialBranchId', '') in getUserData().get('allowedBranchIds', [getUserData().get('primaryBranchId', '')]) ||
+           resource.data.get('collectionBranchId', '') in getUserData().get('allowedBranchIds', [getUserData().get('primaryBranchId', '')]))) ||
         (isDriver() && resource.data.driverUid == request.auth.uid)
       );
       allow write: if false; // Exclusivo de transacciones backend en Cloud Functions
@@ -250,8 +250,9 @@ service cloud.firestore {
       allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        isAgencyManager() ||
-        isCashier() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) &&
+          (resource.data.get('financialBranchIds', []).hasAny(getUserData().get('allowedBranchIds', [getUserData().get('primaryBranchId', '')])) ||
+           resource.data.get('collectionBranchId', '') in getUserData().get('allowedBranchIds', [getUserData().get('primaryBranchId', '')]))) ||
         (isDriver() && resource.data.driverUid == request.auth.uid)
       );
       allow write: if false; // Solo Cloud Function settleDriverCash
@@ -282,9 +283,9 @@ service cloud.firestore {
       // Secretaria lee su propio turno; encargados y tesorería ven los de su sucursal o global
       allow read: if isActive() && (
         resource.data.operatorUid == request.auth.uid ||
-        (isAgencyManager() && isBranchAllowed(resource.data.branchId)) ||
-        isTreasury() ||
-        isAdmin()
+        (getUserRole() == 'encargado_agencia' && isBranchAllowed(resource.data.branchId)) ||
+        getUserRole() in ['directiva_admin', 'tesoreria'] ||
+        (getUserRole() == 'secretaria' && isBranchAllowed(resource.data.branchId))
       );
 
       // Apertura, cierre y modificaciones: TOTALMENTE PROHIBIDAS desde clientes
@@ -444,12 +445,12 @@ service cloud.firestore {
 
     // The commission screen queries the company-wide ledger.
     match /driver_commission_accounts/{driverId} {
-      allow read: if isActive() && isAdmin();
+      allow read: if isActive() && getUserRole() == 'directiva_admin';
       allow write: if false;
     }
 
     match /driver_commission_records/{recordId} {
-      allow read: if isActive() && isAdmin();
+      allow read: if isActive() && getUserRole() == 'directiva_admin';
       allow write: if false;
     }
 

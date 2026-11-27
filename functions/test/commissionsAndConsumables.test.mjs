@@ -11,15 +11,12 @@ import {
   getSystemConfig,
   openCashShift,
   getSystemReport,
+  getDriverCommissionOverview,
 } from '../index.js'
 
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
-process.env.FIREBASE_STORAGE_EMULATOR_HOST ||= '127.0.0.1:9199'
-process.env.STORAGE_EMULATOR_HOST ||= 'http://127.0.0.1:9199'
 
 if (getApps().length === 0) {
-  initializeApp({ projectId: 'demo-expreso-punata-commissions-test' })
+  initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 }
 
 const db = getFirestore()
@@ -42,6 +39,14 @@ async function clearCollections() {
     'financial_movements',
     'counters',
   ]
+  const shipmentDocs = await db.collection('shipments').get()
+  for (const shipment of shipmentDocs.docs) {
+    const auditDocs = await shipment.ref.collection('audit_logs').get()
+    if (auditDocs.empty) continue
+    const auditBatch = db.batch()
+    auditDocs.docs.forEach((audit) => auditBatch.delete(audit.ref))
+    await auditBatch.commit()
+  }
   for (const coll of collections) {
     const snap = await db.collection(coll).get()
     const batch = db.batch()
@@ -76,8 +81,8 @@ beforeEach(async () => {
 
 async function seedCommissionEvent(shipmentId, manifestId, shippingFeeCents) {
   await db.collection('system_config').doc('expreso_punata').set({ status: 'configured', isOfficial: true, commissions: { defaultType: 'percentage', defaultValue: 10 } })
-  await db.collection('shipments').doc(shipmentId).set({ trackingCode: shipmentId, manifestId, status: 'delivered', shippingFeeCents })
-  await db.collection('manifests').doc(manifestId).set({ driverUid: 'driver-1', shipmentIds: [shipmentId], status: 'received' })
+  await db.collection('shipments').doc(shipmentId).set({ trackingCode: shipmentId, manifestId, status: 'delivered', shippingFeeCents, originBranchId: 'punata', destinationBranchId: 'cochabamba' })
+  await db.collection('manifests').doc(manifestId).set({ driverUid: 'driver-1', shipmentIds: [shipmentId], status: 'received', originBranchId: 'punata', destinationBranchId: 'cochabamba' })
 }
 
 test('1. accrueDriverCommission usa la regla oficial y es idempotente', async () => {
@@ -94,6 +99,10 @@ test('1. accrueDriverCommission usa la regla oficial y es idempotente', async ()
   assert.equal(acc.pendingCents, 250)
   assert.equal((await db.collection('driver_commission_records').get()).size, 1)
   assert.equal((await db.collection('audit_logs').where('action', '==', 'accrue_driver_commission').get()).size, 1)
+  const record = (await db.collection('driver_commission_records').doc(first.recordId).get()).data()
+  assert.equal(record.originBranchId, 'punata')
+  assert.equal(record.financialBranchId, 'punata')
+  assert.equal(record.financialAttributionPolicyVersion, 'origin-branch-v1')
   await assert.rejects(accrueDriverCommission.run({ ...req, data: { ...req.data, shippingAmountCents: 250000, ruleValue: 1000 } }), (err) => err.code === 'invalid-argument')
   assert.equal((await db.collection('driver_commission_records').get()).size, 1)
   assert.equal((await db.collection('driver_commission_accounts').doc('driver-1').get()).data().accruedCents, 250)
@@ -102,6 +111,25 @@ test('1. accrueDriverCommission usa la regla oficial y es idempotente', async ()
   assert.equal(second.commissionAmountCents, 500)
   assert.equal((await db.collection('driver_commission_accounts').doc('driver-1').get()).data().accruedCents, 750)
   await assert.rejects(accrueDriverCommission.run({ auth: { uid: 'manager-1' }, data: { shipmentId: 'ship-102', manifestId: 'MAN-02' } }), (err) => err.code === 'permission-denied')
+})
+
+test('caso 99: la atribución financiera usa el origen validado y no un parámetro de sucursal del cliente', async () => {
+  await createTestUser('directiva-99', 'directiva_admin')
+  await seedCommissionEvent('ship-origin-policy', 'MAN-origin-policy', 1000)
+  const result = await accrueDriverCommission.run({
+    auth: { uid: 'directiva-99' },
+    data: { shipmentId: 'ship-origin-policy', manifestId: 'MAN-origin-policy', branchId: 'cochabamba', driverUid: 'driver-1' },
+  }).catch((error) => error)
+  assert.equal(result.code, 'invalid-argument')
+  const retry = await accrueDriverCommission.run({
+    auth: { uid: 'directiva-99' },
+    data: { shipmentId: 'ship-origin-policy', manifestId: 'MAN-origin-policy' },
+  })
+  const record = (await db.collection('driver_commission_records').doc(retry.recordId).get()).data()
+  assert.equal(record.originBranchId, 'punata')
+  assert.equal(record.financialAttributionPolicyVersion, 'origin-branch-v1')
+  const overview = await getDriverCommissionOverview.run({ auth: { uid: 'directiva-99' }, data: {} })
+  assert.equal(overview.records[0].originBranchId, 'punata')
 })
 
 test('2. FASE 5A: settleDriverCommission liquida comisiones con egreso de caja y vale oficial', async () => {
@@ -377,6 +405,7 @@ test('afiliado_admin devenga y liquida Bs 2 una sola vez para un conductor de di
   await createTestUser('limited-admin', 'afiliado_admin', 'cochabamba')
   await db.collection('users').doc('limited-admin').update({ allowedBranchIds: ['cochabamba'], commissionAdministrationApproved: true })
   await createTestUser('technical', 'soporte_pachax')
+  await createTestUser('commission-report-directiva', 'directiva_admin', 'punata')
   const auth = { uid: 'admin-1' }
   const data = { shipmentId: 'ship-fixed', manifestId: 'MAN-FIXED' }
   await assert.rejects(accrueDriverCommission.run({ auth: { uid: 'limited-admin' }, data }), { code: 'permission-denied' })
@@ -407,7 +436,7 @@ test('afiliado_admin devenga y liquida Bs 2 una sola vez para un conductor de di
   assert.equal(record.paidAmountCents, 200)
   assert.equal((await account.get()).data().pendingCents, 0)
   const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date(first.createdAtIso || record.createdAtIso))
-  const report = await getSystemReport.run({ auth, data: { reportType: 'commissions', startDate: day, endDate: day } })
+  const report = await getSystemReport.run({ auth: { uid: 'commission-report-directiva' }, data: { reportType: 'commissions', startDate: day, endDate: day } })
   assert.equal(report.summary.totalPaidCents, 200)
   assert.equal(report.summary.totalPendingCents, 0)
   assert.equal(report.records[0].id, first.recordId)
