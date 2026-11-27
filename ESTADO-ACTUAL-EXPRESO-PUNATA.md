@@ -116,3 +116,8 @@ Se aplicó `origin-branch-v1`: la encomienda validada por backend determina `fin
 La lectura de comisiones usa `getDriverCommissionOverview`, con filtros por sucursales autorizadas para Tesorería y acceso operacional para Directiva. Los históricos sin atribución no se reasignan y permanecen disponibles para roles financieros autorizados.
 
 Validación: comisiones 7/7, Firestore Rules 34/34, unitarias 96/96, typecheck y build aprobados. La verificación comercial completa de nuevos recorridos bidireccionales desde Chrome queda pendiente; no se declara aprobada por estas regresiones.
+### Pendientes funcionales verificados en Chrome — 2026-11-27
+
+- Bienes fijos: operativo y persistente. `ACT-PUN-0001` fue creado y editado en Oficina Punata por Bs 2.500; el identificador QR y la auditoría permanecieron visibles después de recargar.
+- Caja: existe un turno QA activo (`TUR-PUN-2026-0004`) con movimientos persistidos. No se abrió otro turno ni se cerró el existente para no alterar la conciliación previa.
+- Reportes/exportación: no operativos en esta ejecución; la pantalla permanece en "Cargando reportes…" también en una sesión Chrome nueva. No se declara exportación válida.

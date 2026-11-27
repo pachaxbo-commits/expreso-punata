@@ -69,3 +69,9 @@ No se generaron movimientos nuevos en esta sesión. Los saldos de los recorridos
 ## Decisión requerida para caso 99
 
 Darío debe elegir entre atribución a origen, atribución a destino o reparto parametrizado. Recomendación técnica: atribución a origen, guardada junto con una versión de política al momento del devengo; libro inmutable, idempotencia por operación y consultas filtradas por sucursal autorizada. No modificar históricos automáticamente.
+## Continuación QA: bienes, caja y reportes - 2026-11-27
+
+- Bien fijo ejecutado desde Chrome: `ACT-PUN-0001`, "Laptop QA Inventario", categoría Material y Oficina, Oficina Punata, responsable Responsable QA, valor Bs 2.500. Se editó a "Laptop QA Inventario Editada" y se recargó la aplicación; el cambio persistió y la auditoría informó el identificador QR estable.
+- Caja: no se abrió un turno nuevo porque ya existía `TUR-PUN-2026-0004` activo. La interfaz mostró Bs 509 en gaveta, fondo inicial Bs 500, cobros y egresos auditados. No se creó movimiento adicional para evitar duplicar una operación financiera.
+- Reportes: la navegación desde dos sesiones Chrome quedó en "Cargando reportes…" y una captura terminó por timeout. No se declara exportación ni reporte aprobado.
+- Caso 99: la política de origen quedó validada por regresiones backend; no se repitieron cobros ni liquidaciones históricas.
