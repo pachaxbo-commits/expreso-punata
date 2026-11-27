@@ -78,3 +78,12 @@ La navegación visual de los seis roles distintos de Directiva no se repitió en
 5. El PR contra `main` queda pendiente de autenticación de GitHub; la rama consolidada sí está publicada.
 
 No se confirmaron defectos de producto nuevos durante esta revisión que justificaran modificar código. Se conservaron los cambios del equipo y de QA; no se tocó producción ni el worktree original.
+## Revisión visual de roles - 2026-11-26
+
+- Directiva QA: sesión autenticada y conectada a Firestore Emulator. Se verificó visualmente Configuración, Personal & Gastos, Bienes Fijos y Reportes. Configuración mostró 8 operadores activos, incluyendo las cuentas QA de los seis roles pendientes. Reportes cargó sus secciones después del estado inicial de carga.
+- No se obtuvo una captura de DevTools para declarar una auditoría de consola completa; no se afirma ausencia de errores de consola.
+- Tesorería, Encargado de agencia, Secretaría, Conductor, Administrador de afiliados y Afiliado: no ejecutados visualmente en esta ronda. No existen credenciales en el worktree ni sesiones autenticadas reutilizables para esos usuarios; las pruebas automáticas y recorridos previos no sustituyen esta validación.
+
+### Propuesta para Darío - caso 99
+
+Se necesita decidir quién atribuye la custodia y la comisión cuando una operación cruza sucursales: (A) sucursal de origen, (B) sucursal receptora/destino o (C) reparto institucional parametrizado. Recomendación técnica: política explícita y versionada; por simplicidad operativa, origen es la opción más trazable. El backend debe guardar la política y la sucursal de atribución al devengar, mantener un libro inmutable y filtrar lecturas por sucursal autorizada. No se deben recalcular históricos ni ampliar permisos globales.
