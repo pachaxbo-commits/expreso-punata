@@ -8,14 +8,7 @@ const logDir = path.join(root, '.qa-automated', 'function-groups-official')
 const firestoreHost = process.env.QA_FIRESTORE_EMULATOR_HOST || '127.0.0.1:17080'
 const authHost = process.env.QA_AUTH_EMULATOR_HOST || '127.0.0.1:17099'
 const storageHost = process.env.QA_STORAGE_EMULATOR_HOST || '127.0.0.1:17199'
-const projectIds = [
-  'demo-expreso-punata-admin-test', 'demo-affiliate-admin-security', 'demo-expreso-punata-annual-board',
-  'demo-expreso-punata-cancel-test', 'demo-expreso-punata-cash-test', 'demo-expreso-punata-commissions-test',
-  'demo-expreso-punata-debt-alerts', 'demo-expreso-punata-delivery-test', 'demo-expreso-punata-dev',
-  'demo-expreso-punata-manifest-test', 'demo-expreso-punata-manual-pricing', 'demo-expreso-punata-passenger-tickets',
-  'demo-expreso-punata-patrimonial-test', 'demo-expreso-punata-price-test', 'demo-expreso-punata-reports-test',
-  'demo-expreso-punata-union-test', 'demo-expreso-punata-workers-test',
-]
+const projectId = process.env.QA_FUNCTIONS_PROJECT || 'demo-expreso-punata-finalization'
 
 await mkdir(logDir, { recursive: true })
 
@@ -39,17 +32,25 @@ const files = (await readdir(path.join(functionsDir, 'test')))
 const results = []
 
 for (const name of files) {
-  const source = await (await import('node:fs/promises')).readFile(path.join(functionsDir, 'test', name), 'utf8')
-  const projectId = source.match(/projectId:\s*'([^']+)'/)?.[1] || 'demo-expreso-punata-admin-test'
-  for (const candidate of new Set([projectId, 'demo-expreso-punata-admin-test'])) await resetProject(candidate)
+  await resetProject(projectId)
   const startedAt = Date.now()
   const env = {
     ...process.env,
     GCLOUD_PROJECT: projectId,
     GOOGLE_CLOUD_PROJECT: projectId,
+    FUNCTIONS_TEST_PROJECT: projectId,
     FIRESTORE_EMULATOR_HOST: firestoreHost,
     FIREBASE_AUTH_EMULATOR_HOST: authHost,
     FIREBASE_STORAGE_EMULATOR_HOST: storageHost,
+    FUNCTIONS_EMULATOR_HOST: process.env.QA_FUNCTIONS_EMULATOR_HOST || '127.0.0.1:5001',
+    FIREBASE_FUNCTIONS_EMULATOR_HOST: process.env.QA_FUNCTIONS_EMULATOR_HOST || '127.0.0.1:5001',
+    STORAGE_EMULATOR_HOST: `http://${storageHost}`,
+    FUNCTIONS_TEST_FIRESTORE_HOST: firestoreHost,
+    FUNCTIONS_TEST_AUTH_HOST: authHost,
+    FUNCTIONS_TEST_STORAGE_HOST: storageHost,
+    FUNCTIONS_TEST_FUNCTIONS_HOST: process.env.QA_FUNCTIONS_EMULATOR_HOST || '127.0.0.1:5001',
+    FUNCTIONS_TEST_STORAGE_URL: `http://${storageHost}`,
+    METADATA_SERVER_DETECTION: 'none',
     FUNCTIONS_EMULATOR: 'true',
   }
   const child = spawn(process.execPath, ['--import', './test/setupEmulatorEnv.mjs', '--test', '--test-concurrency=1', `test/${name}`], { cwd: functionsDir, env, windowsHide: true })
