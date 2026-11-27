@@ -1,5 +1,33 @@
 # Seguimiento QA comercial
 
+## Auditoría integral de seguridad y permisos - 2026-11-27
+
+### Matriz efectiva de roles
+
+| Rol | Alcance observado en frontend | Validación backend/Rules | Resultado |
+|---|---|---|---|
+| `directiva_admin` | Administración global, caja, logística, comisiones, afiliados, reportes y configuración | Functions y Rules globales condicionadas a perfil activo | Aprobado por pruebas de seguridad |
+| `tesoreria` | Caja, reportes y consultas financieras autorizadas; sin administración global | Functions limitan operaciones sensibles y alcance de sucursal | Aprobado por pruebas existentes |
+| `encargado_agencia` | Operación de agencia, logística, caja, personal/activos según alcance | Validación de sucursal y rol en Functions/Rules | Aprobado por pruebas existentes |
+| `secretaria` | Encomiendas, pasajes, caja, multas y reporte diario de su sucursal | Restricción de sucursal; escritura directa financiera bloqueada | Aprobado por Rules y Functions |
+| `conductor` | Mis viajes, custodia propia, entrega directa y reporte propio | Debe ser conductor asignado; no puede operar manifiestos ajenos | Aprobado por pruebas de entrega/custodia |
+| `afiliado_admin` | Administración de afiliados y operaciones expresamente aprobadas | Vinculación, sucursal y `commissionAdministrationApproved` se validan en backend | Aprobado por pruebas de seguridad |
+| `afiliado` | Mi cuenta y consultas propias | Se exige usuario activo, vínculo válido y aislamiento por afiliado | Aprobado por pruebas de afiliados |
+
+Se verificaron acceso directo a Functions, escritura directa de colecciones financieras, alcance por sucursal, perfiles inactivos, soporte técnico, manipulación de identificadores y duplicación en las suites disponibles. Ocultar navegación no se consideró control de seguridad.
+
+### Resultados reproducibles
+
+- Functions Entorno A: 34/34 archivos, 193/193 pruebas, 0 fallos, 0 omitidas, 0 bloqueadas, código 0.
+- Firestore Rules Entorno A: 34/34 pruebas, 0 fallos, código 0, ejecutadas secuencialmente (`--test-concurrency=1`).
+- Unitarias: 93/93; typecheck y build aprobados.
+- Se detectó una ejecución inválida de Functions con 12 fallos al correr Rules simultáneamente sobre el mismo proyecto de prueba. La repetición exclusiva y secuencial terminó 34/34; se documenta como contaminación por recurso compartido, no como defecto del producto.
+- El ejecutor oficial no debe compartir en paralelo el proyecto `demo-expreso-punata-admin-test` con Rules u otra suite.
+
+### Matriz original de 101 casos
+
+No se encontró un archivo o artefacto versionado que contenga la matriz original de 101 casos en este worktree. Por tanto, los casos 97, 99 y 101 no se declaran ejecutados como parte de esa matriz. El caso 99 permanece como decisión comercial pendiente sobre atribución multisucursal de custodia y comisiones; no se inventó una política ni se amplió ningún permiso.
+
 ## Suite reproducible de Functions y Entorno A - 2026-11-26
 
 - Se corrigieron los fixtures de `manifestDispatch.test.mjs`: limpian recursivamente `shipments` y `manifests`, incluyendo subcolecciones, y eliminan `shipment_notifications`.
