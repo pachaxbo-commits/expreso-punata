@@ -101,7 +101,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
     const d = new Date()
     const m = String(d.getMonth() + 1).padStart(2, '0')
     return `${d.getFullYear()}-${m}`
-  }, [])
+  }, [currentUser.uid])
 
   const [selectedPeriod, setSelectedPeriod] = useState<string>(currentPeriodStr)
   const [dues, setDues] = useState<UnionMonthlyDue[]>([])
@@ -176,7 +176,7 @@ export const UnionMembersView: React.FC<UnionMembersViewProps> = ({
       }
     )
     return () => unsubscribe()
-  }, [selectedPeriod])
+  }, [currentUser.uid, selectedPeriod])
 
   // Filtrado de socios
   const filteredMembers = useMemo(() => {

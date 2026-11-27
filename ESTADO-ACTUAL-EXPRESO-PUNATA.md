@@ -87,3 +87,25 @@ No se confirmaron defectos de producto nuevos durante esta revisión que justifi
 ### Propuesta para Darío - caso 99
 
 Se necesita decidir quién atribuye la custodia y la comisión cuando una operación cruza sucursales: (A) sucursal de origen, (B) sucursal receptora/destino o (C) reparto institucional parametrizado. Recomendación técnica: política explícita y versionada; por simplicidad operativa, origen es la opción más trazable. El backend debe guardar la política y la sucursal de atribución al devengar, mantener un libro inmutable y filtrar lecturas por sucursal autorizada. No se deben recalcular históricos ni ampliar permisos globales.
+
+## Revisión funcional de seis roles - 2026-11-26
+
+| Rol | Resultado observado en Chrome QA | Estado |
+|---|---|---|
+| Tesorería | Sesión válida; Pasajes, Caja del Turno, Afiliados & Aportes, Personal & Gastos, Bienes Fijos y Reportes visibles. El padrón mostró 1 afiliado, cuota Bs 50 cobrada y saldo Bs 0. | Operativa con observaciones |
+| Encargado de agencia | Sesión válida en Cochabamba; Encomiendas, Almacén, Despachos y Ruta, Caja, Personal, Bienes Fijos y Reportes visibles. Almacén cargó módulos 1–5 y controles de configuración. | Operativa con observaciones |
+| Secretaría | Sesión válida en Cochabamba; turno de ventanilla, Encomiendas, Almacén, Despachos, Caja, Afiliados, Multas y Reporte del día visibles. Se visualizaron 4 encomiendas persistidas y estados/ pagos. | Operativa con observaciones |
+| Conductor | Sesión válida; Móvil 14, Encomiendas asignadas, Validar pasajes, Despachos y Ruta y Reportes visibles. No había guías pendientes de aceptar. | Operativa con observaciones |
+| Administrador de afiliados | Inicialmente navegación vacía: defecto confirmado. Corregido para mostrar Afiliados & Aportes; después se visualizaron SOC-QA-001, cuota Bs 50 pagada y saldo Bs 0. | Corregida y verificada |
+| Afiliado | Sesión válida; Consultas y Mi cuenta visibles. Mi cuenta mostró SOC-QA-001, cuota 2026-11 Bs 50 paid, préstamo Bs 0 pendiente y multa Bs 0 pendiente. | Operativa con observaciones |
+
+### Corrección aplicada
+
+- `src/app/App.tsx` ahora expone Afiliados & Aportes a `afiliado_admin`, coherente con las autorizaciones de `UnionMembersView` y Functions.
+- `src/app/navigation.ts` centraliza la decisión de navegación y `tests/unit/roleNavigation.test.ts` cubre roles permitidos y rechazados.
+- `UnionMembersView` vuelve a crear sus suscripciones cuando cambia el UID autenticado o el período, evitando arrastrar listeners entre sesiones.
+- Validación: 96/96 unitarias, typecheck y build aprobados. No se modificaron reglas, permisos financieros, históricos ni datos de producción.
+
+### Consola
+
+Tras la corrección no aparecieron nuevos errores de `UnionMembersView` en la carga del padrón. Los mensajes posteriores de `A listener indicated an asynchronous response...` provienen de la extensión de Chrome y no de una ruta de negocio; quedan como ruido de automatización, no como defecto confirmado del producto.

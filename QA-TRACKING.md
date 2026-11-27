@@ -341,3 +341,16 @@ No se encontró un archivo o artefacto versionado que contenga la matriz origina
 - No se confirmó un defecto nuevo de producto ni se modificó código. No se agregaron regresiones por esta revisión; las validaciones de referencia permanecen 94/94 unitarias, 203/203 Functions, 37/37 Rules, 1/1 integración, typecheck y build.
 - No se obtuvo captura de DevTools/Console en esta ronda; queda pendiente, no aprobado.
 - Caso 99 para decisión de Darío: definir atribución de custodia/comisión multisucursal (origen, destino o reparto parametrizado). Recomendación: política versionada, atribución fijada al devengo, libro inmutable y lecturas filtradas por sucursal; no cambiar históricos ni ampliar permisos globales.
+
+## Revisión funcional de roles y corrección afiliado_admin - 2026-11-26
+
+- Auth Emulator Entorno B contiene 8 cuentas QA activas y perfiles Firestore completos. Se restableció localmente la contraseña ficticia de revisión `QA-Review-2026!`; no se guardó en el repositorio ni se publicó en GitHub.
+- Tesorería: login y navegación confirmados para Pasajes, Caja, Afiliados, Personal, Bienes Fijos y Reportes; padrón con SOC-QA-001, cuota Bs50 pagada y saldo Bs0.
+- Encargado Cochabamba: login y navegación confirmados para Encomiendas, Almacén, Despachos, Caja, Personal, Bienes Fijos y Reportes; almacén mostró módulos 1–5.
+- Secretaría Cochabamba: login y navegación confirmados para turno, Encomiendas, Almacén, Despachos, Caja, Afiliados, Multas y Reporte del día; 4 encomiendas persistidas visibles.
+- Conductor QA: login y navegación confirmados para Encomiendas asignadas, Validar pasajes, Despachos y Ruta y Reportes; no había guías pendientes.
+- Afiliado administrador QA: defecto confirmado de navegación vacía. Se corrigió `App.tsx` para mostrar Afiliados & Aportes a `afiliado_admin`; la UI confirmó padrón, SOC-QA-001, cuota Bs50 y saldo Bs0. También se corrigieron dependencias de listeners por UID/período en `UnionMembersView`.
+- Afiliado QA: login y Mi cuenta confirmados; mostró SOC-QA-001, cuota paid Bs50, préstamo Bs0 pendiente y multa Bs0 pendiente. No se intentaron operaciones administrativas.
+- Regresión nueva: `tests/unit/roleNavigation.test.ts`; validación 96/96 unitarias, typecheck y build aprobados.
+- Consola: no se observaron nuevos errores de padrón/cuotas después de la corrección. Tres mensajes posteriores sobre canal asíncrono fueron emitidos por la extensión de Chrome y no por la aplicación.
+- Caso 99: decisión requerida de Darío sobre atribución multisucursal de custodia/comisión: origen, destino o reparto parametrizado. Recomendación técnica: política versionada fijada al devengo, libro inmutable y lecturas por sucursal autorizada; no tocar históricos ni ampliar permisos.

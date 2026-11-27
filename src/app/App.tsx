@@ -43,6 +43,7 @@ import { EXPRESO_PUNATA_LOGO_PATH, EXPRESO_PUNATA_COMPANY, INITIAL_BRANCHES } fr
 import { FixedAssetsView } from '../modules/assets/FixedAssetsView'
 import { WorkersAndExpensesView } from '../modules/workers/WorkersAndExpensesView'
 import { UnionMembersView } from '../modules/union/UnionMembersView.tsx'
+import { canAccessUnionManagement } from './navigation'
 import { AffiliateAccountView } from '../modules/union/AffiliateAccountView.tsx'
 import { subscribeShipmentsByBranch } from '../services/shipmentService'
 import { isEmulatedEnvironment } from '../firebase/config'
@@ -181,7 +182,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'branch-commissions', label: 'Devengos de la agencia', icon: Coins, visible: userProfile.role === 'afiliado_admin' && !isOperationalAdmin(userProfile) && userProfile.commissionAdministrationApproved === true },
     { id: 'commissions', label: 'Comisiones de conductores', icon: Coins, visible: simpleTransferEnabled && hasRole(['directiva_admin']) },
     { id: 'cash', label: 'Caja del Turno', icon: Wallet, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin']) },
-    { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: hasRole(['secretaria', 'tesoreria', 'directiva_admin']) },
+    { id: 'dues', label: 'Afiliados & Aportes', icon: Users, visible: canAccessUnionManagement(userProfile.role) },
     { id: 'sports-fines', label: 'Multas', icon: AlertTriangle, visible: hasRole(['secretaria']) },
     { id: 'affiliate-operations', label: 'Consultas', icon: BarChart3, visible: userProfile.role === 'afiliado' },
     { id: 'my-account', label: 'Mi cuenta', icon: UserCircle, visible: hasRole(['afiliado']) },
