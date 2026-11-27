@@ -23,7 +23,7 @@ async function seedMember(memberId, branchId) {
 async function makeLoan(uid, memberId, firstDueDate = '2026-12-26') {
   return createUnionLoan.run({
     auth: { uid },
-    data: { memberId, principalCents: 10000, installmentCount: 2, grantDate: '2026-11-26', firstDueDate },
+    data: { memberId, principalCents: 10000, installmentCount: 2, grantDate: new Date().toISOString().slice(0, 10), firstDueDate },
   })
 }
 

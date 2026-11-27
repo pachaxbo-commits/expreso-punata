@@ -21,3 +21,5 @@ Fecha: 2026-11-27
 
 La rama `codex/integration-2026-11` queda preparada para revisión, pero estos pendientes impiden declarar readiness comercial completa o hacer merge a main.
 - Reportes: bloqueo resuelto operacionalmente; causa confirmada en caché Vite (`Outdated Optimize Dep`), exportación XLSX verificada desde Chrome.
+- `origin/main` integrado hasta `becf623`; se conservan los cambios de guías, latencia, seguridad y runner QA. El conflicto de soporte fue resuelto y `supportCenter.test.mjs` pasó 17/17.
+- Runner Functions posterior a la integración: 37/37 archivos y 204/204 pruebas aprobadas.
