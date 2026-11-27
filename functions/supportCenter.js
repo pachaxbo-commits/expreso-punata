@@ -4,6 +4,7 @@ import { createSupportCleanupFunctions } from './supportCleanup.js'
 import { inFirebaseEmulators, verifySupportSession } from './supportAccess.js'
 const CONFIG_FIELDS = {
   tradeName: 'company.tradeName',
+  legalName: 'company.legalName',
   logoUrl: 'company.logoUrl',
   legalNotice: 'company.legalNotice',
   passengerNotice: 'documentNotices.passengers',
@@ -19,6 +20,9 @@ const CONFIG_FIELDS = {
   cochabambaPhone: 'branches.cochabamba.phone',
 }
 
+const EVERYDAY_FIELDS = new Set(['tradeName', 'legalName', 'logoUrl',
+  'punataName', 'punataAddress', 'punataPhone', 'cochabambaName', 'cochabambaAddress', 'cochabambaPhone'])
+
 function validateInstitutionalValue(field, value, restoring) {
   const max = field.endsWith('Phone') ? 24 : field === 'logoUrl' ? 1000 : field.endsWith('Notice') ? 160 : 100
   if (value.length > max || /[\x00-\x1f\x7f]/.test(value)) throw new HttpsError('invalid-argument', `El campo ${field} admite hasta ${max} caracteres en una línea.`)
@@ -33,7 +37,8 @@ function validateInstitutionalValue(field, value, restoring) {
   }
 }
 
-function requireInstitutionalEditor(profile, request) {
+function requireInstitutionalEditor(profile, request, allowBoardAdmin = false) {
+  if (allowBoardAdmin && profile?.role === 'directiva_admin' && profile.isActive === true) return
   if (profile?.role === 'afiliado_admin' && profile.isActive === true && ['punata', 'cochabamba'].includes(profile.primaryBranchId)
     && ['punata', 'cochabamba'].every(branch => Array.isArray(profile.allowedBranchIds) && profile.allowedBranchIds.includes(branch))) return
   if (profile?.role !== 'soporte_pachax' || profile.isActive !== true) throw new HttpsError('permission-denied', 'Se requiere una cuenta autorizada para configuración institucional.')
@@ -70,7 +75,7 @@ export function createSupportFunctions(db, authAdmin = null) {
   const getSupportConfiguration = onCall({ cors: true }, async request => {
     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión.')
     const profile = (await db.collection('users').doc(request.auth.uid).get()).data()
-    requireInstitutionalEditor(profile, request)
+    requireInstitutionalEditor(profile, request, true)
     if (profile?.role === 'soporte_pachax') await authorizeSupport(request)
     const [config, history] = await Promise.all([
       db.collection('system_config').doc('expreso_punata').get(),
@@ -82,6 +87,41 @@ export function createSupportFunctions(db, authAdmin = null) {
   })
   const updateSupportConfiguration = onCall({ cors: true }, async request => {
     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión.')
+    if (request.data?.changes !== undefined) {
+      const { changes } = request.data
+      const uid = request.auth.uid
+      if (!Array.isArray(changes) || !changes.length || changes.length > EVERYDAY_FIELDS.size ||
+          new Set(changes.map(change => change?.field)).size !== changes.length ||
+          changes.some(change => !EVERYDAY_FIELDS.has(change?.field) || typeof change.value !== 'string' ||
+            typeof change.expectedValue !== 'string' || !Number.isSafeInteger(change.expectedVersion) || change.expectedVersion < 0)) {
+        throw new HttpsError('invalid-argument', 'Revise los datos de empresa y agencias.')
+      }
+      const configRef = db.collection('system_config').doc('expreso_punata')
+      return db.runTransaction(async tx => {
+        const [profile, config] = await Promise.all([tx.get(db.collection('users').doc(uid)), tx.get(configRef)])
+        if (profile.data()?.role === 'soporte_pachax') throw new HttpsError('permission-denied', 'La edición cotidiana corresponde a la administración.')
+        requireInstitutionalEditor(profile.data(), request, true)
+        const current = config.data()
+        if (current?.status !== 'configured' || current.isOfficial !== true) throw new HttpsError('failed-precondition', 'No existe una configuración oficial activa.')
+        const patch = {}
+        for (const { field, value, expectedValue, expectedVersion } of changes) {
+          const previous = configValue(current, field)
+          const version = current.institutionalVersions?.[field] || 0
+          if (previous !== expectedValue || version !== expectedVersion) throw new HttpsError('aborted', 'Los datos cambiaron. Recargue la configuración antes de guardar.')
+          const next = value.trim()
+          if (next === previous) continue
+          validateInstitutionalValue(field, next, false)
+          patch[CONFIG_FIELDS[field]] = next
+          if (field === 'tradeName') patch['company.name'] = next
+          patch[`institutionalVersions.${field}`] = version + 1
+          const entry = { field, previous, value: next, version: version + 1, restoredFrom: null, reason: 'Edición de empresa y agencias', uid, createdAtIso: new Date().toISOString() }
+          tx.create(db.collection('support_config_history').doc(), entry)
+          tx.create(db.collection('audit_logs').doc(), { action: 'SUPPORT_CONFIG_UPDATED', entityType: 'system_config', entityId: 'expreso_punata', ...entry })
+        }
+        if (Object.keys(patch).length) tx.update(configRef, patch)
+        return { success: true }
+      })
+    }
     const authTime = request.auth.token?.auth_time
     if (!Number.isFinite(authTime) || Date.now() / 1000 - authTime > 300 || authTime > Date.now() / 1000 + 30) throw new HttpsError('failed-precondition', 'Vuelva a autenticarse para continuar.')
     const { field, value, expectedValue, expectedVersion, reason, confirmation, restoreHistoryId } = request.data || {}

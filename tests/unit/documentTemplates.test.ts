@@ -32,7 +32,7 @@ test('default shipment presentation is centered and the agency copy is compact a
   assert.equal((html.match(/class="copy /g) || []).length, 2)
   assert.match(html, /Remitente de prueba/)
   assert.match(html, /Destinatario de prueba/)
-  assert.match(html, /Dirección de prueba/)
+  assert.doesNotMatch(html, /Dirección de prueba/)
   const agencySection = html.split('class="copy agency"')[1]
   assert.ok(agencySection)
   assert.doesNotMatch(agencySection, /Dirección de prueba|Teléfono institucional/)
@@ -119,4 +119,25 @@ test('guide blocks follow saved field order and omit disabled or empty content a
     edited.copies[0].order.push('qr')
     assert.match(await buildDocumentTemplateHtml(doc, width, edited, options), /class="qr"/)
   }
+})
+
+test('guide prints both official addresses before a single notice in each copy', async () => {
+  const doc = sample('shipment_guide')
+  doc.guideAgencyAddresses = [{ name: 'Agencia Punata', address: 'Dirección PUN' }, { name: 'Agencia Cochabamba', address: 'Dirección CBB' }]
+  doc.footerNotes = ['DOCUMENTO OPERATIVO INTERNO', 'DOCUMENTO OPERATIVO INTERNO']
+  doc.items = [{ description: 'Cajas', quantity: 2 }]
+  const template = createDefaultDocumentTemplate('shipment_guide')
+  for (const width of ['58mm', '80mm'] as const) {
+    for (const copyIndex of [0, 1] as const) {
+      const html = await buildDocumentHtml(doc, width, { documentTemplate: template, copyIndex })
+      assert.doesNotMatch(html, /<header>[^]*?Dirección[^]*?<\/header>|Detalle \/ bultos|Condición de pago|PAGADO EN ORIGEN/)
+      assert.match(html, /Detalle<\/span>.*Cajas <b>\(2\)<\/b>/)
+      assert.match(html, /Dirección PUN.*Dirección CBB[^]*?block-notice[^]*?No constituye una factura fiscal<\/div><\/div>\s*<\/section>/)
+      assert.equal((html.match(/AVISOS OFICIALES/g) || []).length, 1)
+      assert.match(html, />Pagado</)
+    }
+  }
+  assert.match(await buildDocumentTemplateHtml(doc, '58mm', template, { copyIndex: 0 }), />Pagado</)
+  doc.financials = { ...doc.financials!, paymentTiming: 'destination_cod', paymentStatus: 'pending' }
+  assert.match(await buildDocumentTemplateHtml(doc, '58mm', template, { copyIndex: 0 }), />Por pagar en destino</)
 })
