@@ -1,6 +1,6 @@
 import type { UserProfile, UserRole } from '../../types'
 
-const VALID_ROLES: UserRole[] = ['secretaria', 'afiliado_admin', 'afiliado', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']
+const VALID_ROLES: UserRole[] = ['soporte_pachax', 'secretaria', 'afiliado_admin', 'afiliado', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']
 const VALID_BRANCHES = ['punata', 'cochabamba']
 
 export interface AuthIdentity {
