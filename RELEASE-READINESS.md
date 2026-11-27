@@ -23,3 +23,5 @@ La rama `codex/integration-2026-11` queda preparada para revisión, pero estos p
 - Reportes: bloqueo resuelto operacionalmente; causa confirmada en caché Vite (`Outdated Optimize Dep`), exportación XLSX verificada desde Chrome.
 - `origin/main` integrado hasta `becf623`; se conservan los cambios de guías, latencia, seguridad y runner QA. El conflicto de soporte fue resuelto y `supportCenter.test.mjs` pasó 17/17.
 - Runner Functions posterior a la integración: 37/37 archivos y 204/204 pruebas aprobadas.
+- Caja QA independiente completada: `TUR-CBB-2026-0002` cerrado con Bs 0 de diferencia, comprobante y auditoría verificados; el turno histórico `TUR-PUN-2026-0004` permanece intacto.
+- Node 22.17.0 portátil validado; integración 1/1 y Rules combinadas 37/37 aprobadas.

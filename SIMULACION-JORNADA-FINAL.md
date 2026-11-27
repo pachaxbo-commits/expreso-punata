@@ -86,3 +86,6 @@ Darío debe elegir entre atribución a origen, atribución a destino o reparto p
 La pantalla blanca no era un defecto de `getSystemReport`: Chrome registró dos respuestas `504 Outdated Optimize Dep` desde Vite y no llegó a montar la vista. Después de reiniciar Vite con `--force`, `getSystemReport` respondió 200 y el tablero consolidado cargó los importes y filtros.
 
 La exportación Excel se generó y abrió como archivo XLSX válido de 25.828 bytes. No se generó un nuevo movimiento financiero. La caja independiente no se ejecutó porque el turno Punata QA sigue activo y no había credencial válida para una sesión nueva de Cochabamba.
+## Caja QA independiente cerrada — 2026-11-27
+
+Desde Chrome se abrió y cerró `TUR-CBB-2026-0002` con Secretaría Cochabamba. Fondo Bs100, egreso autorizado Bs10 (`REC-QA-CBB-0001`), efectivo esperado y contado Bs90, diferencia Bs0. El comprobante de arqueo, persistencia, auditoría y ausencia de duplicados fueron verificados. `TUR-PUN-2026-0004` no fue modificado.
