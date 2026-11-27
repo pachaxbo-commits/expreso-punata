@@ -109,3 +109,10 @@ Se necesita decidir quién atribuye la custodia y la comisión cuando una operac
 ### Consola
 
 Tras la corrección no aparecieron nuevos errores de `UnionMembersView` en la carga del padrón. Los mensajes posteriores de `A listener indicated an asynchronous response...` provienen de la extensión de Chrome y no de una ruta de negocio; quedan como ruido de automatización, no como defecto confirmado del producto.
+### Caso 99: decisión implementada
+
+Se aplicó `origin-branch-v1`: la encomienda validada por backend determina `financialBranchId`; la sucursal donde se cobra o liquida se registra por separado. No se aceptan atributos financieros de sucursal enviados por el cliente ni repartos porcentuales.
+
+La lectura de comisiones usa `getDriverCommissionOverview`, con filtros por sucursales autorizadas para Tesorería y acceso operacional para Directiva. Los históricos sin atribución no se reasignan y permanecen disponibles para roles financieros autorizados.
+
+Validación: comisiones 7/7, Firestore Rules 34/34, unitarias 96/96, typecheck y build aprobados. La verificación comercial completa de nuevos recorridos bidireccionales desde Chrome queda pendiente; no se declara aprobada por estas regresiones.

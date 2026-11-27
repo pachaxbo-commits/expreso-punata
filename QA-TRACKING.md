@@ -355,3 +355,11 @@ No se encontró un archivo o artefacto versionado que contenga la matriz origina
 - Consola: no se observaron nuevos errores de padrón/cuotas después de la corrección. Tres mensajes posteriores sobre canal asíncrono fueron emitidos por la extensión de Chrome y no por la aplicación.
 - Caso 99: decisión requerida de Darío sobre atribución multisucursal de custodia/comisión: origen, destino o reparto parametrizado. Recomendación técnica: política versionada fijada al devengo, libro inmutable y lecturas por sucursal autorizada; no tocar históricos ni ampliar permisos.
 - Simulación de jornada final: se creó `SIMULACION-JORNADA-FINAL.md`. Se reutilizó evidencia conciliada sin repetir operaciones financieras históricas. Se verificaron los siete perfiles y la persistencia de sesiones en Entorno B; bien fijo nuevo y exportación nueva quedaron pendientes explícitos. No se generaron movimientos nuevos ni se declaró cierre de caja nuevo.
+## Caso 99 resuelto: atribución financiera a sucursal de origen - 2026-11-27
+
+- Decisión aprobada: custodia y comisiones nuevas se atribuyen a la sucursal de origen. La sucursal de cobro o liquidación se conserva separadamente; no existe reparto porcentual.
+- Functions deriva `financialBranchId` desde la encomienda validada por backend y registra `financialAttributionPolicyVersion=origin-branch-v1`; el cliente no puede sustituirlo con `branchId`.
+- Custodia y rendiciones conservan atribución financiera de origen y sucursal de cobro/liquidación. Las liquidaciones conservan asignaciones por sucursal para conciliación.
+- Comisiones: se exige origen válido y `getDriverCommissionOverview` centraliza la lectura autorizada de Directiva/Tesorería; el frontend ya no lee comisiones directamente.
+- Históricos ambiguos no se reasignan ni se inventan. Permanecen visibles para administración financiera autorizada.
+- Validación: comisiones 7/7, Rules 34/34, unitarias 96/96, typecheck y build aprobados. La manipulación de sucursal fue rechazada por backend; no se realizaron nuevos movimientos comerciales.
