@@ -26,6 +26,7 @@
     "test:journey": "node scripts/run-isolated-firebase-tests.mjs journey",
     "test:integration": "node scripts/run-isolated-firebase-tests.mjs integration",
     "test:isolation-guard": "node scripts/test-firebase-emulator-env-guard.mjs"
+    ,"test:functions:qa": "node scripts/runFunctionsSuiteIsolated.mjs"
   },
   "dependencies": {
     "firebase": "^12.15.0",

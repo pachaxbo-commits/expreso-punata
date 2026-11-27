@@ -17,6 +17,7 @@ import {
   getShipmentSignatureUrl,
   openCashShift,
 } from '../index.js'
+import { getStorageBucketName } from '../storageConfig.js'
 
 
 if (getApps().length === 0) {
@@ -622,6 +623,17 @@ test('10. SEGURIDAD DE FIRMAS: getShipmentSignatureUrl genera URL temporal y blo
       recipientRelationship: 'titular',
       signatureDataUrl: testPng,
     },
+  })
+
+  // El documento de entrega referencia este objeto; sembrarlo en el Storage
+  // emulator evita confundir un fixture incompleto con un fallo del producto.
+  const signaturePath = 'shipments/ship-sig-test/signatures/signature_test.png'
+  await getStorage()
+    .bucket(getStorageBucketName())
+    .file(signaturePath)
+    .save(Buffer.from('synthetic-signature-fixture'), { contentType: 'image/png' })
+  await db.collection('shipments').doc('ship-sig-test').update({
+    'deliveryRecord.signature.storagePath': signaturePath,
   })
 
   // 1) Acceso autorizado por secretaria de destino
