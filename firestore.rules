@@ -221,8 +221,8 @@ service cloud.firestore {
       allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        isAgencyManager() ||
-        isCashier() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) &&
+          resource.data.get('financialBranchIds', []).hasAny(getUserData().get('allowedBranchIds', [getUserData().get('primaryBranchId', '')]))) ||
         (isDriver() && request.auth.uid == driverUid)
       );
       allow write: if false; // Exclusivo de transacciones backend en Cloud Functions
@@ -235,8 +235,9 @@ service cloud.firestore {
       allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        isAgencyManager() ||
-        isCashier() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) &&
+          (resource.data.get('financialBranchId', '') in getUserData().get('allowedBranchIds', [getUserData().get('primaryBranchId', '')]) ||
+           resource.data.get('collectionBranchId', '') in getUserData().get('allowedBranchIds', [getUserData().get('primaryBranchId', '')]))) ||
         (isDriver() && resource.data.driverUid == request.auth.uid)
       );
       allow write: if false; // Exclusivo de transacciones backend en Cloud Functions
@@ -249,8 +250,9 @@ service cloud.firestore {
       allow read: if isActive() && (
         isAdmin() ||
         isTreasury() ||
-        isAgencyManager() ||
-        isCashier() ||
+        ((getUserRole() in ['secretaria', 'encargado_agencia']) &&
+          (resource.data.get('financialBranchIds', []).hasAny(getUserData().get('allowedBranchIds', [getUserData().get('primaryBranchId', '')])) ||
+           resource.data.get('collectionBranchId', '') in getUserData().get('allowedBranchIds', [getUserData().get('primaryBranchId', '')]))) ||
         (isDriver() && resource.data.driverUid == request.auth.uid)
       );
       allow write: if false; // Solo Cloud Function settleDriverCash

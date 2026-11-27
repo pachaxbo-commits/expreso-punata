@@ -19,6 +19,9 @@ const db = getFirestore()
 const authAdmin = getAuth()
 const storageAdmin = getStorage()
 
+// Política comercial aprobada para nuevos registros financieros multisucursal.
+const FINANCIAL_ATTRIBUTION_POLICY_VERSION = 'origin-branch-v1'
+
 import { commercialSettingsRef, createCommercialFunctions, effectiveCommercialRule, localBusinessDay } from './commercialSettings.js'
 
 export const { getCommercialSettings, updateCommercialSettings } = createCommercialFunctions(db, authAdmin)
@@ -4052,6 +4055,7 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
               pendingRemittanceCents: amountCents,
               totalCollectedCents: amountCents,
               totalRemittedCents: 0,
+              financialBranchIds: sData.originBranchId ? [sData.originBranchId] : [],
               lastActivityAt: now,
               updatedAt: now,
             })
@@ -4060,6 +4064,7 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
               cashUnderCustodyCents: FieldValue.increment(amountCents),
               pendingRemittanceCents: FieldValue.increment(amountCents),
               totalCollectedCents: FieldValue.increment(amountCents),
+              ...(sData.originBranchId ? { financialBranchIds: FieldValue.arrayUnion(sData.originBranchId) } : {}),
               lastActivityAt: now,
               updatedAt: now,
             })
@@ -4079,6 +4084,9 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
             amountBob: amountCents / 100,
             paymentMethod: 'cash',
             status: 'pending_remittance',
+            financialBranchId: sData.originBranchId || null,
+            collectionBranchId: sData.destinationBranchId || null,
+            financialAttributionPolicyVersion: FINANCIAL_ATTRIBUTION_POLICY_VERSION,
             remittedAmountCents: 0,
             settlementIds: [],
             createdAt: now,
@@ -4091,7 +4099,9 @@ export const deliverShipment = onCall({ cors: true }, async (request) => {
             type: 'driver_route_cod_collected',
             // El cobro COD en ruta es ingreso comercial desde que el cliente paga.
             // La rendición posterior se registra aparte como transferencia de custodia.
-            branchId: sData.destinationBranchId,
+            branchId: sData.originBranchId || null,
+            collectionBranchId: sData.destinationBranchId || null,
+            financialAttributionPolicyVersion: FINANCIAL_ATTRIBUTION_POLICY_VERSION,
             concept: `Cobro en ruta por conductor: Guía ${sData.trackingCode || shipmentId}`,
             amountCents,
             amountBob: amountCents / 100,
@@ -4473,6 +4483,7 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
     let totalAllocatedExact = 0
     const reconciledShipments = []
     const allocatedRecordsSummary = []
+    const financialAllocations = new Map()
 
     for (const doc of custodyRecordsQuery.docs) {
       if (remainingToAllocate <= 0) break
@@ -4481,6 +4492,8 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
       if (recPending <= 0) continue
 
       const alloc = Math.min(remainingToAllocate, recPending)
+      const financialBranchId = rec.financialBranchId || rec.originBranchId || null
+      if (financialBranchId) financialAllocations.set(financialBranchId, (financialAllocations.get(financialBranchId) || 0) + alloc)
       const newRemitted = (rec.remittedAmountCents || 0) + alloc
       const remainingAfterThis = rec.amountCents - newRemitted
       const isFull = remainingAfterThis <= 0
@@ -4575,6 +4588,7 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
       cashUnderCustodyCents: FieldValue.increment(-totalAllocatedExact),
       pendingRemittanceCents: FieldValue.increment(-totalAllocatedExact),
       totalRemittedCents: FieldValue.increment(totalAllocatedExact),
+      ...(financialAllocations.size ? { financialBranchIds: FieldValue.arrayUnion(...financialAllocations.keys()) } : {}),
       lastActivityAt: now,
       updatedAt: now,
     })
@@ -4589,6 +4603,10 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
       receivedByUid: callerUid,
       receivedByName: callerData.fullName || 'Cajero/Operador',
       branchId,
+      collectionBranchId: branchId,
+      financialAttributionPolicyVersion: FINANCIAL_ATTRIBUTION_POLICY_VERSION,
+      financialAllocations: Object.fromEntries(financialAllocations),
+      financialBranchIds: [...financialAllocations.keys()],
       cashShiftId: shiftId,
       amountCents: totalAllocatedExact,
       amountBob: totalAllocatedExact / 100,
@@ -4622,6 +4640,10 @@ export const settleDriverCash = onCall({ cors: true }, async (request) => {
     transaction.set(finRef, {
       shiftId,
       branchId,
+      collectionBranchId: branchId,
+      financialAttributionPolicyVersion: FINANCIAL_ATTRIBUTION_POLICY_VERSION,
+      financialAllocations: Object.fromEntries(financialAllocations),
+      financialBranchIds: [...financialAllocations.keys()],
       type: 'driver_remittance',
       concept: `Transferencia interna de custodia: Rendición ${settlementType === 'full' ? 'completa' : 'parcial'} de conductor ${driverData.fullName || driverUid} (${settlementId})`,
       amountCents: totalAllocatedExact,
@@ -8667,6 +8689,9 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
     if (!shipmentDoc.exists || !manifestDoc.exists) throw new HttpsError('not-found', 'La encomienda o el manifiesto no existen.')
     const shipment = shipmentDoc.data() || {}
     const manifest = manifestDoc.data() || {}
+    if (!['punata', 'cochabamba'].includes(shipment.originBranchId)) {
+      throw new HttpsError('failed-precondition', 'La encomienda no tiene una sucursal de origen financiera válida; requiere revisión.')
+    }
     if (caller.role === 'afiliado_admin' && !isOperationalAdmin(caller)) {
       const branches = Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : []
       if (!manifest.originBranchId || !shipment.originBranchId ||
@@ -8737,7 +8762,10 @@ export const accrueDriverCommission = onCall({ cors: true }, async (request) => 
       id: recordRef.id, driverUid, driverName, manifestId: manifestIdValue, shipmentId: shipmentIdValue,
       trackingCode: shipment.trackingCode || shipmentIdValue, baseShippingAmountCents,
       ...(release ? { commercialVersion: release.version, effectiveFrom: release.effectiveFrom } : {}),
-      originBranchId: manifest.originBranchId || null,
+      originBranchId: shipment.originBranchId,
+      financialBranchId: shipment.originBranchId,
+      collectionBranchId: shipment.destinationBranchId || null,
+      financialAttributionPolicyVersion: FINANCIAL_ATTRIBUTION_POLICY_VERSION,
       ruleApplied: { type: ruleType, value: ruleValue }, commissionAmountCents, commissionAmountBob: commissionAmountCents / 100,
       status: 'accrued', paidAmountCents: 0, voucherIds: [], createdAtIso: nowIso,
     })
@@ -8767,6 +8795,29 @@ export const listBranchCommissionAccruals = onCall({ cors: true }, async (reques
     .orderBy('createdAtIso', 'desc').limit(50)
     .select('trackingCode', 'driverName', 'commissionAmountCents', 'status', 'createdAtIso').get()
   return { records: result.docs.map(doc => ({ ...doc.data(), id: doc.id })) }
+})
+
+// Lectura autorizada del módulo de comisiones. La interfaz no consulta el
+// ledger directamente: el backend aplica el alcance por sucursal y devuelve
+// únicamente registros cuya atribución financiera es visible para el usuario.
+export const getDriverCommissionOverview = onCall({ cors: true }, async (request) => {
+  const caller = await getAuthenticatedCallerProfile(request)
+  if (!caller || !caller.isActive || !['directiva_admin', 'tesoreria'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tiene permiso para consultar comisiones de conductores.')
+  }
+  const allowedBranches = isOperationalAdmin(caller)
+    ? ['punata', 'cochabamba']
+    : (Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : [caller.primaryBranchId])
+  const recordsSnap = await db.collection('driver_commission_records').orderBy('createdAtIso', 'desc').limit(500).get()
+  const visibleRecords = recordsSnap.docs
+    .map(doc => ({ id: doc.id, ...doc.data() }))
+    .filter(record => isOperationalAdmin(caller) || allowedBranches.includes(record.financialBranchId || record.originBranchId))
+  const visibleDriverIds = new Set(visibleRecords.map(record => record.driverUid))
+  const accountsSnap = await db.collection('driver_commission_accounts').get()
+  const accounts = accountsSnap.docs
+    .map(doc => ({ id: doc.id, ...doc.data() }))
+    .filter(account => isOperationalAdmin(caller) || visibleDriverIds.has(account.driverUid || account.id))
+  return { accounts, records: visibleRecords }
 })
 
 export const settleDriverCommission = onCall({ cors: true }, async (request) => {
@@ -8860,6 +8911,7 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
     let remainingToAllocate = amountCents
     const touchedRecordIds = []
     const touchedShipmentIds = []
+    const financialAllocations = new Map()
 
     for (const doc of recordsSnap.docs) {
       if (remainingToAllocate <= 0) break
@@ -8871,6 +8923,8 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
       if (rec.shipmentId) touchedShipmentIds.push(rec.shipmentId)
 
       const allocation = Math.min(remainingToAllocate, recPending)
+      const financialBranchId = rec.financialBranchId || rec.originBranchId || null
+      if (financialBranchId) financialAllocations.set(financialBranchId, (financialAllocations.get(financialBranchId) || 0) + allocation)
       const newPaid = (rec.paidAmountCents || 0) + allocation
       const isFullyPaid = newPaid >= rec.commissionAmountCents
 
@@ -8912,6 +8966,10 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
       driverUid,
       driverName,
       referenceId: voucherRef.id,
+      collectionBranchId: branchId,
+      financialAttributionPolicyVersion: FINANCIAL_ATTRIBUTION_POLICY_VERSION,
+      financialAllocations: Object.fromEntries(financialAllocations),
+      financialBranchIds: [...financialAllocations.keys()],
       registeredByUid: callerUid,
       registeredByName: callerName,
       createdAtIso: nowIso,
@@ -8934,6 +8992,10 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
       driverUid,
       driverName,
       referenceId: voucherRef.id,
+      collectionBranchId: branchId,
+      financialAttributionPolicyVersion: FINANCIAL_ATTRIBUTION_POLICY_VERSION,
+      financialAllocations: Object.fromEntries(financialAllocations),
+      financialBranchIds: [...financialAllocations.keys()],
       operatorUid: callerUid,
       operatorName: callerName,
       timestamp: nowIso,
@@ -8959,6 +9021,9 @@ export const settleDriverCommission = onCall({ cors: true }, async (request) => 
       driverUid,
       driverName,
       branchId,
+      collectionBranchId: branchId,
+      financialAttributionPolicyVersion: FINANCIAL_ATTRIBUTION_POLICY_VERSION,
+      financialAllocations: Object.fromEntries(financialAllocations),
       cashShiftId: shiftId,
       settledAmountCents: amountCents,
       settledAmountBob: amountCents / 100,
