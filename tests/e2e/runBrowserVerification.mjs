@@ -255,7 +255,7 @@ async function runE2E() {
     await page.click('button[title="Cerrar Sesión"]')
     await page.waitForSelector('text=Iniciar Sesión', { timeout: 5000 })
 
-    await login(page, await seedOperator('afiliado_admin'))
+    await login(page, await seedOperator('directiva_admin'))
     await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 8000 })
     await page.getByRole('button', { name: 'Configuración', exact: true }).click()
     await page.waitForSelector('text=Configuración de Usuarios y Permisos', { timeout: 5000 })
@@ -264,6 +264,18 @@ async function runE2E() {
     await page.waitForSelector('text=Expreso Punata — Aprovisionamiento Oficial', { timeout: 5000 })
     await page.screenshot({ path: path.join(evidenceDir, '13-new-user-modal.png') })
     await page.getByRole('button', { name: 'Cancelar', exact: true }).click()
+
+    await page.getByTitle('Cerrar Sesión').click()
+    await login(page, await seedOperator('afiliado_admin'))
+    await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 8000 })
+    for (const name of ['Caja del Turno', 'Configuración']) {
+      if (await page.getByRole('button', { name, exact: true }).count()) {
+        throw new Error(`afiliado_admin no debe ver el módulo ${name}`)
+      }
+    }
+    await page.getByTitle('Cerrar Sesión').click()
+    await login(page, await seedOperator('directiva_admin'))
+    await page.waitForSelector('text=Agencia Central Punata (PUN)', { timeout: 8000 })
 
     // 9. Prueba del Módulo de Caja (Entrega 1)
     console.log('[E2E] Navegando a la pestaña "Caja del Turno"...')

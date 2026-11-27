@@ -69,11 +69,11 @@ Object.assign(env, {
   E2E_FIREBASE_PROJECT_ID: project,
   E2E_EVIDENCE_DIR: path.join(root, '.runtime', 'evidence', 'browser-verification'),
 })
-if (name === 'browser' && hostUserProfile) env.E2E_BROWSER_USERPROFILE = hostUserProfile
 if (name === 'integration') {
   // Exercise the server-calculated tariff path with an explicit demo tariff fixture.
   env.ENABLE_AUTOMATIC_PARCEL_PRICING = 'true'
 }
+if ((name === 'browser' || name === 'journey') && hostUserProfile) env.E2E_BROWSER_USERPROFILE = hostUserProfile
 const isolatedHome = path.join(root, '.runtime', 'firebase-cli-home')
 const emulatorCache = path.join(root, '.runtime', 'firebase-emulators')
 await mkdir(isolatedHome, { recursive: true })

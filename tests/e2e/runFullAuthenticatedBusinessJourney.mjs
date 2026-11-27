@@ -533,16 +533,18 @@ async function runJourney() {
   if (!fs.existsSync(evidenceDir)) fs.mkdirSync(evidenceDir, { recursive: true })
 
   const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
-  const browser = await chromium.launch({
+  const profileDir = fs.mkdtempSync(path.join(evidenceDir, 'chrome-profile-'))
+  const context = await chromium.launchPersistentContext(profileDir, {
     executablePath: chromePath,
     headless: true,
+    viewport: { width: 1366, height: 768 },
+    env: process.env.E2E_BROWSER_USERPROFILE
+      ? { ...process.env, USERPROFILE: process.env.E2E_BROWSER_USERPROFILE }
+      : process.env,
   })
 
   try {
-    const context = await browser.newContext({
-      viewport: { width: 1366, height: 768 },
-    })
-    const page = await context.newPage()
+    const page = context.pages()[0] || await context.newPage()
 
     // Navegar y autenticar a través del formulario oficial sin inyecciones mock
     await page.goto('http://127.0.0.1:4173', { waitUntil: 'domcontentloaded' })
@@ -584,7 +586,7 @@ async function runJourney() {
     console.log('   ✓ Captura 49: Mobile operativa guardada.')
 
   } finally {
-    await browser.close()
+    await context.close()
     server.close()
   }
 
