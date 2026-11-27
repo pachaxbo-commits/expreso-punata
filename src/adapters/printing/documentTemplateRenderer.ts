@@ -1,5 +1,4 @@
 import QRCode from 'qrcode'
-import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig.ts'
 import type { PaperFormat, UnifiedDocumentPayload } from '../../types/printing.ts'
 import { getRequiredTemplateFields, normalizeDocumentTemplate, templateFieldValue, TEMPLATE_FIELD_CATALOG, type DocumentPrintTemplate, type TemplateFieldId } from '../../services/printing/documentTemplates.ts'
 
@@ -51,10 +50,10 @@ export async function buildDocumentTemplateHtml(doc: UnifiedDocumentPayload, pap
     return groups.map(group => `<div class="ticket-block block-${group.name}">${group.rows.join('')}</div>`).join('')
   }
   const renderGuideFooter = () => {
-    const agencies = doc.guideAgencyAddresses ?? INITIAL_BRANCHES
+    const agencies = doc.guideAgencyAddresses ?? []
     const synthetic = /^(?:EP-)?TEST-/i.test(doc.trackingCode || doc.documentNumber)
-    return `<div class="ticket-block block-agencies">${agencies.map(agency =>
-      `<div><b>${e(agency.name)}:</b> ${e(agency.address)}</div>`).join('')}</div>
+    return `${agencies.length ? `<div class="ticket-block block-agencies">${agencies.map(agency =>
+      `<div><b>${e(agency.name)}:</b> ${e(agency.address)}</div>`).join('')}</div>` : ''}
       <div class="ticket-block block-notice"><b>AVISOS OFICIALES</b>
       ${synthetic ? '<div>EJEMPLO SINTÉTICO — NO VÁLIDO COMO COMPROBANTE</div>' : ''}
       <div>Conserve este comprobante</div><div>Documento operativo interno</div><div>No constituye una factura fiscal</div></div>`

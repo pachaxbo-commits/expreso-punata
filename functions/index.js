@@ -9637,7 +9637,7 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
     // The legacy form may contain a stale snapshot. Fields managed by the
     // versioned editor can only be changed through that editor.
     for (const field of Object.keys(existing.institutionalVersions || {})) {
-      if (company && ['tradeName', 'logoUrl', 'legalNotice'].includes(field)) {
+      if (company && ['tradeName', 'legalName', 'logoUrl', 'legalNotice'].includes(field)) {
         updatedConfig.company[field] = existing.company[field]
       } else if (branches && (field.startsWith('punata') || field.startsWith('cochabamba'))) {
         const id = field.startsWith('punata') ? 'punata' : 'cochabamba'

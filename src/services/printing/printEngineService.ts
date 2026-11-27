@@ -144,8 +144,8 @@ export class PrintEngineService {
         ...(doc.documentType === 'shipment_guide' && {
           guideAgencyAddresses: INITIAL_BRANCHES.map(agency => ({
             name: branches?.[agency.id]?.name?.trim() || agency.name,
-            address: branches?.[agency.id]?.address?.trim() || agency.address,
-          })),
+            address: branches?.[agency.id]?.address?.trim() || '',
+          })).filter(agency => agency.address),
         }),
         footerNotes: [...new Set([...(doc.footerNotes || []), company?.legalNotice, moduleNotice].filter((note): note is string => Boolean(note)))],
       }
