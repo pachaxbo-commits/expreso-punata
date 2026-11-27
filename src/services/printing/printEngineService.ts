@@ -64,16 +64,25 @@ export class PrintEngineService {
     }
 
     try {
-      if (effectivePrinter.connectionType === 'browser_dialog' || effectivePrinter.connectionType === 'rawbt_intent') {
+      let guidePresentation: UnifiedDocumentPayload | undefined
+      if (browserGuide) {
+        const [saved, presentation] = await Promise.all([
+          loadDocumentPrintTemplate(doc.documentType).catch(() => {
+            throw new Error('No se pudo cargar el diseño de guía guardado. Intente de nuevo antes de imprimir.')
+          }),
+          this.withOfficialPresentation(doc),
+        ])
+        options.documentTemplate = saved.template ?? undefined
+        guidePresentation = presentation
+      } else if (effectivePrinter.connectionType === 'browser_dialog' || effectivePrinter.connectionType === 'rawbt_intent') {
         try {
           const saved = await loadDocumentPrintTemplate(doc.documentType)
           if (saved.template) options.documentTemplate = saved.template
-          else if (doc.documentType === 'shipment_guide' && !browserGuide) {
+          else if (doc.documentType === 'shipment_guide') {
             const legacy = await loadShipmentTicketTemplate()
             if (legacy.template) options.ticketTemplate = legacy.template
           }
         } catch {
-          if (browserGuide) throw new Error('No se pudo cargar el diseño de guía guardado. Intente de nuevo antes de imprimir.')
           // If Fase 3 Functions is not deployed yet, preserve the previously versioned guide template when available.
           if (doc.documentType === 'shipment_guide') {
             try {
@@ -86,7 +95,7 @@ export class PrintEngineService {
       let result: PrintResult
       if (effectivePrinter.connectionType === 'virtual_pdf') result = await this.downloadVirtualPdf(doc, paperFormat)
       else {
-        const documentWithPresentation = await this.withOfficialPresentation(doc)
+        const documentWithPresentation = guidePresentation ?? await this.withOfficialPresentation(doc)
         if (effectivePrinter.connectionType === 'rawbt_intent') result = await printViaRawBt(documentWithPresentation, options.documentTemplate?.paperFormat || paperFormat, options)
         else if (browserGuide && (paperFormat === '58mm' || paperFormat === '80mm' || options.documentTemplate)) {
           const template = options.documentTemplate || { ...createDefaultDocumentTemplate('shipment_guide'), paperFormat: paperFormat === '58mm' ? '58mm' : '80mm' as const }

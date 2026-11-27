@@ -26,7 +26,6 @@ import { automaticParcelPricingEnabled } from '../../config/features.ts'
 import { createShipmentThroughBackend, extractCustomerSuggestions } from '../../services/shipmentService.ts'
 import { printShipmentGuidePdf } from '../../services/pdfService.ts'
 import { printEngine } from '../../services/printing/printEngineService.ts'
-import { applyOfficialBranchPhone } from '../../services/branchContactService.ts'
 import { FileText } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext.tsx'
 import { subscribeActiveCashShift } from '../../services/cashService.ts'
@@ -1180,7 +1179,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                     setIsPrintingGuide(true)
                     setPrintFeedback('Preparando impresión…')
                     try {
-                      const doc = await applyOfficialBranchPhone(printEngine.buildFromShipment(createdShipment, userProfile?.fullName || 'Operador'), createdShipment.originBranchId)
+                      const doc = printEngine.buildFromShipment(createdShipment, userProfile?.fullName || 'Operador')
                       setPrintFeedback((await printEngine.printDocument(doc)).message)
                     } catch (error) {
                       setPrintFeedback(error instanceof Error ? error.message : 'No se pudo preparar la impresión.')
