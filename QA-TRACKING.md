@@ -1,5 +1,13 @@
 # Seguimiento QA comercial
 
+## Consolidación con origin/main - 2026-11-27
+
+- Base remota actualizada: `origin/main=fbefb189da71a655555876845f20460f8d508ff1`; `ef1a49ed` permanece en su historia.
+- Integración local: cambios del equipo de `origin/main` y `codex/final-consolidation-2026-11` combinados con `codex/qa-commercial`; conflictos resueltos conservando ambas funcionalidades.
+- Unitarias consolidadas: 94/94. Functions consolidadas: 203/203. Firestore/Storage Rules: 37/37. Integración: 1/1. Typecheck y build aprobados.
+- La rama usa Node 22.17.0, Firebase Emulator en proyecto ficticio `demo-expreso-punata-finalization` y no accede a producción.
+- Rama publicada para revisión: `codex/integration-2026-11`. El Pull Request requiere autenticación de GitHub en el navegador; quedó abierta la comparación contra `main` y no se hizo merge.
+
 ## Auditoría integral de seguridad y permisos - 2026-11-27
 
 ### Matriz efectiva de roles
