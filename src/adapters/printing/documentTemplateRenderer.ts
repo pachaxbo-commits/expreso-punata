@@ -20,12 +20,18 @@ export async function buildDocumentTemplateHtml(doc: UnifiedDocumentPayload, pap
   const renderGuideFields = (copy: DocumentPrintTemplate['copies'][number], fields: TemplateFieldId[]) => {
     const groups: { name: string; rows: string[] }[] = []
     for (const id of fields) {
-      const value = id === 'qr' ? qr : templateFieldValue(id, doc).trim()
+      if (id === 'footer' || id === 'branch') continue
+      const payment = doc.financials
+      const value = id === 'qr' ? qr : id === 'payment'
+        ? payment?.paymentStatus === 'paid' ? 'Pagado'
+          : payment?.paymentTiming === 'destination_cod' ? 'Por pagar en destino'
+            : payment ? 'Pendiente de cobro' : ''
+        : templateFieldValue(id, doc).trim()
       if (!value || (value === 'No registrado' && !requiredGuideFields.has(id))) continue
       const name = id === 'title' || id === 'subtitle' ? 'heading'
         : id === 'tracking' || id === 'number' || id === 'route' ? 'reference'
           : id === 'financials' || id === 'payment' ? 'payment'
-            : id === 'footer' ? 'notice' : id === 'qr' ? 'code' : 'details'
+            : id === 'qr' ? 'code' : 'details'
       let group = groups.at(-1)
       if (group?.name !== name) {
         group = { name, rows: [] }
@@ -33,19 +39,31 @@ export async function buildDocumentTemplateHtml(doc: UnifiedDocumentPayload, pap
       }
       const style = copy.fieldStyles[id]
       const alignment = style?.alignment ?? (name === 'heading' || name === 'reference' ? 'center' : id === 'financials' ? 'right' : 'left')
-      const label = id === 'financials' ? 'Total' : labels.get(id) || id
+      const label = id === 'financials' ? 'Total' : id === 'items' ? 'Detalle' : labels.get(id) || id
+      const content = id === 'items' && doc.items?.length
+        ? doc.items.map(item => `<span class="guide-item">${e(item.description?.trim() || item.packaging || 'Envío')} <b>(${e(item.quantity)})</b></span>`).join('')
+        : e(value)
       group.rows.push(id === 'qr'
         ? `<div class="qr"><img src="${qr}" alt="QR"><small>Escanee para seguimiento</small></div>`
-        : `<div class="field field-${id}" style="text-align:${alignment};${style?.bold ? 'font-weight:700;' : ''}">${name === 'heading' ? '' : `<span class="field-label">${e(label)}</span>`}<strong class="field-value">${e(value)}</strong></div>`)
+        : `<div class="field field-${id}" style="text-align:${alignment};${style?.bold ? 'font-weight:700;' : ''}">${name === 'heading' || id === 'payment' ? '' : `<span class="field-label">${e(label)}</span>`}<strong class="field-value">${content}</strong></div>`)
     }
     return groups.map(group => `<div class="ticket-block block-${group.name}">${group.rows.join('')}</div>`).join('')
+  }
+  const renderGuideFooter = () => {
+    const agencies = doc.guideAgencyAddresses ?? []
+    const synthetic = /^(?:EP-)?TEST-/i.test(doc.trackingCode || doc.documentNumber)
+    return `${agencies.length ? `<div class="ticket-block block-agencies">${agencies.map(agency =>
+      `<div><b>${e(agency.name)}:</b> ${e(agency.address)}</div>`).join('')}</div>` : ''}
+      <div class="ticket-block block-notice"><b>AVISOS OFICIALES</b>
+      ${synthetic ? '<div>EJEMPLO SINTÉTICO — NO VÁLIDO COMO COMPROBANTE</div>' : ''}
+      <div>Conserve este comprobante</div><div>Documento operativo interno</div><div>No constituye una factura fiscal</div></div>`
   }
   const renderCopy = (copy: DocumentPrintTemplate['copies'][number], index: number) => {
     const fields: TemplateFieldId[] = copy.order.filter(id => copy.visibleFields.includes(id))
     return `<section class="copy ${index === 1 ? 'agency' : ''}" style="--copy-pad:${copy.compact ? '1mm' : '2mm'}">
       ${options.includeLogo && copy.showLogo && doc.logoUrl?.startsWith('https://') ? `<img class="logo" src="${e(doc.logoUrl)}" alt="Logo institucional">` : ''}
-      <header><strong class="company">${e(doc.companyName || 'EXPRESO PUNATA')}</strong><div>${e(doc.branchName || doc.branchId)}</div>${(doc.documentType === 'passenger_ticket' || (doc.documentType === 'shipment_guide' && index === 1)) ? `<b class="copy-label">${e(copy.label)}</b>` : ''}${copy.showBranchContact && (doc.branchAddress || doc.branchPhone) ? `<div class="institution-detail">${e(doc.branchAddress || '')}${doc.branchPhone ? ` · ${e(doc.branchPhone)}` : ''}</div>` : ''}</header>
-      ${isGuide ? renderGuideFields(copy, fields) : `<div class="separator"></div>
+      <header><strong class="company">${e(doc.companyName || 'EXPRESO PUNATA')}</strong><div>${e(doc.branchName || doc.branchId)}</div>${(doc.documentType === 'passenger_ticket' || (doc.documentType === 'shipment_guide' && index === 1)) ? `<b class="copy-label">${e(copy.label)}</b>` : ''}${!isGuide && copy.showBranchContact && (doc.branchAddress || doc.branchPhone) ? `<div class="institution-detail">${e(doc.branchAddress || '')}${doc.branchPhone ? ` · ${e(doc.branchPhone)}` : ''}</div>` : ''}</header>
+      ${isGuide ? renderGuideFields(copy, fields) + renderGuideFooter() : `<div class="separator"></div>
       ${fields.map(id => id === 'qr' ? (qr ? `<div class="qr"><img src="${qr}" alt="QR"><small>Escanee para seguimiento</small></div>` : '') : `<div class="field" style="text-align:${copy.fieldStyles[id]?.alignment || (id === 'financials' ? 'right' : 'center')};${copy.fieldStyles[id]?.bold || ['title','number','tracking','financials'].includes(id) ? 'font-weight:700;' : ''}"><span>${e(labels.get(id) || id)}:</span> ${e(templateFieldValue(id, doc))}</div>`).join('')}`}
     </section>`
   }
@@ -65,7 +83,10 @@ export async function buildDocumentTemplateHtml(doc: UnifiedDocumentPayload, pap
     .thermal-guide .field-value{font-weight:inherit}
     .thermal-guide .field-title,.thermal-guide .field-tracking .field-value,.thermal-guide .field-number .field-value,.thermal-guide .field-financials .field-value{font-size:1.18em;font-weight:700}
     .thermal-guide .field-payment .field-value{font-weight:700}
-    .thermal-guide .field-footer .field-value{white-space:pre-line}
+    .thermal-guide .block-agencies,.thermal-guide .block-notice{text-align:center;overflow-wrap:anywhere}
+    .thermal-guide .block-agencies{border-top:${separator};padding-top:.8mm}
+    .thermal-guide .guide-item{display:inline-block;max-width:100%;margin-inline-end:1mm}
+    .thermal-guide .guide-item b{font-weight:800}
     .thermal-guide .agency .ticket-block + .ticket-block{margin-top:.75mm}
     .thermal-guide .agency .field{margin:0;padding:.18mm 0}
     .thermal-guide .agency .block-reference,.thermal-guide .agency .block-payment{padding:.65mm 1mm}

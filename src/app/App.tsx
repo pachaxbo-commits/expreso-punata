@@ -63,7 +63,7 @@ import { PassengerTicketsView } from '../modules/tickets/PassengerTicketsView'
 import { ConsumablesManagementView } from '../modules/assets/ConsumablesManagementView'
 import { PhysicalInventoryDocumentsView } from '../modules/assets/PhysicalInventoryDocumentsView'
 import { CommercialSettings } from '../modules/support/CommercialSettings'
-import { InstitutionalSettings } from '../modules/support/InstitutionalSettings'
+import { CompanyAndAgenciesSettings, InstitutionalSettings } from '../modules/support/InstitutionalSettings'
 import { SystemConfigView } from '../modules/admin/SystemConfigView'
 import type { Shipment } from '../types'
 
@@ -711,11 +711,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
 
             {configSubTab === 'general' && (
               <div className="space-y-4">
-                <InstitutionalSettings />
-                <details>
-                  <summary className="cursor-pointer font-semibold">Otros datos de empresa</summary>
-                  <SystemConfigView key="empresa" currentUser={userProfile} sections={['company']} hideVersionedIdentity />
-                </details>
+                <CompanyAndAgenciesSettings />
+                {userProfile.role === 'afiliado_admin' && <details className="rounded-xl border bg-white p-4">
+                  <summary className="cursor-pointer font-bold">Avisos y preferencias avanzadas</summary>
+                  <InstitutionalSettings />
+                </details>}
               </div>
             )}
             {configSubTab === 'tariffs' && (

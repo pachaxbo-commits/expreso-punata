@@ -411,6 +411,7 @@ async function createShipmentOperation(request) {
     let isDefinitivePayment = false
     let movementId = null
     let effectiveShiftId = null
+    let counterDoc
 
     if (isPaid) {
       let resolvedShiftId = cashShiftId && typeof cashShiftId === 'string' && cashShiftId.trim() ? cashShiftId.trim() : null
@@ -438,7 +439,8 @@ async function createShipmentOperation(request) {
         }
       } else {
         const shiftDocRef = db.collection('cash_shifts').doc(resolvedShiftId)
-        const shiftDoc = await transaction.get(shiftDocRef)
+        const [shiftDoc, counter] = await transaction.getAll(shiftDocRef, counterDocRef)
+        counterDoc = counter
         if (!shiftDoc.exists) {
           throw new HttpsError('failed-precondition', `El turno de caja '${resolvedShiftId}' no existe en el sistema.`)
         }
@@ -458,7 +460,7 @@ async function createShipmentOperation(request) {
     }
 
     // C. Leer y avanzar correlativo anual por sucursal
-    const counterDoc = await transaction.get(counterDocRef)
+    counterDoc ??= await transaction.get(counterDocRef)
     let nextSeq = 1
     if (counterDoc.exists) {
       const data = counterDoc.data() || {}
@@ -1477,19 +1479,20 @@ export const openCashShift = onCall({ cors: true }, async (request) => {
   const branchCode = branchId === 'punata' ? 'PUN' : 'CBB'
 
   return await db.runTransaction(async (transaction) => {
-    const currentOperator = (await transaction.get(db.collection('users').doc(callerUid))).data()
-    if (currentOperator?.isActive !== true) throw new HttpsError('permission-denied', 'La cuenta está inactiva.')
-    // 1. Candado determinístico de operador y sucursal para evitar doble apertura o concurrencia
+    const profileRef = db.collection('users').doc(callerUid)
     const lockRef = db.collection('cash_shift_active_locks').doc(`${callerUid}_${branchId}`)
-    const lockDoc = await transaction.get(lockRef)
-
-    const lock = lockDoc.data()
     const operatorShifts = db.collection('cash_shifts')
       .where('operatorUid', '==', callerUid)
       .where('branchId', '==', branchId)
       .where('status', '==', 'open')
       .limit(2)
-    const activeShifts = await transaction.get(operatorShifts)
+    const [[profile, lockDoc], activeShifts] = await Promise.all([
+      transaction.getAll(profileRef, lockRef),
+      transaction.get(operatorShifts),
+    ])
+    const currentOperator = profile.data()
+    if (currentOperator?.isActive !== true) throw new HttpsError('permission-denied', 'La cuenta está inactiva.')
+    const lock = lockDoc.data()
     if (activeShifts.size > 1) {
       throw new HttpsError('failed-precondition', 'Hay más de un turno abierto en esta agencia. Solicite a administración revisar los turnos antes de operar.')
     }
@@ -9841,7 +9844,7 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
     // The legacy form may contain a stale snapshot. Fields managed by the
     // versioned editor can only be changed through that editor.
     for (const field of Object.keys(existing.institutionalVersions || {})) {
-      if (company && ['tradeName', 'logoUrl', 'legalNotice'].includes(field)) {
+      if (company && ['tradeName', 'legalName', 'logoUrl', 'legalNotice'].includes(field)) {
         updatedConfig.company[field] = existing.company[field]
       } else if (branches && (field.startsWith('punata') || field.startsWith('cochabamba'))) {
         const id = field.startsWith('punata') ? 'punata' : 'cochabamba'

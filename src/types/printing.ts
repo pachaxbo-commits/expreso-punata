@@ -160,6 +160,7 @@ export interface UnifiedDocumentPayload {
   branchName: string
   companyName?: string
   branchAddress?: string
+  guideAgencyAddresses?: { name: string; address: string }[]
   branchPhone?: string
   documentNumber: string
   trackingCode?: string
