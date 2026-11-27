@@ -81,3 +81,8 @@ Darío debe elegir entre atribución a origen, atribución a destino o reparto p
 - Se unificaron proyecto finalization, hosts y bucket mediante variables explícitas del runner. El aislamiento conserva limpieza por archivo.
 - La diferencia histórica 37/37 versus 34/34 corresponde a un agregado antiguo de Rules; 34 es la suite actual de Firestore y Storage tiene prueba separada.
 - Integración y Storage Rules permanecen pendientes en este equipo porque el guard exige Node 22.17.0 y la máquina ejecuta Node 24.13.0; además el fixture Storage existente fue rechazado por autorización. No se alteraron reglas ni datos comerciales.
+## Resolución de bloqueo de Reportes — 2026-11-27
+
+La pantalla blanca no era un defecto de `getSystemReport`: Chrome registró dos respuestas `504 Outdated Optimize Dep` desde Vite y no llegó a montar la vista. Después de reiniciar Vite con `--force`, `getSystemReport` respondió 200 y el tablero consolidado cargó los importes y filtros.
+
+La exportación Excel se generó y abrió como archivo XLSX válido de 25.828 bytes. No se generó un nuevo movimiento financiero. La caja independiente no se ejecutó porque el turno Punata QA sigue activo y no había credencial válida para una sesión nueva de Cochabamba.

@@ -17,5 +17,7 @@ Fecha: 2026-11-27
 - Ejecutar integración con Node 22.17.0.
 - Resolver el bloqueo visual de Reportes que permanece en “Cargando reportes…” en Chrome antes de aprobar exportaciones comerciales.
 - Abrir y cerrar un turno nuevo únicamente cuando no exista un turno QA activo.
+- Storage Rules: aislar y corregir el fixture/bucket que produce `storage/unauthorized` sin cambiar las reglas.
 
 La rama `codex/integration-2026-11` queda preparada para revisión, pero estos pendientes impiden declarar readiness comercial completa o hacer merge a main.
+- Reportes: bloqueo resuelto operacionalmente; causa confirmada en caché Vite (`Outdated Optimize Dep`), exportación XLSX verificada desde Chrome.
