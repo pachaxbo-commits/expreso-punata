@@ -1,6 +1,6 @@
 import QRCode from 'qrcode'
 import type { PaperFormat, UnifiedDocumentPayload } from '../../types/printing.ts'
-import { normalizeDocumentTemplate, templateFieldValue, TEMPLATE_FIELD_CATALOG, type DocumentPrintTemplate, type TemplateFieldId } from '../../services/printing/documentTemplates.ts'
+import { getRequiredTemplateFields, normalizeDocumentTemplate, templateFieldValue, TEMPLATE_FIELD_CATALOG, type DocumentPrintTemplate, type TemplateFieldId } from '../../services/printing/documentTemplates.ts'
 
 const e = (value: unknown) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
 const labels = new Map(TEMPLATE_FIELD_CATALOG.map(field => [field.id, field.label]))
@@ -16,11 +16,12 @@ export async function buildDocumentTemplateHtml(doc: UnifiedDocumentPayload, pap
   const font = template.fontSize === 'compact' ? '10.5px' : template.fontSize === 'large' ? '13px' : '12px'
   const separator = template.separator === 'none' ? 'none' : template.separator === 'solid' ? '1px solid #555' : '1px dashed #777'
   const isGuide = doc.documentType === 'shipment_guide'
+  const requiredGuideFields = new Set(getRequiredTemplateFields('shipment_guide'))
   const renderGuideFields = (copy: DocumentPrintTemplate['copies'][number], fields: TemplateFieldId[]) => {
     const groups: { name: string; rows: string[] }[] = []
     for (const id of fields) {
       const value = id === 'qr' ? qr : templateFieldValue(id, doc).trim()
-      if (!value) continue
+      if (!value || (value === 'No registrado' && !requiredGuideFields.has(id))) continue
       const name = id === 'title' || id === 'subtitle' ? 'heading'
         : id === 'tracking' || id === 'number' || id === 'route' ? 'reference'
           : id === 'financials' || id === 'payment' ? 'payment'
