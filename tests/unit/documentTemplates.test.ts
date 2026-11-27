@@ -93,3 +93,30 @@ test('RawBT applies both configured copies in one ESC/POS job and encodes select
   assert.equal(cuts.length, 2)
   assert.ok(Array.from(bytes).some((value, index, all) => value === 0x1d && all[index + 1] === 0x56 && all[index + 2] === 0x00))
 })
+
+test('guide blocks follow saved field order and omit disabled or empty content at both widths', async () => {
+  const doc = sample('shipment_guide')
+  const template = createDefaultDocumentTemplate('shipment_guide')
+  for (const width of ['58mm', '80mm'] as const) {
+    const options = { copyIndex: 0 as const }
+    const client = await buildDocumentTemplateHtml(doc, width, template, options)
+    assert.match(client, /class="ticket-block block-reference"/)
+    assert.match(client, /class="ticket-block block-payment"/)
+    assert.doesNotMatch(client, /class="qr"|field-senderPhone/)
+    assert.equal(client, await buildDocumentHtml(doc, width, { ...options, documentTemplate: template }))
+    const agency = await buildDocumentTemplateHtml(doc, width, template, { copyIndex: 1 })
+    assert.match(agency, /COPIA AGENCIA/)
+    for (const html of [client, agency]) {
+      assert.equal((html.match(/class="copy /g) || []).length, 1)
+      assert.match(html, /EP-TEST-001/)
+      assert.match(html, /Bs 20\.00/)
+    }
+    const edited = structuredClone(template)
+    edited.copies[0].visibleFields = edited.copies[0].visibleFields.filter(id => !['sender', 'recipient', 'items', 'financials', 'payment'].includes(id))
+    const compact = await buildDocumentTemplateHtml(doc, width, edited, options)
+    assert.doesNotMatch(compact, /class="ticket-block block-payment"|field-sender\b|field-items\b/)
+    edited.copies[0].visibleFields.push('qr')
+    edited.copies[0].order.push('qr')
+    assert.match(await buildDocumentTemplateHtml(doc, width, edited, options), /class="qr"/)
+  }
+})
