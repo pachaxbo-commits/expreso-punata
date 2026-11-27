@@ -1,5 +1,15 @@
 # Seguimiento QA comercial
 
+## Suite reproducible de Functions y Entorno A - 2026-11-26
+
+- Se corrigieron los fixtures de `manifestDispatch.test.mjs`: limpian recursivamente `shipments` y `manifests`, incluyendo subcolecciones, y eliminan `shipment_notifications`.
+- Se agregaron `scripts/runFunctionsSuiteIsolated.mjs`, `scripts/runFirestoreRulesQa.mjs` y los comandos `test:functions:qa`/`test:rules`. El ejecutor descubre los 34 archivos, aísla proyectos y datos del Entorno A, guarda logs por grupo y devuelve código distinto de cero ante fallos, omisiones o bloqueos.
+- Ejecución 1: 34/34 archivos, 193/193 pruebas, 0 fallos, 0 omitidas, 0 bloqueadas, código 0. `blockBConfiguration` 2/2, `commissionsAndConsumables` 6/6 y `manifestDispatch` 10/10.
+- Ejecución 2 consecutiva: 34/34 archivos, 193/193 pruebas, 0 fallos, 0 omitidas, 0 bloqueadas, código 0. El resumen queda en `.qa-automated/function-groups-official/summary.json`.
+- `npm run test:rules`: 34/34 aprobadas, 0 fallos, código 0, reutilizando el emulador A en `127.0.0.1:17080` sin redescarga.
+- Validación del proyecto: unitarias 93/93, typecheck y build aprobados. No se alteró el Entorno B, sus registros comerciales ni el worktree original.
+- La ejecución monolítica queda documentada como no confiable por recursos compartidos de Node/Firebase Admin; el ejecutor aislado por archivo es la ruta reproducible aprobada y no usa `process.exit` para ocultar bloqueos.
+
 ## Multas y prÃ©stamos â€” continuaciÃ³n 2026-11-26
 
 - La vista `Multas` muestra `SOC-QA-001` y el formulario de creaciÃ³n para Directiva QA. Se intentÃ³ registrar una multa ficticia de Bs30 mediante la interfaz, sin escribir directamente en Firestore.
