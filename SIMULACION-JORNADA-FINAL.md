@@ -75,3 +75,9 @@ Darío debe elegir entre atribución a origen, atribución a destino o reparto p
 - Caja: no se abrió un turno nuevo porque ya existía `TUR-PUN-2026-0004` activo. La interfaz mostró Bs 509 en gaveta, fondo inicial Bs 500, cobros y egresos auditados. No se creó movimiento adicional para evitar duplicar una operación financiera.
 - Reportes: la navegación desde dos sesiones Chrome quedó en "Cargando reportes…" y una captura terminó por timeout. No se declara exportación ni reporte aprobado.
 - Caso 99: la política de origen quedó validada por regresiones backend; no se repitieron cobros ni liquidaciones históricas.
+## Validación de runner y cierre técnico — 2026-11-27
+
+- Runner Functions corregido y repetido: 37 archivos, 204 pruebas, código 0 en ambas ejecuciones; sin fallos, omisiones ni bloqueos.
+- Se unificaron proyecto finalization, hosts y bucket mediante variables explícitas del runner. El aislamiento conserva limpieza por archivo.
+- La diferencia histórica 37/37 versus 34/34 corresponde a un agregado antiguo de Rules; 34 es la suite actual de Firestore y Storage tiene prueba separada.
+- Integración y Storage Rules permanecen pendientes en este equipo porque el guard exige Node 22.17.0 y la máquina ejecuta Node 24.13.0; además el fixture Storage existente fue rechazado por autorización. No se alteraron reglas ni datos comerciales.
