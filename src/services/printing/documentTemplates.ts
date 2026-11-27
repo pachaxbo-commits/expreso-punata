@@ -1,6 +1,6 @@
 import type { DocumentPrintType, PaperFormat, UnifiedDocumentPayload } from '../../types/printing.ts'
 
-export type TemplateFieldId = 'title' | 'subtitle' | 'number' | 'tracking' | 'timestamp' | 'branch' | 'sender' | 'senderPhone' | 'recipient' | 'recipientPhone' | 'route' | 'items' | 'financials' | 'payment' | 'operator' | 'driver' | 'dispatch' | 'signatures' | 'footer' | 'qr' | 'passenger' | 'travelDate' | 'vehicle' | 'quantity' | 'fare' | 'settlement' | 'paymentVerification'
+export type TemplateFieldId = 'title' | 'subtitle' | 'number' | 'tracking' | 'timestamp' | 'branch' | 'sender' | 'senderPhone' | 'recipient' | 'recipientPhone' | 'route' | 'items' | 'financials' | 'paidAmount' | 'balanceDue' | 'paymentMethod' | 'payment' | 'operator' | 'driver' | 'dispatch' | 'signatures' | 'footer' | 'qr' | 'passenger' | 'travelDate' | 'vehicle' | 'quantity' | 'fare' | 'settlement' | 'paymentVerification'
 export interface DocumentTemplateCopy {
   label: string
   visibleFields: TemplateFieldId[]
@@ -38,7 +38,7 @@ export const TEMPLATE_FIELD_CATALOG: Array<{ id: TemplateFieldId; label: string 
 
 const COMMON: TemplateFieldId[] = ['title', 'subtitle', 'number', 'timestamp', 'branch', 'operator', 'footer']
 const SCHEMAS: Record<DocumentPrintType, TemplateFieldId[]> = {
-  shipment_guide: [...COMMON, 'tracking', 'sender', 'senderPhone', 'recipient', 'recipientPhone', 'route', 'items', 'financials', 'payment', 'driver', 'qr'],
+  shipment_guide: [...COMMON, 'tracking', 'sender', 'senderPhone', 'recipient', 'recipientPhone', 'route', 'items', 'financials', 'paidAmount', 'balanceDue', 'paymentMethod', 'payment', 'driver', 'qr'],
   package_label: ['title', 'number', 'tracking', 'branch', 'items', 'qr'],
   dispatch_manifest: [...COMMON, 'route', 'items', 'financials', 'driver', 'dispatch'],
   delivery_proof: [...COMMON, 'tracking', 'sender', 'senderPhone', 'recipient', 'recipientPhone', 'route', 'items', 'signatures', 'qr'],
@@ -65,19 +65,19 @@ const REQUIRED: Partial<Record<DocumentPrintType, TemplateFieldId[]>> = {
   passenger_ticket: ['title', 'number', 'travelDate', 'route', 'quantity', 'fare', 'paymentVerification', 'footer'],
 }
 
-const DEFAULT_AGENCY: TemplateFieldId[] = ['title', 'tracking', 'timestamp', 'sender', 'route', 'items', 'financials', 'payment']
+const DEFAULT_CLIENT_RECEIPT: TemplateFieldId[] = ['title', 'tracking', 'timestamp', 'route', 'sender', 'recipient', 'items', 'paidAmount', 'balanceDue', 'paymentMethod', 'footer']
 export const getTemplateFields = (type: DocumentPrintType) => TEMPLATE_FIELD_CATALOG.filter(field => SCHEMAS[type]?.includes(field.id))
 export const getRequiredTemplateFields = (type: DocumentPrintType) => REQUIRED[type] || ['title', 'number']
 export function createDefaultDocumentTemplate(type: DocumentPrintType): DocumentPrintTemplate {
   const fields = SCHEMAS[type] || COMMON
   const customerFields = fields.filter(id => (id !== 'qr' || type === 'package_label' || type === 'passenger_ticket') && !(type === 'shipment_guide' && id === 'number'))
-  const agencyFields = type === 'shipment_guide' ? DEFAULT_AGENCY : type === 'passenger_ticket' ? fields.filter(id => ['title', 'number', 'travelDate', 'route', 'driver', 'vehicle', 'quantity', 'fare', 'paymentVerification', 'settlement', 'qr'].includes(id)) : fields.filter(id => ['title', 'number', 'timestamp', 'items'].includes(id))
+  const agencyFields = type === 'shipment_guide' ? DEFAULT_CLIENT_RECEIPT : type === 'passenger_ticket' ? fields.filter(id => ['title', 'number', 'travelDate', 'route', 'driver', 'vehicle', 'quantity', 'fare', 'paymentVerification', 'settlement', 'qr'].includes(id)) : fields.filter(id => ['title', 'number', 'timestamp', 'items'].includes(id))
   return {
     documentType: type, version: 0, paperFormat: '80mm', marginsMm: 2, fontSize: 'normal', separator: 'dashed',
     secondCopyEnabled: type === 'shipment_guide' || type === 'passenger_ticket', cutBetweenCopies: 'page_break', cutAtEnd: 'driver', cutPreference: 'partial',
     copies: [
       { label: type === 'passenger_ticket' ? 'COMPROBANTE DE OFICINA' : 'CLIENTE', visibleFields: [...customerFields], order: [...customerFields], showBranchContact: true, showLogo: true, fieldStyles: { title: { bold: true, alignment: 'center' }, number: { bold: true, alignment: 'center' }, tracking: { bold: true, alignment: 'center' }, qr: { bold: false, alignment: 'center' }, financials: { bold: true, alignment: 'right' }, fare: { bold: true, alignment: 'right' } }, compact: false },
-      { label: type === 'shipment_guide' ? 'COPIA AGENCIA' : type === 'passenger_ticket' ? 'PASAJE DEL CHOFER' : 'COPIA 2', visibleFields: [...agencyFields], order: [...agencyFields], showBranchContact: false, showLogo: false, fieldStyles: { title: { bold: true, alignment: 'center' }, number: { bold: true, alignment: 'center' }, fare: { bold: true, alignment: 'right' } }, compact: true },
+      { label: type === 'shipment_guide' ? 'COPIA CLIENTE' : type === 'passenger_ticket' ? 'PASAJE DEL CHOFER' : 'COPIA 2', visibleFields: [...agencyFields], order: [...agencyFields], showBranchContact: false, showLogo: false, fieldStyles: { title: { bold: true, alignment: 'center' }, number: { bold: true, alignment: 'center' }, paidAmount: { bold: true, alignment: 'right' }, balanceDue: { bold: true, alignment: 'right' } }, compact: true },
     ],
   }
 }
@@ -88,7 +88,13 @@ export function normalizeDocumentTemplate(type: DocumentPrintType, input: unknow
   const normalizeCopy = (copy: unknown, index: 0 | 1) => {
     const raw = copy && typeof copy === 'object' ? copy as Partial<DocumentTemplateCopy> : {}
     const allowed = new Set(SCHEMAS[type] || COMMON)
-    const visible = Array.isArray(raw.visibleFields) ? raw.visibleFields.filter((id): id is TemplateFieldId => allowed.has(id)) : fallback.copies[index].visibleFields
+    const configuredFields = Array.isArray(raw.visibleFields) ? raw.visibleFields.filter((id): id is TemplateFieldId => allowed.has(id)) : fallback.copies[index].visibleFields
+    // Migrate legacy shipment templates whose client copy predates the financial summary.
+    // The payer receipt must always expose the real paid amount, balance and payment method.
+    const legacyClientFields: TemplateFieldId[] = type === 'shipment_guide' && index === 1
+      ? ['paidAmount', 'balanceDue', 'paymentMethod']
+      : []
+    const visible = [...configuredFields, ...legacyClientFields]
     const visibleFields = [...new Set([...visible, ...getRequiredTemplateFields(type)])]
     const rawOrder = Array.isArray(raw.order) ? raw.order.filter((id): id is TemplateFieldId => allowed.has(id) && visibleFields.includes(id)) : fallback.copies[index].order
     const order = [...new Set([...rawOrder, ...visibleFields])]
@@ -98,7 +104,7 @@ export function normalizeDocumentTemplate(type: DocumentPrintType, input: unknow
       const style = value as DocumentTemplateCopy['fieldStyles'][TemplateFieldId]
       fieldStyles[id as TemplateFieldId] = { bold: style?.bold === true, alignment: style?.alignment === 'center' || style?.alignment === 'right' ? style.alignment : 'left' }
     }
-    return { label: index === 1 ? (type === 'shipment_guide' ? 'COPIA AGENCIA' : type === 'passenger_ticket' ? 'PASAJE DEL CHOFER' : 'COPIA 2') : type === 'passenger_ticket' ? 'COMPROBANTE DE OFICINA' : 'CLIENTE', visibleFields, order, showBranchContact: raw.showBranchContact === true, showLogo: raw.showLogo === true, fieldStyles, compact: index === 1 || raw.compact === true }
+    return { label: index === 1 ? (type === 'shipment_guide' ? 'COPIA CLIENTE' : type === 'passenger_ticket' ? 'PASAJE DEL CHOFER' : 'COPIA 2') : type === 'passenger_ticket' ? 'COMPROBANTE DE OFICINA' : 'CLIENTE', visibleFields, order, showBranchContact: raw.showBranchContact === true, showLogo: raw.showLogo === true, fieldStyles, compact: index === 1 || raw.compact === true }
   }
   return {
     documentType: type, version: Number.isSafeInteger(source.version) && Number(source.version) >= 0 ? Number(source.version) : 0,
@@ -128,6 +134,9 @@ export function templateFieldValue(id: TemplateFieldId, doc: UnifiedDocumentPayl
     case 'route': return val(doc.subtitle || [meta.origin, meta.destination].filter(Boolean).join(' → '))
     case 'items': return doc.items?.length ? doc.items.map(item => `${item.quantity} × ${item.description}`).join(' · ') : val(meta.description || meta.packageCount && `${meta.packageCount} bultos`)
     case 'financials': return doc.financials ? `Bs ${Number(doc.financials.totalBob ?? Number(doc.financials.amountCents || 0) / 100).toFixed(2)}` : val(meta.totalLabel || meta.amountBob && `Bs ${Number(meta.amountBob).toFixed(2)}`)
+    case 'paidAmount': return `Bs ${((Number(meta.paidAmountCents) || 0) / 100).toFixed(2)}`
+    case 'balanceDue': return `Bs ${((Number(meta.balanceDueCents) || 0) / 100).toFixed(2)}`
+    case 'paymentMethod': return val(meta.paymentMethodLabel || doc.financials?.paymentMethod)
     case 'payment': return resolvePaymentConditionLabel(doc.financials)
     case 'operator': return val(doc.operatorName)
     case 'driver': return val(doc.dispatch?.driverName || meta.driverName || doc.signatures?.driverSignatureName || doc.recipient?.name)

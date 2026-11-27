@@ -34,6 +34,7 @@ export class PrintEngineService {
     doc: UnifiedDocumentPayload,
     printerOverride?: PrinterProfile,
     guideCopies?: 1 | 2,
+    copyIndex?: 0 | 1,
   ): Promise<PrintResult> {
     const effectivePrinter = printerOverride || getDefaultPrinter(doc.branchId)
 
@@ -52,6 +53,7 @@ export class PrintEngineService {
       includeLogo: boolean
       cutPaper: boolean
       kickDrawer: boolean
+      copyIndex?: 0 | 1
       ticketTemplate?: ShipmentTicketTemplate
       documentTemplate?: DocumentPrintTemplate
     } = {
@@ -61,6 +63,7 @@ export class PrintEngineService {
       includeLogo: effectivePrinter.capabilities.supportsLogo,
       cutPaper: effectivePrinter.cutPaperOnFinish,
       kickDrawer: effectivePrinter.kickDrawerOnReceipt,
+      copyIndex,
     }
 
     try {
@@ -100,8 +103,8 @@ export class PrintEngineService {
         else if (browserGuide && (paperFormat === '58mm' || paperFormat === '80mm' || options.documentTemplate)) {
           const template = options.documentTemplate || { ...createDefaultDocumentTemplate('shipment_guide'), paperFormat: paperFormat === '58mm' ? '58mm' : '80mm' as const }
           const printOptions = { ...options, documentTemplate: template }
-          result = await printViaBrowserDialog(documentWithPresentation, template.paperFormat, { ...printOptions, copyIndex: 0 })
-          if (result.success && (guideCopies === 2 || (guideCopies === undefined && template.secondCopyEnabled))) {
+          result = await printViaBrowserDialog(documentWithPresentation, template.paperFormat, { ...printOptions, copyIndex: copyIndex ?? 0 })
+          if (result.success && copyIndex === undefined && (guideCopies === 2 || (guideCopies === undefined && template.secondCopyEnabled))) {
             result = await printViaBrowserDialog(documentWithPresentation, template.paperFormat, { ...printOptions, copyIndex: 1 })
             if (result.success) result.message = 'Chrome recibió los trabajos de cliente y agencia. Compruebe las dos copias en la impresora.'
             else result.message = 'El flujo de cliente terminó. Copia de agencia sin confirmar. ' + result.message
@@ -314,7 +317,14 @@ export class PrintEngineService {
     const branch = INITIAL_BRANCHES.find((b) => b.id === shipment.originBranchId) || INITIAL_BRANCHES[0]
     const destBranch = INITIAL_BRANCHES.find((b) => b.id === shipment.destinationBranchId) || INITIAL_BRANCHES[1]
     const nowIso = new Date().toISOString()
-    const amountBob = (shipment.finalAmountCents || 0) / 100
+    const amountCents = shipment.finalAmountCents || 0
+    const candidatePaidCents = Number((shipment as Shipment & { paidAmountCents?: number }).paidAmountCents)
+    const paidAmountCents = Number.isFinite(candidatePaidCents) && candidatePaidCents >= 0
+      ? candidatePaidCents
+      : shipment.paymentStatus === 'paid' ? amountCents : 0
+    const balanceDueCents = Math.max(0, amountCents - paidAmountCents)
+    const amountBob = amountCents / 100
+    const paymentMethodLabel = shipment.paymentMethod === 'qr' ? 'QR' : shipment.paymentMethod === 'transfer' ? 'Transferencia' : shipment.paymentMethod === 'cash' ? 'Efectivo' : 'No registrado'
 
     return {
       documentType: isDeliveryProof ? 'delivery_proof' : 'shipment_guide',
@@ -357,11 +367,14 @@ export class PrintEngineService {
         driverName: shipment.assignedVehicle?.driverName || '',
         deliveryType: shipment.deliveryType === 'home' ? 'Entrega a domicilio' : shipment.deliveryType === 'direct_driver' ? 'Entrega por conductor' : 'Recojo en agencia',
         shipmentStatus: shipment.status,
+        paidAmountCents,
+        balanceDueCents,
+        paymentMethodLabel,
       },
       financials: {
         subtotalBob: amountBob,
         totalBob: amountBob,
-        amountCents: shipment.finalAmountCents,
+        amountCents,
         paymentTiming: shipment.paymentTiming,
         paymentStatus: shipment.paymentStatus === 'paid' ? 'paid' : 'pending',
         paymentMethod: shipment.paymentMethod,

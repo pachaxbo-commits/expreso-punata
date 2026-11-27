@@ -268,6 +268,7 @@ export async function printViaRawBt(
     cutPaper?: boolean
     kickDrawer?: boolean
     includeQr?: boolean
+    copyIndex?: 0 | 1
     documentTemplate?: DocumentPrintTemplate
   } = {}
 ): Promise<PrintResult> {
@@ -335,12 +336,12 @@ export async function printViaRawBt(
   }
 }
 
-export function buildEscPosTemplateDocument(doc: UnifiedDocumentPayload, paperFormat: PaperFormat, input: DocumentPrintTemplate, options: { cutPaper?: boolean; kickDrawer?: boolean; includeQr?: boolean } = {}): EscPosBuilder {
+export function buildEscPosTemplateDocument(doc: UnifiedDocumentPayload, paperFormat: PaperFormat, input: DocumentPrintTemplate, options: { cutPaper?: boolean; kickDrawer?: boolean; includeQr?: boolean; copyIndex?: 0 | 1 } = {}): EscPosBuilder {
   const template = normalizeDocumentTemplate(doc.documentType, input)
   const width = paperFormat === '58mm' ? 32 : 44
   const builder = new EscPosBuilder()
   if (options.kickDrawer) builder.kickDrawer()
-  const copies = template.secondCopyEnabled ? template.copies : [template.copies[0]]
+  const copies = options.copyIndex !== undefined ? [template.copies[options.copyIndex]] : template.secondCopyEnabled ? template.copies : [template.copies[0]]
   copies.forEach((copy, index) => {
     builder.align('center').bold(true).doubleSize(true).line(doc.companyName || 'EXPRESO PUNATA').doubleSize(false).bold(false)
     if (doc.branchName) builder.line(doc.branchName)
