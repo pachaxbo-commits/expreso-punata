@@ -3,8 +3,6 @@ import assert from 'node:assert/strict'
 import { initializeApp, getApps, deleteApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.GCLOUD_PROJECT = 'demo-expreso-punata-dev'
 // Evita que idempotency_keys persistidas en emuladores compartidos contaminen
 // las expectativas de una nueva ejecución del mismo conjunto de pruebas.
 const testRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -21,7 +19,7 @@ let db
 
 before(() => {
   if (getApps().length === 0) {
-    adminApp = initializeApp({ projectId: 'demo-expreso-punata-dev' })
+    adminApp = initializeApp({ projectId: process.env.GCLOUD_PROJECT })
   } else {
     adminApp = getApps()[0]
   }

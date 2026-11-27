@@ -8,6 +8,7 @@ import { getDoc } from '../../firebase/observedFirestore.ts'
 import { auth, db, functions, isEmulatedEnvironment } from '../../firebase/config'
 import { reportObservedError } from '../../firebase/observedCallable.ts'
 import type { UserProfile, UserRole } from '../../types'
+import { parseUserProfile } from './profileValidation'
 
 export interface AuthContextType {
   currentUser: FirebaseUser | null
@@ -27,6 +28,7 @@ export interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null)
@@ -71,7 +73,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid))
           if (userDoc.exists()) {
-            const data = userDoc.data() as UserProfile
+            const data = parseUserProfile(userDoc.data(), user)
+
+            if (!data) {
+              setAuthError('Su perfil no tiene los datos mínimos de sucursal, rol o permisos. Contacte a la administración.')
+              await fbSignOut(auth).catch(() => {})
+              setUserProfile(null)
+              _setCurrentBranchId('punata')
+              saveProfile(null)
+              setIsInitializing(false)
+              return
+            }
 
             if (data.isActive === false) {
               setAuthError('Su cuenta de usuario se encuentra inactiva. Comuníquese con la administración de Expreso Punata.')
@@ -95,7 +107,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               await ensureProfile()
               const createdDoc = await getDoc(doc(db, 'users', user.uid))
               if (!createdDoc.exists()) throw new Error('El perfil local no pudo persistirse en Firestore Emulator.')
-              const createdProfile = createdDoc.data() as UserProfile
+              const createdProfile = parseUserProfile(createdDoc.data(), user)
+              if (!createdProfile) throw new Error('El perfil local no contiene los datos mínimos de autorización.')
               setUserProfile(createdProfile)
               _setCurrentBranchId(createdProfile.primaryBranchId || 'punata')
               saveProfile(createdProfile)
@@ -153,7 +166,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(missingErr)
       }
 
-      const profileData = userDoc.data() as UserProfile
+      const profileData = parseUserProfile(userDoc.data(), user)
+
+      if (!profileData) {
+        await fbSignOut(auth).catch(() => {})
+        const invalidProfileErr = 'Su perfil no tiene los datos mínimos de sucursal, rol o permisos. Contacte a la administración.'
+        setAuthError(invalidProfileErr)
+        throw new Error(invalidProfileErr)
+      }
 
       if (profileData.isActive === false) {
         await fbSignOut(auth).catch(() => {})
@@ -249,7 +269,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(securityErr)
     }
 
-    const devUid = currentUser ? currentUser.uid : `dev-${role}-${branchId}`
+    // Los accesos de simulación solo pueden cambiar el perfil de una sesión
+    // autenticada en Firebase Emulator. Nunca crear un perfil local sintético
+    // sin UID Auth: Firestore Rules deben recibir siempre request.auth.
+    if (!currentUser) {
+      const securityErr = 'Simulación rechazada: inicie sesión con un usuario autenticado del emulador.'
+      setAuthError(securityErr)
+      throw new Error(securityErr)
+    }
+
+    const devUid = currentUser.uid
     const updated: UserProfile = {
       uid: devUid,
       fullName:

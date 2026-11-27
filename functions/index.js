@@ -9,6 +9,7 @@ import { createSupportFunctions } from './supportCenter.js'
 import { createUserSecurityFunctions } from './userSecurity.js'
 import { createB4SettingsFunctions } from './b4Settings.js'
 import { createTicketTemplateFunctions } from './ticketTemplates.js'
+import { getStorageBucketName } from './storageConfig.js'
 
 if (getApps().length === 0) {
   initializeApp()
@@ -1875,20 +1876,24 @@ export const createExpenseAuthorization = onCall({ cors: true }, async (request)
     throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
   }
 
-  const allowedRoles = ['directiva_admin']
+  const allowedRoles = ['encargado_agencia', 'directiva_admin']
   if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'Solo Encargados de Agencia o Directiva pueden autorizar egresos extraordinarios.')
   }
 
   const payload = request.data || {}
   const branchId = payload.branchId && typeof payload.branchId === 'string' ? payload.branchId.trim().toLowerCase() : ''
-  const maxAmountCents = Math.round(Number(payload.maxAmountCents) || 0)
+  const maxAmountCents = Number(payload.maxAmountCents)
   const concept = payload.concept && typeof payload.concept === 'string' ? payload.concept.trim() : ''
   const category = payload.category && typeof payload.category === 'string' ? payload.category.trim().toLowerCase() : 'otro'
   const authorizedOperatorUid = payload.authorizedOperatorUid && typeof payload.authorizedOperatorUid === 'string' ? payload.authorizedOperatorUid.trim() : ''
 
   if (!branchId || maxAmountCents <= 0 || !concept || !authorizedOperatorUid) {
     throw new HttpsError('invalid-argument', 'Debe proporcionar sucursal, monto máximo positivo, concepto y el UID del operador autorizado.')
+  }
+
+  if (!['punata', 'cochabamba'].includes(branchId) || !Number.isSafeInteger(maxAmountCents) || concept.trim().length < 3) {
+    throw new HttpsError('invalid-argument', 'La sucursal, el importe máximo o el concepto no son válidos.')
   }
 
   if (callerData.role === 'encargado_agencia') {
@@ -1902,6 +1907,10 @@ export const createExpenseAuthorization = onCall({ cors: true }, async (request)
   const operatorDoc = await db.collection('users').doc(authorizedOperatorUid).get()
   if (!operatorDoc.exists || !operatorDoc.data().isActive) {
     throw new HttpsError('failed-precondition', 'El operador designado a autorizar no existe o se encuentra inactivo.')
+  }
+  const operator = operatorDoc.data() || {}
+  if (operator.role !== 'secretaria' || operator.primaryBranchId !== branchId) {
+    throw new HttpsError('failed-precondition', 'La autorización extraordinaria debe corresponder a una Secretaría activa de la sucursal indicada.')
   }
 
   const now = new Date()
@@ -1968,14 +1977,14 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Su cuenta de usuario se encuentra inactiva.')
   }
 
-  const allowedRoles = ['directiva_admin']
+  const allowedRoles = ['secretaria', 'encargado_agencia', 'directiva_admin']
   if (!hasOperationalRole(callerData, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para registrar gastos de caja.')
   }
 
   const payload = request.data || {}
   const branchId = payload.branchId && typeof payload.branchId === 'string' ? payload.branchId.trim().toLowerCase() : ''
-  const amountCents = Math.round(Number(payload.amountCents) || 0)
+  const amountCents = Number(payload.amountCents)
   const concept = payload.concept && typeof payload.concept === 'string' ? payload.concept.trim() : ''
   const category = payload.category && typeof payload.category === 'string' ? payload.category.trim().toLowerCase() : 'oficina'
   const voucherNumber = payload.voucherNumber && typeof payload.voucherNumber === 'string' ? payload.voucherNumber.trim() : null
@@ -1989,6 +1998,17 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
 
   if (!branchId || amountCents <= 0 || !concept) {
     throw new HttpsError('invalid-argument', 'Debe proporcionar sucursal, monto positivo y concepto del egreso.')
+  }
+  if (!['punata', 'cochabamba'].includes(branchId) || !Number.isSafeInteger(amountCents) || concept.length < 3) {
+    throw new HttpsError('invalid-argument', 'La sucursal, el importe o el concepto del egreso no son válidos.')
+  }
+  const permittedBranches = callerData.role === 'secretaria'
+    ? [callerData.primaryBranchId].filter(Boolean)
+    : (Array.isArray(callerData.allowedBranchIds) && callerData.allowedBranchIds.length > 0
+      ? callerData.allowedBranchIds
+      : [callerData.primaryBranchId].filter(Boolean))
+  if (!isOperationalAdmin(callerData) && !permittedBranches.includes(branchId)) {
+    throw new HttpsError('permission-denied', 'No tiene permiso para registrar egresos en esa sucursal.')
   }
 
   const validCategories = [
@@ -2080,6 +2100,9 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
       if (authData.authorizedOperatorUid !== callerUid) {
         throw new HttpsError('permission-denied', 'Este código de autorización fue emitido para otro operador y no puede ser usado por su cuenta.')
       }
+      if (authData.category !== category || String(authData.concept || '').trim().toLocaleLowerCase() !== concept.toLocaleLowerCase()) {
+        throw new HttpsError('failed-precondition', 'El concepto o la categoría no coincide con la autorización emitida.')
+      }
       if (authData.maxAmountCents < amountCents) {
         throw new HttpsError('failed-precondition', `El monto del egreso (Bs ${(amountCents / 100).toFixed(2)}) supera el monto máximo autorizado (Bs ${(authData.maxAmountCents / 100).toFixed(2)}).`)
       }
@@ -2111,6 +2134,9 @@ export const registerCashExpense = onCall({ cors: true }, async (request) => {
     }
 
     const shiftData = shiftDoc.data() || {}
+    if (shiftData.operatorUid !== callerUid || shiftData.branchId !== branchId) {
+      throw new HttpsError('permission-denied', 'El turno de Caja no pertenece a este operador o sucursal.')
+    }
     const currentExpectedCash = Number(shiftData.expectedCashCents) || 0
     if (amountCents > currentExpectedCash) {
       throw new HttpsError('failed-precondition', `El egreso (Bs ${(amountCents / 100).toFixed(2)}) supera el efectivo disponible en caja (Bs ${(currentExpectedCash / 100).toFixed(2)}).`)
@@ -3779,7 +3805,7 @@ async function processAndSaveSignatureToStorage(shipmentId, signatureInput, oper
     throw new HttpsError('invalid-argument', 'La firma digital es obligatoria para certificar la entrega conforme.')
   }
 
-  const bucketName = process.env.STORAGE_BUCKET_NAME || 'expreso-punata-dev.firebasestorage.app'
+  const bucketName = getStorageBucketName()
   const bucket = storageAdmin.bucket(bucketName)
 
   // 1. Si ya es una ruta relativa o absoluta existente en Firebase Storage
@@ -4709,7 +4735,7 @@ export const getShipmentSignatureUrl = onCall({ cors: true }, async (request) =>
     throw new HttpsError('permission-denied', 'La ruta solicitada no pertenece a la encomienda.')
   }
 
-  const bucketName = process.env.STORAGE_BUCKET_NAME || 'expreso-punata-dev.firebasestorage.app'
+  const bucketName = getStorageBucketName()
   const bucket = storageAdmin.bucket(bucketName)
   const file = bucket.file(resolvedPath)
 
@@ -5354,9 +5380,21 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  const allowedRoles = ['directiva_admin']
+  // Secretaría está autorizada a cobrar cuotas únicamente en su sucursal y
+  // con un turno propio abierto. La sucursal y el alcance se toman del perfil
+  // autoritativo, nunca del valor enviado por el cliente.
+  const isSecretary = caller.role === 'secretaria'
+  const allowedRoles = ['directiva_admin', 'secretaria']
   if (!hasOperationalRole(caller, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para cobrar cuotas de socios.')
+  }
+  if (isSecretary && caller.isActive !== true) {
+    throw new HttpsError('permission-denied', 'La cuenta de Secretaría no está activa.')
+  }
+
+  const callerBranches = unionLoanAllowedBranches(caller)
+  if (isSecretary && (!caller.primaryBranchId || !callerBranches.includes(caller.primaryBranchId))) {
+    throw new HttpsError('permission-denied', 'El perfil de Secretaría no tiene una sucursal autorizada válida.')
   }
 
   const {
@@ -5391,7 +5429,12 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
   }
 
   const nowIso = new Date().toISOString()
-  const effectiveBranchId = branchId || caller.primaryBranchId || 'punata'
+  if (isSecretary && branchId && branchId !== caller.primaryBranchId) {
+    throw new HttpsError('permission-denied', 'Secretaría solo puede cobrar cuotas en su sucursal autorizada.')
+  }
+  const effectiveBranchId = isSecretary
+    ? caller.primaryBranchId
+    : (branchId || caller.primaryBranchId || 'punata')
 
   return await db.runTransaction(async (transaction) => {
     // 1. Verificar idempotencia con payload fingerprint
@@ -5419,6 +5462,10 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
     }
     const due = dueDoc.data()
 
+    if (isSecretary && (!due.branchId || due.branchId !== effectiveBranchId || !callerBranches.includes(due.branchId))) {
+      throw new HttpsError('permission-denied', 'La cuota no pertenece a la sucursal autorizada de Secretaría.')
+    }
+
     if (due.status === 'paid' || due.balanceCents <= 0) {
       throw new HttpsError('failed-precondition', 'Esta cuota ya ha sido cancelada en su totalidad.')
     }
@@ -5444,6 +5491,9 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
         throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
       }
       const shiftOperator = activeShift.cashierUid || activeShift.operatorUid
+      if (isSecretary && shiftOperator !== callerUid) {
+        throw new HttpsError('permission-denied', 'El turno de caja no pertenece a Secretaría.')
+      }
       if (shiftOperator && shiftOperator !== callerUid && !isOperationalAdmin(caller)) {
         throw new HttpsError('permission-denied', 'El turno de caja no pertenece al operador que realiza el cobro.')
       }
@@ -5452,6 +5502,9 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
       }
     } else {
       // paymentMethod === 'qr' o 'transfer'
+      if (isSecretary && !shiftId) {
+        throw new HttpsError('failed-precondition', 'Secretaría debe utilizar un turno de caja abierto para registrar el cobro.')
+      }
       if (!shiftId) {
         if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
           throw new HttpsError('permission-denied', 'Solo la Directiva o Tesorería pueden registrar cobros directos fuera de turno de caja.')
@@ -5465,6 +5518,12 @@ export const collectMemberDue = onCall({ cors: true }, async (request) => {
         activeShift = shiftDoc.data()
         if (activeShift.status !== 'open') {
           throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
+        }
+        if (isSecretary) {
+          const shiftOperator = activeShift.cashierUid || activeShift.operatorUid
+          if (shiftOperator !== callerUid || activeShift.branchId !== effectiveBranchId) {
+            throw new HttpsError('permission-denied', 'El turno de caja no corresponde a Secretaría o a su sucursal autorizada.')
+          }
         }
       }
     }
@@ -5648,7 +5707,7 @@ export const getMemberAccountStatement = onCall({ cors: true }, async (request) 
     throw new HttpsError('permission-denied', 'Usuario no activo.')
   }
   const caller = callerDoc.data()
-  const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia']
+  const allowedRoles = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'secretaria', 'afiliado_admin']
   if (!hasOperationalRole(caller, allowedRoles)) {
     throw new HttpsError('permission-denied', 'No tiene permisos para consultar estados de cuenta de socios.')
   }
@@ -5663,8 +5722,11 @@ export const getMemberAccountStatement = onCall({ cors: true }, async (request) 
     throw new HttpsError('not-found', 'El socio no existe.')
   }
   const member = memberDoc.data()
-  if (caller.role === 'secretaria' && member.branchId !== caller.primaryBranchId) {
-    throw new HttpsError('permission-denied', 'Solo puede consultar afiliados de su sucursal autorizada.')
+  if (isBranchScopedUnionLoanReader(caller)) {
+    const allowedBranches = unionLoanAllowedBranches(caller)
+    if (!member.branchId || !allowedBranches.includes(member.branchId)) {
+      throw new HttpsError('permission-denied', 'El afiliado no pertenece a una sucursal autorizada.')
+    }
   }
 
   const duesSnap = await db.collection('union_dues')
@@ -5792,6 +5854,7 @@ export const getUnionMembersRoster = onCall({ cors: true }, async (request) => {
       retiredAt: data.retiredAt || '',
       status: data.status || 'active',
       category: data.category || '',
+      branchId: data.branchId || null,
       primaryDriverUid: data.primaryDriverUid || null,
       primaryDriverName: data.primaryDriverName || null,
       notes: data.notes || '',
@@ -7154,7 +7217,38 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     throw new HttpsError('permission-denied', 'No tiene acceso a reportes generales.')
   }
 
-  const effectiveBranchId = branchId
+  const isBranchScopedManager = role === 'encargado_agencia'
+  const branchScopedUser = isBranchScopedManager || role === 'conductor'
+  const userBranchIds = [...new Set([
+    caller.primaryBranchId,
+    ...(Array.isArray(caller.allowedBranchIds) ? caller.allowedBranchIds : []),
+  ].filter((id) => ['punata', 'cochabamba'].includes(id)))]
+  let effectiveBranchId = branchId
+  if (branchScopedUser) {
+    if (userBranchIds.length === 0) {
+      throw new HttpsError('permission-denied', 'El usuario no tiene sucursales autorizadas para este reporte.')
+    }
+    // "all" nunca debe convertirse en acceso global para un rol limitado.
+    // En ausencia de filtro se utiliza la sucursal primaria; las secundarias
+    // deben solicitarse explícitamente y pertenecer al perfil autoritativo.
+    if (!effectiveBranchId || effectiveBranchId === 'all') effectiveBranchId = caller.primaryBranchId
+    if (!userBranchIds.includes(effectiveBranchId)) {
+      throw new HttpsError('permission-denied', 'No tiene autorización para consultar reportes de esa sucursal.')
+    }
+  }
+  if (['commissions', 'driver_commissions'].includes(reportType) && !['directiva_admin', 'tesoreria'].includes(role)) {
+    throw new HttpsError('permission-denied', 'El reporte global de comisiones está reservado a Directiva y Tesorería.')
+  }
+
+  let cachedScopedMemberIds = null
+  const getScopedMemberIds = async () => {
+    if (!isBranchScopedManager) return null
+    if (!cachedScopedMemberIds) {
+      const scopedMembers = await db.collection('union_members').where('branchId', '==', effectiveBranchId).limit(5000).get()
+      cachedScopedMemberIds = new Set(scopedMembers.docs.map((doc) => doc.id))
+    }
+    return cachedScopedMemberIds
+  }
 
   const { startIso, endIso } = resolveLaPazBounds(startDate, endDate, period)
   const safePage = Math.max(1, parseInt(page, 10) || 1)
@@ -7179,12 +7273,15 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       let members = (await boundedRead('union_members')).filter((member) =>
         (!status || status === 'all' || member.status === status) &&
         (!category || category === 'all' || member.category === category) &&
-        inDateRange(member.createdAtIso || member.registeredAtIso)
+        inDateRange(member.createdAtIso || member.registeredAtIso) &&
+        (!isBranchScopedManager || member.branchId === effectiveBranchId)
       )
       if (memberId) members = members.filter((member) => member.id === memberId)
-      const allDues = (await boundedRead('union_dues')).filter(byMember)
-      const allLoans = (await boundedRead('union_loans')).filter(byMember)
-      const allFines = (await boundedRead('union_fines')).filter(byMember)
+      const scopedMemberIds = await getScopedMemberIds()
+      const belongsToVisibleMember = (record) => !scopedMemberIds || scopedMemberIds.has(record.memberId)
+      const allDues = (await boundedRead('union_dues')).filter(byMember).filter(belongsToVisibleMember)
+      const allLoans = (await boundedRead('union_loans')).filter(byMember).filter(belongsToVisibleMember)
+      const allFines = (await boundedRead('union_fines')).filter(byMember).filter(belongsToVisibleMember)
       const records = members.map((member) => {
         const dues = allDues.filter((item) => item.memberId === member.id)
         const loans = allLoans.filter((item) => item.memberId === member.id)
@@ -7221,7 +7318,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
 
     if (reportType === 'loans' || reportType === 'fines') {
       const collection = reportType === 'loans' ? 'union_loans' : 'union_fines'
+      const scopedMemberIds = await getScopedMemberIds()
       let records = (await boundedRead(collection)).filter(byMember).filter(byStatus)
+      if (scopedMemberIds) records = records.filter((record) => scopedMemberIds.has(record.memberId))
       records = records.filter((record) => inDateRange(record.createdAtIso || record.date || record.grantDate))
       if (category !== 'all' && reportType === 'fines') records = records.filter((record) => record.category === category)
       const pageStart = (safePage - 1) * safePageSize
@@ -7277,7 +7376,8 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         .where('date', '>=', startIso.slice(0, 10)).where('date', '<=', endIso.slice(0, 10))
         .orderBy('date', 'desc').limit(50).get()
       let records = sportsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })).filter((event) =>
-        inDateRange(event.date) && byStatus(event) && (!category || category === 'all' || event.activityType === category)
+        inDateRange(event.date) && byStatus(event) && (!category || category === 'all' || event.activityType === category) &&
+        (!isBranchScopedManager || event.branchId === effectiveBranchId)
       )
       let participantsTruncated = false
       const events = await Promise.all(records.map(async (event) => {
@@ -7307,7 +7407,9 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         acc.exemptionRequests += event.exemptionRequests; acc.authorizedExemptions += event.authorizedExemptions
         acc.sanctioned += event.sanctionedCount; return acc
       }, { events: 0, participants: 0, present: 0, late: 0, absent: 0, exempt: 0, exemptionRequests: 0, authorizedExemptions: 0, sanctioned: 0 })
-      const sportsFines = (await boundedRead('union_fines')).filter((fine) => fine.category === 'deportes' && inDateRange(fine.date || fine.createdAtIso))
+      const scopedMemberIds = await getScopedMemberIds()
+      const sportsFines = (await boundedRead('union_fines')).filter((fine) => fine.category === 'deportes' && inDateRange(fine.date || fine.createdAtIso) &&
+        (!scopedMemberIds || scopedMemberIds.has(fine.memberId)))
       summary.sanctionRecords = sportsFines.length
       summary.sanctionsAmountCents = sportsFines.reduce((sum, fine) => sum + (fine.amountCents || 0), 0)
       summary.sanctionsCollectedCents = sportsFines.reduce((sum, fine) => sum + (fine.paidCents || 0), 0)
@@ -7327,6 +7429,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       let assetRecords = assets.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
       let documentRecords = documents.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
       if (effectiveBranchId && effectiveBranchId !== 'all') assetRecords = assetRecords.filter((record) => record.branchId === effectiveBranchId)
+      if (isBranchScopedManager) documentRecords = documentRecords.filter((record) => record.branchId === effectiveBranchId)
       if (startDate) assetRecords = assetRecords.filter((record) => record.acquisitionDate && record.acquisitionDate >= startDate)
       if (endDate) assetRecords = assetRecords.filter((record) => record.acquisitionDate && record.acquisitionDate <= endDate)
       if (category !== 'all') assetRecords = assetRecords.filter((record) => record.category === category)
@@ -7792,17 +7895,33 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     const manSnap = await manifestsQuery.get()
     let manifests = manSnap.docs.map(d => ({ id: d.id, ...d.data() }))
 
-    if (driverUid) {
-      manifests = manifests.filter(m => m.driverUid === driverUid)
+    const effectiveDriverUid = role === 'conductor' ? callerUid : driverUid
+    if (effectiveDriverUid) {
+      manifests = manifests.filter(m => m.driverUid === effectiveDriverUid)
     }
     if (effectiveBranchId && effectiveBranchId !== 'all') {
       manifests = manifests.filter(m => m.originBranchId === effectiveBranchId || m.destinationBranchId === effectiveBranchId)
     }
 
-    // Consultar cuentas de custodia activas
-    const custodySnap = await db.collection('driver_custody_accounts').limit(5000).get()
+    // Las cuentas de custodia históricas no tienen una sucursal atribuible de
+    // forma fiable. Los encargados reciben datos operativos de sus manifiestos,
+    // pero no saldos globales de conductores. Un conductor solo ve su propia
+    // cuenta; Directiva y Tesorería conservan el agregado global.
+    let custodyDocs = []
+    let custodyDataScope = 'unavailable'
+    let custodyTruncated = false
+    if (['directiva_admin', 'tesoreria'].includes(role)) {
+      const custodySnap = await db.collection('driver_custody_accounts').limit(5000).get()
+      custodyDocs = custodySnap.docs
+      custodyTruncated = custodySnap.size >= 5000
+      custodyDataScope = 'global'
+    } else if (role === 'conductor') {
+      const ownCustody = await db.collection('driver_custody_accounts').doc(callerUid).get()
+      custodyDocs = ownCustody.exists ? [ownCustody] : []
+      custodyDataScope = 'own'
+    }
     const custodyMap = {}
-    custodySnap.docs.forEach(d => {
+    custodyDocs.forEach(d => {
       custodyMap[d.id] = d.data()
     })
 
@@ -7824,8 +7943,10 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
           completedTripsCount: 0,
           shipmentsCount: 0,
           codCollectedCents: 0,
-          totalRemittedCents: custodyAcc.totalRemittedCents || 0,
-          pendingCustodyCents: custodyAcc.pendingRemittanceCents || 0,
+          ...(custodyDataScope !== 'unavailable' ? {
+            totalRemittedCents: custodyAcc.totalRemittedCents || 0,
+            pendingCustodyCents: custodyAcc.pendingRemittanceCents || 0,
+          } : {}),
           incidentsCount: 0,
         }
       }
@@ -7857,12 +7978,15 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         totalTripsCompleted,
         totalShipmentsTransported,
         totalIncidentsCount,
-        activeDriversWithCustody: Object.values(custodyMap).filter(c => (c.pendingRemittanceCents || 0) > 0).length,
+        ...(custodyDataScope !== 'unavailable' ? {
+          activeDriversWithCustody: Object.values(custodyMap).filter(c => (c.pendingRemittanceCents || 0) > 0).length,
+        } : {}),
       },
+      custodyDataScope,
       driverSummaries,
       records: manifests.slice((safePage - 1) * safePageSize, safePage * safePageSize),
       pagination: { page: safePage, pageSize: safePageSize, totalRecords: manifests.length, totalPages: Math.ceil(manifests.length / safePageSize) },
-      truncated: manSnap.size >= 5000 || custodySnap.size >= 5000,
+      truncated: manSnap.size >= 5000 || custodyTruncated,
     }
   }
 
@@ -8197,9 +8321,11 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
     }
 
     // 3. Custodia pendiente de conductores
-    const custodySnap = await db.collection('driver_custody_accounts').limit(500).get()
+    const custodySnap = isBranchScopedManager
+      ? null
+      : await db.collection('driver_custody_accounts').limit(500).get()
     let totalPendingDriverCustodyCents = 0
-    custodySnap.docs.forEach(d => {
+    custodySnap?.docs.forEach(d => {
       totalPendingDriverCustodyCents += (d.data().pendingRemittanceCents || 0)
     })
 
@@ -8223,12 +8349,23 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       db.collection('union_sports_events').where('date', '>=', startIso.slice(0, 10)).where('date', '<=', endIso.slice(0, 10)).orderBy('date', 'desc').limit(50).get(),
       db.collection('physical_inventory_documents').orderBy('title').limit(500).get(),
     ])
-    const members = membersSnap.docs.map(d => d.data())
-    const dues = duesSnap.docs.map(d => d.data())
-    const loans = loansSnap.docs.map(d => d.data())
-    const fines = finesSnap.docs.map(d => d.data())
+    let members = membersSnap.docs.map(d => ({ ...d.data(), id: d.id }))
+    if (isBranchScopedManager) members = members.filter((member) => member.branchId === effectiveBranchId)
+    const visibleMemberIds = isBranchScopedManager
+      ? new Set(members.map((member) => member.id).filter(Boolean))
+      : null
+    const belongsToVisibleMember = (record) => !visibleMemberIds || visibleMemberIds.has(record.memberId)
+    const dues = duesSnap.docs.map(d => d.data()).filter(belongsToVisibleMember)
+    const loans = loansSnap.docs.map(d => d.data()).filter(belongsToVisibleMember)
+    const fines = finesSnap.docs.map(d => d.data()).filter(belongsToVisibleMember)
+    const scopedSportsDocs = isBranchScopedManager
+      ? sportsSnap.docs.filter((doc) => doc.data().branchId === effectiveBranchId)
+      : sportsSnap.docs
+    const scopedPhysicalDocs = isBranchScopedManager
+      ? physicalDocsSnap.docs.filter((doc) => doc.data().branchId === effectiveBranchId)
+      : physicalDocsSnap.docs
     let sportsAttendance = { present: 0, late: 0, absent: 0, exempt: 0, exemptionRequests: 0, authorizedExemptions: 0, sanctioned: 0 }
-    for (const eventDoc of sportsSnap.docs) {
+    for (const eventDoc of scopedSportsDocs) {
       const participants = await eventDoc.ref.collection('participants').limit(200).get()
       for (const participant of participants.docs) {
         const attendance = participant.data()
@@ -8248,6 +8385,7 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
       success: true,
       reportType,
       dateRange: { startIso, endIso },
+      branchId: effectiveBranchId,
       dashboard: {
         shipments: {
           totalCount: shipments.length,
@@ -8281,10 +8419,11 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
           netOperatingCents: (commercialIncomeCents + contributionsIncomeCents + fineIncomeCents) - expensesCents,
           netOperatingBob: ((commercialIncomeCents + contributionsIncomeCents + fineIncomeCents) - expensesCents) / 100,
         },
-        drivers: {
+        ...(isBranchScopedManager ? {} : { drivers: {
           totalPendingCustodyCents: totalPendingDriverCustodyCents,
           totalPendingCustodyBob: totalPendingDriverCustodyCents / 100,
-        },
+        } }),
+        custodyDataAvailable: !isBranchScopedManager,
         fixedAssets: {
           totalCount: scopedAssetDocs.length,
           totalValueCents: totalAssetsValueCents,
@@ -8312,8 +8451,8 @@ export const getSystemReport = onCall({ cors: true }, async (request) => {
         },
         sports: { eventCount: sportsSnap.size, ...sportsAttendance },
         physicalInventory: {
-          documentCount: physicalDocsSnap.size,
-          documentSheets: physicalDocsSnap.docs.reduce((sum, doc) => sum + (Number(doc.data().sheetCount) || 0), 0),
+          documentCount: scopedPhysicalDocs.length,
+          documentSheets: scopedPhysicalDocs.reduce((sum, doc) => sum + (Number(doc.data().sheetCount) || 0), 0),
         },
         readCaps: { collections: 500, sportsEvents: 50, participantsPerEvent: 200 },
       },
@@ -9668,8 +9807,20 @@ export const updateSystemConfig = onCall({ cors: true }, async (request) => {
 // PRÉSTAMOS INTERNOS DE AFILIADOS
 // =========================================================================
 const LOAN_MANAGEMENT_ROLES = ['directiva_admin']
-const LOAN_COLLECTION_ROLES = LOAN_MANAGEMENT_ROLES
-const LOAN_READ_ROLES = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'afiliado_admin']
+const LOAN_CREATION_ROLES = ['directiva_admin', 'tesoreria', 'secretaria']
+const LOAN_COLLECTION_ROLES = ['directiva_admin', 'tesoreria', 'secretaria']
+const LOAN_READ_ROLES = ['directiva_admin', 'tesoreria', 'encargado_agencia', 'secretaria', 'afiliado_admin']
+
+function unionLoanAllowedBranches(caller) {
+  if (caller?.role === 'secretaria') return caller.primaryBranchId ? [caller.primaryBranchId] : []
+  return Array.isArray(caller?.allowedBranchIds) && caller.allowedBranchIds.length > 0
+    ? caller.allowedBranchIds
+    : [caller?.primaryBranchId].filter(Boolean)
+}
+
+function isBranchScopedUnionLoanReader(caller) {
+  return !isOperationalAdmin(caller) && ['secretaria', 'encargado_agencia', 'afiliado_admin'].includes(caller?.role)
+}
 
 function loanDateIsValid(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
@@ -9745,7 +9896,10 @@ export const getMyUnionAccount = onCall({ cors: true }, async (request) => {
 })
 
 export const createUnionLoan = onCall({ cors: true }, async (request) => {
-  const caller = await requireUnionLoanCaller(request, LOAN_MANAGEMENT_ROLES, 'registrar préstamos internos.')
+  const caller = await requireUnionLoanCaller(request, LOAN_CREATION_ROLES, 'registrar préstamos internos.')
+  if (['tesoreria', 'secretaria'].includes(caller.role) && caller.isActive !== true) {
+    throw new HttpsError('permission-denied', 'La cuenta del operador no está activa.')
+  }
   const { memberId, principalCents, installmentCount, firstDueDate, grantDate, notes = '' } = request.data || {}
   if (typeof memberId !== 'string' || !memberId.trim()) throw new HttpsError('invalid-argument', 'Seleccione un afiliado.')
   if (!Number.isSafeInteger(principalCents) || principalCents <= 0) throw new HttpsError('invalid-argument', 'El monto debe ser un entero positivo en centavos.')
@@ -9766,6 +9920,11 @@ export const createUnionLoan = onCall({ cors: true }, async (request) => {
     if (rule?.enabled && installmentCount > rule.maxInstallments) throw new HttpsError('invalid-argument', `Cuotas: el máximo autorizado es ${rule.maxInstallments}.`)
     if (rule?.enabled && principalCents > rule.maxPrincipalCents) throw new HttpsError('invalid-argument', 'Capital: supera el máximo comercial vigente.')
     if (!memberDoc.exists) throw new HttpsError('not-found', 'El afiliado seleccionado no existe.')
+    const member = memberDoc.data()
+    const allowedBranches = unionLoanAllowedBranches(caller)
+    if (!member.branchId || (!isOperationalAdmin(caller) && !allowedBranches.includes(member.branchId))) {
+      throw new HttpsError('permission-denied', 'El afiliado no pertenece a una sucursal autorizada para registrar el préstamo.')
+    }
     const sequence = (counterDoc.exists ? Number(counterDoc.data()?.currentSequence) || 0 : 0) + 1
     const loanNumber = `PRE-${year}-${String(sequence).padStart(5, '0')}`
     const baseCents = Math.floor(principalCents / installmentCount)
@@ -9779,7 +9938,6 @@ export const createUnionLoan = onCall({ cors: true }, async (request) => {
         dueDate: addLoanMonth(firstDueDate, index), status: 'pending',
       }
     })
-    const member = memberDoc.data()
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
     const loanData = {
       id: loanRef.id, loanNumber, memberId: memberRef.id,
@@ -9809,15 +9967,20 @@ export const createUnionLoan = onCall({ cors: true }, async (request) => {
 
 // Desembolso único y completo del préstamo. Las escrituras financieras permanecen en backend.
 export const disburseUnionLoan = onCall({ cors: true }, async (request) => {
-  const caller = await requireUnionLoanCaller(request, ['directiva_admin'], 'desembolsar préstamos internos.')
+  const caller = await requireUnionLoanCaller(request, ['directiva_admin', 'tesoreria', 'secretaria'], 'desembolsar préstamos internos.')
+  if (['tesoreria', 'secretaria'].includes(caller.role) && caller.isActive !== true) {
+    throw new HttpsError('permission-denied', 'La cuenta del operador no está activa.')
+  }
   const { loanId, paymentMethod = 'cash', shiftId, branchId, notes = '', idempotencyKey } = request.data || {}
   if (typeof loanId !== 'string' || !loanId.trim()) throw new HttpsError('invalid-argument', 'El préstamo es obligatorio.')
   if (!['cash', 'qr', 'transfer'].includes(paymentMethod)) throw new HttpsError('invalid-argument', 'Método de desembolso no válido.')
   if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
   if (typeof notes !== 'string' || notes.length > 2000) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 2000 caracteres.')
-  const effectiveBranchId = branchId || caller.primaryBranchId || 'punata'
-  const allowedBranches = caller.allowedBranchIds || [caller.primaryBranchId]
-  if (!allowedBranches.includes(effectiveBranchId)) throw new HttpsError('permission-denied', 'La sucursal no está autorizada.')
+  const requestedBranchId = branchId || null
+  const allowedBranches = unionLoanAllowedBranches(caller)
+  if (!isOperationalAdmin(caller) && requestedBranchId && !allowedBranches.includes(requestedBranchId)) {
+    throw new HttpsError('permission-denied', 'La sucursal no está autorizada.')
+  }
   const now = new Date(); const nowIso = now.toISOString(); const year = now.getFullYear()
   const idemRef = db.collection('idempotency_keys').doc(`union_loan_disbursement_${idempotencyKey.trim()}`)
   const loanRef = db.collection('union_loans').doc(loanId.trim())
@@ -9835,7 +9998,10 @@ export const disburseUnionLoan = onCall({ cors: true }, async (request) => {
     if (loan.disbursementStatus !== 'pending') throw new HttpsError('already-exists', 'El préstamo ya tiene un desembolso registrado.')
     const memberDoc = await transaction.get(db.collection('union_members').doc(loan.memberId))
     if (!memberDoc.exists || ['inactive', 'retired'].includes(memberDoc.data()?.status)) throw new HttpsError('failed-precondition', 'El afiliado no está activo.')
-    if (!allowedBranches.includes(memberDoc.data()?.branchId)) throw new HttpsError('permission-denied', 'El afiliado no pertenece a una sucursal autorizada.')
+    const memberBranchId = memberDoc.data()?.branchId
+    if (!memberBranchId || (requestedBranchId && requestedBranchId !== memberBranchId)) throw new HttpsError('permission-denied', 'La sucursal indicada no coincide con la sucursal del afiliado.')
+    if (!isOperationalAdmin(caller) && !allowedBranches.includes(memberBranchId)) throw new HttpsError('permission-denied', 'El afiliado no pertenece a una sucursal autorizada.')
+    const effectiveBranchId = memberBranchId
     let shiftRef = null; let shift = null
     if (shiftId) {
       shiftRef = db.collection('cash_shifts').doc(shiftId); const shiftDoc = await transaction.get(shiftRef)
@@ -9843,6 +10009,7 @@ export const disburseUnionLoan = onCall({ cors: true }, async (request) => {
       shift = shiftDoc.data()
       if (shift.branchId !== effectiveBranchId) throw new HttpsError('permission-denied', 'El turno pertenece a otra sucursal.')
       const operator = shift.cashierUid || shift.operatorUid
+      if (caller.role === 'secretaria' && operator !== caller.uid) throw new HttpsError('permission-denied', 'El turno no pertenece a Secretaría.')
       if (operator && operator !== caller.uid) throw new HttpsError('permission-denied', 'El turno no pertenece al operador.')
       if (paymentMethod === 'cash' && (shift.expectedCashCents || 0) < loan.principalCents) throw new HttpsError('failed-precondition', 'El efectivo disponible es insuficiente.')
     } else if (paymentMethod === 'cash') throw new HttpsError('failed-precondition', 'El desembolso en efectivo requiere un turno abierto.')
@@ -9865,13 +10032,17 @@ export const disburseUnionLoan = onCall({ cors: true }, async (request) => {
 
 export const collectUnionLoanPayment = onCall({ cors: true }, async (request) => {
   const caller = await requireUnionLoanCaller(request, LOAN_COLLECTION_ROLES, 'cobrar préstamos internos.')
+  if (['tesoreria', 'secretaria'].includes(caller.role) && caller.isActive !== true) {
+    throw new HttpsError('permission-denied', 'La cuenta del operador no está activa.')
+  }
   const { loanId, amountCents, paymentMethod = 'cash', shiftId, branchId, notes = '', idempotencyKey } = request.data || {}
   if (typeof loanId !== 'string' || !loanId.trim()) throw new HttpsError('invalid-argument', 'El préstamo es obligatorio.')
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new HttpsError('invalid-argument', 'El pago debe ser un entero positivo en centavos.')
   if (!['cash', 'qr', 'transfer'].includes(paymentMethod)) throw new HttpsError('invalid-argument', 'Método de pago no válido.')
   if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
   if (typeof notes !== 'string' || notes.length > 2000) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 2000 caracteres.')
-  const effectiveBranchId = branchId || caller.primaryBranchId || 'punata'
+  const requestedBranchId = branchId || null
+  const allowedBranches = unionLoanAllowedBranches(caller)
   const now = new Date()
   const nowIso = now.toISOString()
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(now)
@@ -9887,12 +10058,22 @@ export const collectUnionLoanPayment = onCall({ cors: true }, async (request) =>
     }
     if (!loanDoc.exists) throw new HttpsError('not-found', 'El préstamo no existe.')
     const loan = loanDoc.data()
+    const memberDoc = loan.memberId ? await transaction.get(db.collection('union_members').doc(loan.memberId)) : null
+    const memberBranchId = memberDoc?.exists ? memberDoc.data()?.branchId : null
+    if (!memberBranchId || (requestedBranchId && requestedBranchId !== memberBranchId)) {
+      throw new HttpsError('permission-denied', 'La sucursal indicada no coincide con la sucursal del afiliado.')
+    }
+    if (!isOperationalAdmin(caller) && !allowedBranches.includes(memberBranchId)) {
+      throw new HttpsError('permission-denied', 'El afiliado no pertenece a una sucursal autorizada.')
+    }
+    const effectiveBranchId = memberBranchId
     if (loan.balanceCents <= 0 || loan.status === 'paid') throw new HttpsError('failed-precondition', 'El préstamo ya está pagado.')
     if (amountCents > loan.balanceCents) throw new HttpsError('invalid-argument', 'El pago supera el saldo pendiente del préstamo.')
 
     let shiftRef = null
     let shift = null
     if (paymentMethod === 'cash' && !shiftId) throw new HttpsError('failed-precondition', 'El cobro en efectivo requiere un turno de caja abierto.')
+    if (caller.role === 'secretaria' && !shiftId) throw new HttpsError('failed-precondition', 'Secretaría debe utilizar un turno de caja abierto para registrar el cobro.')
     if (shiftId) {
       shiftRef = db.collection('cash_shifts').doc(shiftId)
       const shiftDoc = await transaction.get(shiftRef)
@@ -9901,6 +10082,7 @@ export const collectUnionLoanPayment = onCall({ cors: true }, async (request) =>
       if (shift.status !== 'open') throw new HttpsError('failed-precondition', 'El turno de caja no está abierto.')
       if (shift.branchId !== effectiveBranchId) throw new HttpsError('permission-denied', 'El turno de caja pertenece a otra sucursal.')
       const shiftOperator = shift.cashierUid || shift.operatorUid
+      if (caller.role === 'secretaria' && shiftOperator !== caller.uid) throw new HttpsError('permission-denied', 'El turno de caja no pertenece a Secretaría.')
       if (paymentMethod === 'cash' && shiftOperator && shiftOperator !== caller.uid && !isOperationalAdmin(caller)) throw new HttpsError('permission-denied', 'El turno de caja no pertenece al operador.')
     } else if (!hasOperationalRole(caller, ['directiva_admin', 'tesoreria'])) {
       throw new HttpsError('permission-denied', 'Solo Directiva o Tesorería pueden cobrar fuera de turno.')
@@ -10002,10 +10184,10 @@ export const listUnionLoans = onCall({ cors: true }, async (request) => {
     query = db.collection('union_loans').where('memberId', '==', memberId)
   }
   const loanSnapshot = await query.get()
-  const visibleLoanDocs = !isOperationalAdmin(caller) && ['afiliado_admin', 'secretaria'].includes(caller.role)
+  const visibleLoanDocs = isBranchScopedUnionLoanReader(caller)
     ? (await Promise.all(loanSnapshot.docs.map(async (loanDoc) => {
       const memberDoc = await db.collection('union_members').doc(loanDoc.data()?.memberId).get()
-      return memberDoc.exists && (caller.allowedBranchIds || [caller.primaryBranchId]).includes(memberDoc.data()?.branchId) ? loanDoc : null
+      return memberDoc.exists && memberDoc.data()?.branchId && unionLoanAllowedBranches(caller).includes(memberDoc.data().branchId) ? loanDoc : null
     }))).filter(Boolean)
     : loanSnapshot.docs
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date())
@@ -10095,7 +10277,7 @@ export const listUnionDebtAlerts = onCall({ cors: true }, async (request) => {
   const visible = (doc) => {
     const member = memberById.get(doc.data()?.memberId)
     if (!member || (scopedRole && !branches.includes(member.branchId))) return false
-    return caller.role !== 'secretaria' || doc.ref.parent.id !== 'union_fines' || doc.data()?.category === 'deportes'
+    return true
   }
   const alerts = []
   for (const doc of duesDocs) {
@@ -10226,7 +10408,10 @@ export const saveAnnualBoard = onCall({ cors: true }, async (request) => {
 // Multas: alta independiente, sin crear movimientos ni afectar Caja.
 const FINE_CATEGORIES = ['transporte', 'conflictos', 'deportes', 'otros']
 export const createUnionFine = onCall({ cors: true }, async (request) => {
-  const caller = await requireUnionLoanCaller(request, LOAN_MANAGEMENT_ROLES, 'registrar multas de afiliados.')
+  const caller = await requireUnionLoanCaller(request, ['directiva_admin', 'secretaria'], 'registrar multas de afiliados.')
+  if (caller.role === 'secretaria' && caller.isActive !== true) {
+    throw new HttpsError('permission-denied', 'La cuenta de Secretaría no está activa.')
+  }
   const { memberId, category, reason, description = '', date, amountCents, notes = '' } = request.data || {}
   if (typeof memberId !== 'string' || !memberId.trim()) throw new HttpsError('invalid-argument', 'Seleccione un afiliado.')
   if (!FINE_CATEGORIES.includes(category)) throw new HttpsError('invalid-argument', 'La categoría de multa no es válida.')
@@ -10241,13 +10426,14 @@ export const createUnionFine = onCall({ cors: true }, async (request) => {
   const fineRef = db.collection('union_fines').doc()
   const nowIso = new Date().toISOString()
   const member = memberDoc.data()
-  if (caller.role === 'secretaria' && !(caller.allowedBranchIds || [caller.primaryBranchId]).includes(member.branchId)) {
+  const secretaryBranches = unionLoanAllowedBranches(caller)
+  if (caller.role === 'secretaria' && (!member.branchId || !secretaryBranches.includes(member.branchId))) {
     throw new HttpsError('permission-denied', 'Solo puede registrar multas de afiliados de su sucursal autorizada.')
   }
   const fine = {
     id: fineRef.id, fineNumber: `MUL-${fineRef.id.slice(0, 8).toUpperCase()}`,
     memberId: memberRef.id, memberNumber: member.memberNumber || '', memberName: member.fullName || '',
-    branchId: member.branchId || caller.primaryBranchId || 'punata',
+    branchId: member.branchId || (caller.role !== 'secretaria' ? caller.primaryBranchId || 'punata' : null),
     category, reason: reason.trim(), description: description.trim(), date,
     amountCents, amountBob: amountCents / 100, balanceCents: amountCents,
     balanceBob: amountCents / 100, paidCents: 0, paidBob: 0,
@@ -10258,6 +10444,9 @@ export const createUnionFine = onCall({ cors: true }, async (request) => {
     // Reconfirm existence in the transaction before persisting the record.
     const currentMember = await transaction.get(memberRef)
     if (!currentMember.exists) throw new HttpsError('not-found', 'El afiliado seleccionado no existe.')
+    if (caller.role === 'secretaria' && (!currentMember.data()?.branchId || !secretaryBranches.includes(currentMember.data().branchId) || currentMember.data().branchId !== fine.branchId)) {
+      throw new HttpsError('permission-denied', 'El afiliado ya no pertenece a la sucursal autorizada de Secretaría.')
+    }
     transaction.create(fineRef, fine)
     transaction.set(db.collection('audit_logs').doc(), {
       action: 'union_fine_created', targetCollection: 'union_fines', targetId: fineRef.id,
@@ -10633,8 +10822,6 @@ export const listUnionSportsEvents = onCall({ cors: true }, async (request) => {
 })
 
 export const listUnionFines = onCall({ cors: true }, async (request) => {
-  // Secretaría puede consultar únicamente multas deportivas filtradas por
-  // sucursal; no se agrega al conjunto general de lectura de préstamos.
   const caller = await requireUnionLoanCaller(
     request,
     LOAN_READ_ROLES,
@@ -10644,15 +10831,15 @@ export const listUnionFines = onCall({ cors: true }, async (request) => {
   if (memberId !== undefined && (typeof memberId !== 'string' || !memberId.trim())) throw new HttpsError('invalid-argument', 'El afiliado solicitado no es válido.')
   if (category !== undefined && !FINE_CATEGORIES.includes(category)) throw new HttpsError('invalid-argument', 'La categoría de multa no es válida.')
   if (status !== undefined && !['pending', 'partial', 'paid', 'voided'].includes(status)) throw new HttpsError('invalid-argument', 'El estado de multa no es válido.')
-  const callerBranches = caller.allowedBranchIds || [caller.primaryBranchId]
   const isSecretary = caller.role === 'secretaria'
-  if (isSecretary && category !== undefined && category !== 'deportes') throw new HttpsError('permission-denied', 'Secretaría solo puede consultar multas deportivas.')
+  if (isSecretary && caller.isActive !== true) throw new HttpsError('permission-denied', 'La cuenta de Secretaría no está activa.')
+  const callerBranches = unionLoanAllowedBranches(caller)
   if (memberId && !(await db.collection('union_members').doc(memberId).get()).exists) throw new HttpsError('not-found', 'El afiliado no existe.')
   let query = db.collection('union_fines').orderBy('createdAtIso', 'desc')
   if (memberId) query = query.where('memberId', '==', memberId)
   const snapshot = await query.get()
   const visibleFineDocs = isSecretary
-    ? snapshot.docs.filter((fineDoc) => callerBranches.includes(fineDoc.data()?.branchId))
+    ? snapshot.docs.filter((fineDoc) => fineDoc.data()?.branchId && callerBranches.includes(fineDoc.data().branchId))
     : caller.role === 'afiliado_admin' && !isOperationalAdmin(caller)
     ? (await Promise.all(snapshot.docs.map(async (fineDoc) => {
       const memberDoc = await db.collection('union_members').doc(fineDoc.data()?.memberId).get()
@@ -10670,6 +10857,8 @@ export const listUnionFines = onCall({ cors: true }, async (request) => {
 
 export const collectUnionFinePayment = onCall({ cors: true }, async (request) => {
   const caller = await requireUnionLoanCaller(request, LOAN_COLLECTION_ROLES, 'cobrar multas de afiliados.')
+  const isSecretary = caller.role === 'secretaria'
+  if (isSecretary && caller.isActive !== true) throw new HttpsError('permission-denied', 'La cuenta de Secretaría no está activa.')
   const { fineId, amountCents, paymentMethod = 'cash', shiftId, branchId, notes = '', idempotencyKey } = request.data || {}
   if (typeof fineId !== 'string' || !fineId.trim()) throw new HttpsError('invalid-argument', 'La multa es obligatoria.')
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new HttpsError('invalid-argument', 'El importe debe ser un entero positivo en centavos.')
@@ -10678,7 +10867,9 @@ export const collectUnionFinePayment = onCall({ cors: true }, async (request) =>
   if (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 8) throw new HttpsError('invalid-argument', 'Se requiere una clave de idempotencia válida.')
   if (typeof notes !== 'string' || notes.length > 2000) throw new HttpsError('invalid-argument', 'Las observaciones no pueden superar 2000 caracteres.')
 
-  const effectiveBranchId = branchId || caller.primaryBranchId || 'punata'
+  if (isSecretary && branchId && branchId !== caller.primaryBranchId) throw new HttpsError('permission-denied', 'Secretaría solo puede cobrar multas de su sucursal autorizada.')
+  const effectiveBranchId = isSecretary ? caller.primaryBranchId : (branchId || caller.primaryBranchId || 'punata')
+  const callerBranches = unionLoanAllowedBranches(caller)
   const now = new Date()
   const nowIso = now.toISOString()
   const year = now.getFullYear()
@@ -10702,14 +10893,14 @@ export const collectUnionFinePayment = onCall({ cors: true }, async (request) =>
     if (!shiftDoc.exists) throw new HttpsError('not-found', 'El turno de Caja no existe.')
     const fine = fineDoc.data()
     const shift = shiftDoc.data()
-    if (caller.role === 'secretaria') {
-      const allowedBranches = caller.allowedBranchIds || [caller.primaryBranchId]
-      if (!fine.branchId || !allowedBranches.includes(fine.branchId)) throw new HttpsError('permission-denied', 'La multa no pertenece a una sucursal autorizada.')
+    if (isSecretary) {
+      if (!fine.branchId || !callerBranches.includes(fine.branchId)) throw new HttpsError('permission-denied', 'La multa no pertenece a una sucursal autorizada.')
       if (effectiveBranchId !== fine.branchId) throw new HttpsError('permission-denied', 'La sucursal del cobro no coincide con la multa.')
     }
     if (shift.status !== 'open') throw new HttpsError('failed-precondition', 'El turno de Caja no está abierto.')
     if (shift.branchId !== effectiveBranchId) throw new HttpsError('permission-denied', 'El turno de Caja pertenece a otra sucursal.')
     const shiftOperator = shift.cashierUid || shift.operatorUid
+    if (isSecretary && shiftOperator !== caller.uid) throw new HttpsError('permission-denied', 'El turno de Caja no pertenece a Secretaría.')
     if (shiftOperator && shiftOperator !== caller.uid && !isOperationalAdmin(caller)) throw new HttpsError('permission-denied', 'El turno de Caja no pertenece al operador.')
     if (fine.financialReviewRequired) throw new HttpsError('failed-precondition', 'La multa requiere una decisión financiera autorizada antes de continuar el cobro.')
     const balanceCents = Number.isSafeInteger(fine.balanceCents) ? fine.balanceCents : fine.amountCents

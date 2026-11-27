@@ -33,11 +33,11 @@ function validateInstitutionalValue(field, value, restoring) {
   }
 }
 
-function requireInstitutionalEditor(profile, request) {
+function requireInstitutionalEditor(profile, request, runtimeEnv = process.env) {
   if (profile?.role === 'afiliado_admin' && profile.isActive === true && ['punata', 'cochabamba'].includes(profile.primaryBranchId)
     && ['punata', 'cochabamba'].every(branch => Array.isArray(profile.allowedBranchIds) && profile.allowedBranchIds.includes(branch))) return
   if (profile?.role !== 'soporte_pachax' || profile.isActive !== true) throw new HttpsError('permission-denied', 'Se requiere una cuenta autorizada para configuración institucional.')
-  if (!inEmulators() && !request.auth.token?.firebase?.sign_in_second_factor) throw new HttpsError('permission-denied', 'Se requiere autenticación multifactor.')
+  if (!inFirebaseEmulators(runtimeEnv) && !request.auth.token?.firebase?.sign_in_second_factor) throw new HttpsError('permission-denied', 'Se requiere autenticación multifactor.')
 }
 
 function configValue(config, key) {
@@ -46,17 +46,18 @@ function configValue(config, key) {
 }
 const inEmulators = inFirebaseEmulators
 
-async function authorize(db, request, recent = false, authAdmin = null) {
+async function authorize(db, request, recent = false, authAdmin = null, runtimeEnv = process.env) {
   if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión.')
   const profile = await db.collection('users').doc(request.auth.uid).get()
   if (!profile.exists || profile.data()?.role !== 'soporte_pachax' || profile.data()?.isActive !== true) {
     throw new HttpsError('permission-denied', 'Acceso exclusivo de Soporte PACHAX.')
   }
-  await verifySupportSession(authAdmin, request, recent)
+  await verifySupportSession(authAdmin, request, recent, runtimeEnv)
 }
 
-export function createSupportFunctions(db, authAdmin = null) {
-  const authorizeSupport = (request, recent = false) => authorize(db, request, recent, authAdmin)
+export function createSupportFunctions(db, authAdmin = null, runtimeEnv = process.env) {
+  const inEmulators = () => inFirebaseEmulators(runtimeEnv)
+  const authorizeSupport = (request, recent = false) => authorize(db, request, recent, authAdmin, runtimeEnv)
   const cleanup = createSupportCleanupFunctions(db, authorizeSupport)
   const getSupportOverview = onCall({ cors: true }, async request => {
     await authorizeSupport(request)
@@ -70,7 +71,7 @@ export function createSupportFunctions(db, authAdmin = null) {
   const getSupportConfiguration = onCall({ cors: true }, async request => {
     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inicie sesión.')
     const profile = (await db.collection('users').doc(request.auth.uid).get()).data()
-    requireInstitutionalEditor(profile, request)
+    requireInstitutionalEditor(profile, request, runtimeEnv)
     if (profile?.role === 'soporte_pachax') await authorizeSupport(request)
     const [config, history] = await Promise.all([
       db.collection('system_config').doc('expreso_punata').get(),
@@ -94,7 +95,7 @@ export function createSupportFunctions(db, authAdmin = null) {
     const auditRef = db.collection('audit_logs').doc()
     return db.runTransaction(async tx => {
       const [profile, config] = await Promise.all([tx.get(db.collection('users').doc(request.auth.uid)), tx.get(configRef)])
-      requireInstitutionalEditor(profile.data(), request)
+      requireInstitutionalEditor(profile.data(), request, runtimeEnv)
       if (!config.exists || config.data()?.status !== 'configured' || config.data()?.isOfficial !== true) throw new HttpsError('failed-precondition', 'No existe una configuración oficial activa.')
       const previous = configValue(config.data(), field)
       const version = config.data().institutionalVersions?.[field] || 0

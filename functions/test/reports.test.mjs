@@ -4,13 +4,9 @@ import { initializeApp, getApps } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import { getDailyOperationsReport, getSystemReport } from '../index.js'
 
-process.env.FIRESTORE_EMULATOR_HOST ||= '127.0.0.1:8080'
-process.env.FIREBASE_AUTH_EMULATOR_HOST ||= '127.0.0.1:9099'
-process.env.FIREBASE_STORAGE_EMULATOR_HOST ||= '127.0.0.1:9199'
-process.env.STORAGE_EMULATOR_HOST ||= 'http://127.0.0.1:9199'
 
 if (getApps().length === 0) {
-  initializeApp({ projectId: 'demo-expreso-punata-reports-test' })
+  initializeApp({ projectId: process.env.GCLOUD_PROJECT })
 }
 
 const db = getFirestore()
@@ -23,12 +19,18 @@ async function clearCollections() {
     'cash_shifts',
     'manifests',
     'driver_custody_accounts',
+    'driver_commission_accounts',
+    'driver_commission_records',
     'union_members',
     'union_dues',
+    'union_loans',
+    'union_fines',
+    'union_sports_events',
     'union_workers',
     'union_worker_payments',
     'union_expenses',
     'fixed_assets',
+    'physical_inventory_documents',
     'audit_logs',
   ]
   for (const coll of collections) {
@@ -272,7 +274,7 @@ test('4A. Reporte B2: conserva fechas históricas mixtas, deduplica y clasifica 
 })
 
 test('5. Reporte B3: Rendición de conductores con viajes y saldo en custodia', async () => {
-  await createTestUser('admin-1', 'afiliado_admin')
+  await createTestUser('admin-1', 'directiva_admin')
 
   const nowIso = new Date().toISOString()
 
@@ -444,4 +446,76 @@ test('9. Reporte Consolidado Ejecutivo: Resume cross-module', async () => {
   assert.ok(res.dashboard.finances)
   assert.ok(res.dashboard.drivers)
   assert.ok(res.dashboard.fixedAssets)
+})
+
+test('B3 y dashboard limitan custodia y comisiones en reportes de agencia', async () => {
+  await createTestUser('report-manager-punata', 'encargado_agencia', 'punata')
+  await db.collection('users').doc('report-manager-punata').update({ allowedBranchIds: ['punata'] })
+  await createTestUser('report-directiva', 'directiva_admin', 'punata')
+  await createTestUser('report-treasury', 'tesoreria', 'punata')
+
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(now)
+  await db.collection('manifests').doc('MAN-REPORT-PUNATA').set({
+    driverUid: 'driver-report-punata', driverName: 'Conductor Punata', status: 'received',
+    createdAtIso: nowIso, originBranchId: 'punata', destinationBranchId: 'cochabamba', shipmentSummaries: [{ id: 'P1' }],
+  })
+  await db.collection('manifests').doc('MAN-REPORT-COCHABAMBA').set({
+    driverUid: 'driver-report-cochabamba', driverName: 'Conductor Cochabamba', status: 'received',
+    createdAtIso: nowIso, originBranchId: 'cochabamba', destinationBranchId: 'cochabamba', shipmentSummaries: [{ id: 'C1' }],
+  })
+  await db.collection('driver_custody_accounts').doc('driver-report-punata').set({ pendingRemittanceCents: 2500, totalRemittedCents: 10000 })
+  await db.collection('driver_custody_accounts').doc('driver-report-cochabamba').set({ pendingRemittanceCents: 9900, totalRemittedCents: 20000 })
+  await db.collection('union_members').doc('REPORT-MEMBER-PUNATA').set({
+    branchId: 'punata', status: 'active', fullName: 'Afiliada Punata',
+  })
+  await db.collection('union_members').doc('REPORT-MEMBER-COCHABAMBA').set({
+    branchId: 'cochabamba', status: 'active', fullName: 'Afiliada Cochabamba',
+  })
+  await db.collection('union_dues').doc('REPORT-DUE-PUNATA').set({ memberId: 'REPORT-MEMBER-PUNATA', balanceCents: 300, paidAmountCents: 100 })
+  await db.collection('union_dues').doc('REPORT-DUE-COCHABAMBA').set({ memberId: 'REPORT-MEMBER-COCHABAMBA', balanceCents: 9900, paidAmountCents: 200 })
+  await db.collection('driver_commission_accounts').doc('driver-report-punata').set({ pendingCents: 1000, accruedCents: 1000, paidCents: 0 })
+  await db.collection('driver_commission_accounts').doc('driver-report-cochabamba').set({ pendingCents: 9000, accruedCents: 9000, paidCents: 0 })
+  await db.collection('driver_commission_records').doc('REPORT-COMMISSION').set({
+    driverUid: 'driver-report-cochabamba', commissionAmountCents: 9000, status: 'accrued', createdAtIso: nowIso,
+  })
+
+  const managerAuth = { uid: 'report-manager-punata' }
+  const managerDrivers = await getSystemReport.run({
+    auth: managerAuth, data: { reportType: 'drivers', branchId: 'all', startDate: day, endDate: day },
+  })
+  assert.deepEqual(managerDrivers.driverSummaries.map((driver) => driver.driverUid), ['driver-report-punata'])
+  assert.equal(managerDrivers.custodyDataScope, 'unavailable')
+  assert.equal(Object.hasOwn(managerDrivers.driverSummaries[0], 'pendingCustodyCents'), false)
+  assert.equal(Object.hasOwn(managerDrivers.summary, 'activeDriversWithCustody'), false)
+  await assert.rejects(getSystemReport.run({
+    auth: managerAuth, data: { reportType: 'drivers', branchId: 'cochabamba', startDate: day, endDate: day },
+  }), { code: 'permission-denied' })
+  await assert.rejects(getSystemReport.run({
+    auth: managerAuth, data: { reportType: 'commissions', startDate: day, endDate: day },
+  }), { code: 'permission-denied' })
+
+  const managerDashboard = await getSystemReport.run({
+    auth: managerAuth, data: { reportType: 'consolidated_dashboard', branchId: 'all', startDate: day, endDate: day },
+  })
+  assert.equal(managerDashboard.branchId, 'punata')
+  assert.equal(managerDashboard.dashboard.members.totalCount, 1)
+  assert.equal(managerDashboard.dashboard.members.duesPendingCents, 300)
+  assert.equal(managerDashboard.dashboard.custodyDataAvailable, false)
+  assert.equal(Object.hasOwn(managerDashboard.dashboard, 'drivers'), false)
+
+  const directivaDashboard = await getSystemReport.run({
+    auth: { uid: 'report-directiva' }, data: { reportType: 'consolidated_dashboard', startDate: day, endDate: day },
+  })
+  assert.equal(directivaDashboard.dashboard.custodyDataAvailable, true)
+  assert.equal(directivaDashboard.dashboard.drivers.totalPendingCustodyCents, 12400)
+  const directivaCommissions = await getSystemReport.run({
+    auth: { uid: 'report-directiva' }, data: { reportType: 'commissions', startDate: day, endDate: day },
+  })
+  const treasuryCommissions = await getSystemReport.run({
+    auth: { uid: 'report-treasury' }, data: { reportType: 'commissions', startDate: day, endDate: day },
+  })
+  assert.equal(directivaCommissions.summary.totalPendingCents, 10000)
+  assert.equal(treasuryCommissions.summary.totalPendingCents, 10000)
 })

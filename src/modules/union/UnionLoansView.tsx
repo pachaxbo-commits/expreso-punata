@@ -1,4 +1,4 @@
-import { isOperationalAdmin } from '../auth/operationalRoles'
+import { hasOperationalRole } from '../auth/operationalRoles'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, CircleDollarSign, FileText, Plus, Printer, RefreshCw, Search } from 'lucide-react'
 import type { Branch, CashShift, UnionMember, UserProfile } from '../../types/index.ts'
@@ -47,9 +47,10 @@ export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, current
   const [paymentNotes, setPaymentNotes] = useState('')
   const [completedPayment, setCompletedPayment] = useState<{ result: any; loan: UnionLoan } | null>(null)
 
-  const canCreateLoan = isOperationalAdmin(currentUser)
-  const canCollect = isOperationalAdmin(currentUser)
-  const canDisburse = isOperationalAdmin(currentUser)
+  const loanOperatorRoles = ['directiva_admin', 'tesoreria', 'secretaria']
+  const canCreateLoan = hasOperationalRole(currentUser, loanOperatorRoles)
+  const canCollect = hasOperationalRole(currentUser, loanOperatorRoles)
+  const canDisburse = hasOperationalRole(currentUser, loanOperatorRoles)
 
   const loadLoans = useCallback(async () => {
     setLoading(true)
@@ -143,7 +144,7 @@ export const UnionLoansView: React.FC<UnionLoansViewProps> = ({ members, current
       <button className="ml-auto" onClick={() => { setError(''); setNotice('') }} type="button" aria-label="Cerrar aviso">×</button>
     </div>}
 
-    {completedPayment && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs"><div><strong className="block text-emerald-900">Comprobante generado: {completedPayment.result.payment.receiptNumber}</strong><span>Pago: {formatCurrencyBob(completedPayment.result.amountCents, true)} · Saldo restante: {formatCurrencyBob(completedPayment.result.balanceCents, true)}</span></div><button type="button" onClick={async () => { const doc = printEngine.buildFromUnionLoanPayment(completedPayment.result, completedPayment.loan, members.find((member) => member.id === completedPayment.loan.memberId), currentBranch.id, currentUser.fullName); await printEngine.printDocument(doc) }} className="inline-flex items-center gap-2 rounded-lg bg-emerald-800 px-3 py-2 font-bold text-white"><Printer className="h-4 w-4" />Imprimir comprobante</button><button type="button" onClick={() => setCompletedPayment(null)} className="rounded-lg border border-emerald-300 px-3 py-2 font-bold text-emerald-900">Cerrar</button></div>}
+    {completedPayment && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs"><div><strong className="block text-emerald-900">Comprobante generado: {completedPayment.result.payment.receiptNumber}</strong><span>Pago: {formatCurrencyBob(completedPayment.result.payment.amountCents, true)} · Saldo restante: {formatCurrencyBob(completedPayment.result.balanceCents, true)}</span></div><button type="button" onClick={async () => { const doc = printEngine.buildFromUnionLoanPayment(completedPayment.result, completedPayment.loan, members.find((member) => member.id === completedPayment.loan.memberId), currentBranch.id, currentUser.fullName); await printEngine.printDocument(doc) }} className="inline-flex items-center gap-2 rounded-lg bg-emerald-800 px-3 py-2 font-bold text-white"><Printer className="h-4 w-4" />Imprimir comprobante</button><button type="button" onClick={() => setCompletedPayment(null)} className="rounded-lg border border-emerald-300 px-3 py-2 font-bold text-emerald-900">Cerrar</button></div>}
 
     {creating && <form onSubmit={handleCreate} className="grid gap-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 sm:grid-cols-2 lg:grid-cols-3">
       <label className="text-xs font-bold text-slate-700">Afiliado beneficiario<select required value={memberId} onChange={(event) => setMemberId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2"><option value="">Seleccionar afiliado</option>{members.map((member) => <option key={member.id} value={member.id}>{member.memberNumber} · {member.fullName}</option>)}</select></label>

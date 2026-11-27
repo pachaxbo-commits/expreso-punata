@@ -1,6 +1,7 @@
 import {
   collection,
   query,
+  or,
   where,
   orderBy,
   onSnapshot,
@@ -189,6 +190,10 @@ export function subscribeManifestsByBranch(
 ) {
   const q = query(
     collection(db, 'manifests'),
+    or(
+      where('originBranchId', '==', branchId),
+      where('destinationBranchId', '==', branchId),
+    ),
     orderBy('createdAt', 'desc'),
     limit(50)
   )
@@ -199,15 +204,12 @@ export function subscribeManifestsByBranch(
       const list: DispatchManifest[] = []
       snapshot.forEach((doc) => {
         const data = doc.data() as any
-        // Filtramos por pertenencia a la sucursal (origen o destino)
-        if (data.originBranchId === branchId || data.destinationBranchId === branchId) {
-          list.push({
-            id: doc.id,
-            ...data,
-            dispatchedAtIso: data.dispatchedAtIso || (data.dispatchedAt?.toDate ? data.dispatchedAt.toDate().toISOString() : ''),
-            receivedAtIso: data.receivedAtIso || (data.receivedAt?.toDate ? data.receivedAt.toDate().toISOString() : null),
-          } as DispatchManifest)
-        }
+        list.push({
+          id: doc.id,
+          ...data,
+          dispatchedAtIso: data.dispatchedAtIso || (data.dispatchedAt?.toDate ? data.dispatchedAt.toDate().toISOString() : ''),
+          receivedAtIso: data.receivedAtIso || (data.receivedAt?.toDate ? data.receivedAt.toDate().toISOString() : null),
+        } as DispatchManifest)
       })
       onUpdate(list)
     },

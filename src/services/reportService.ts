@@ -161,8 +161,8 @@ export interface DriverSummaryItem {
   completedTripsCount: number
   shipmentsCount: number
   codCollectedCents: number
-  totalRemittedCents: number
-  pendingCustodyCents: number
+  totalRemittedCents?: number
+  pendingCustodyCents?: number
   incidentsCount: number
 }
 
@@ -171,7 +171,7 @@ export interface DriversReportSummary {
   totalTripsCompleted: number
   totalShipmentsTransported: number
   totalIncidentsCount: number
-  activeDriversWithCustody: number
+  activeDriversWithCustody?: number
 }
 
 export interface DriversReportResult {
@@ -179,6 +179,7 @@ export interface DriversReportResult {
   reportType: 'drivers'
   dateRange: { startIso: string; endIso: string }
   summary: DriversReportSummary
+  custodyDataScope?: 'global' | 'own' | 'unavailable'
   driverSummaries: DriverSummaryItem[]
   records: any[]
 }

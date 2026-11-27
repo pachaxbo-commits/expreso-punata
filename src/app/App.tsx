@@ -76,7 +76,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const { signOut, currentBranchId, switchBranch, hasRole } = useAuth()
   const simpleTransferEnabled = viteEnv.VITE_SIMPLE_SHIPMENT_TRANSFER === 'true'
   const advancedContingency = viteEnv.VITE_ADVANCED_DISPATCH === 'true'
-  const advancedDispatchVisible = !simpleTransferEnabled || (advancedContingency && isOperationalAdmin(userProfile))
+  const advancedDispatchVisible = !simpleTransferEnabled || advancedContingency
   const [counterDispatchOpen, setCounterDispatchOpen] = useState(false)
   const [requestedTab, setActiveTab] = useState(() => (userProfile.role === 'conductor' ? (simpleTransferEnabled ? 'shipment-custody' : 'manifests') : 'shipments'))
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
@@ -96,6 +96,9 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
   const [realShipments, setRealShipments] = useState<Shipment[]>([])
   const [backendConnected, setBackendConnected] = useState(true)
   const canReadShipments = hasRole(['secretaria', 'encargado_agencia', 'directiva_admin'])
+  const displayName = typeof userProfile.fullName === 'string' && userProfile.fullName.trim()
+    ? userProfile.fullName.trim()
+    : 'Operador'
 
   // Orquestador de Capacitación y Tutoriales Interactivos
   const tutorial = useTutorial({
@@ -187,7 +190,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
     { id: 'reports', label: userProfile.role === 'secretaria' ? 'Reporte del día' : 'Reportes & Estadísticas', icon: BarChart3, visible: hasRole(['secretaria', 'encargado_agencia', 'tesoreria', 'directiva_admin', 'conductor']) },
     { id: 'config', label: 'Configuración', icon: Settings, visible: hasRole(['directiva_admin']) },
   ].filter(t => t.visible && (userProfile.role !== 'secretaria' ||
-    ['shipments', 'tickets', 'storage', 'reports'].includes(t.id)))
+    ['shipments', 'tickets', 'storage', 'manifests', 'cash', 'dues', 'sports-fines', 'reports'].includes(t.id)))
 
   const activeTab = tabs.some(tab => tab.id === requestedTab) ? requestedTab : tabs[0]?.id
 
@@ -311,10 +314,10 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
               title="Ver mi perfil y opciones de seguridad"
             >
               <div className="w-5 h-5 rounded-full bg-[#facc15] text-[#064e3b] font-extrabold flex items-center justify-center text-[10px]">
-                {userProfile.fullName ? userProfile.fullName.charAt(0).toUpperCase() : 'U'}
+                {displayName.charAt(0).toUpperCase()}
               </div>
               <span className="font-semibold text-white truncate max-w-[110px] hidden sm:inline">
-                {userProfile.fullName.split(' ')[0]}
+                {displayName.split(/\s+/)[0]}
               </span>
             </button>
 
@@ -400,7 +403,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({ userProfile }) => 
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Operador activo: <span className="font-semibold text-slate-700">{userProfile.fullName}</span> — {canReadShipments
+              Operador activo: <span className="font-semibold text-slate-700">{displayName}</span> — {canReadShipments
                 ? backendConnected ? 'Conectado a Firestore' : 'Sin conexión a Firestore'
                 : 'El menú muestra las funciones disponibles para tu perfil.'}
             </p>

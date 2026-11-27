@@ -37,6 +37,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ onClose }) =
 
   const branchInfo = INITIAL_BRANCHES.find((b) => b.id === userProfile.primaryBranchId)
   const roleName = ROLE_LABELS[userProfile.role] || userProfile.role
+  const displayName = typeof userProfile.fullName === 'string' && userProfile.fullName.trim()
+    ? userProfile.fullName.trim()
+    : 'Operador'
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -100,7 +103,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ onClose }) =
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-full bg-[#064e3b]/10 text-[#064e3b] font-extrabold flex items-center justify-center text-sm uppercase">
-              {userProfile.fullName.slice(0, 2)}
+              {displayName.slice(0, 2).toUpperCase()}
             </div>
             <div>
               <h3 className="font-extrabold text-sm sm:text-base text-slate-800">
@@ -174,7 +177,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ onClose }) =
             <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 font-medium">Nombre Completo:</span>
-                <span className="font-bold text-slate-800">{userProfile.fullName}</span>
+                <span className="font-bold text-slate-800">{displayName}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 font-medium">Correo Electrónico:</span>

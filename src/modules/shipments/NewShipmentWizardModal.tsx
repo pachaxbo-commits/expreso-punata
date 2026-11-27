@@ -21,6 +21,7 @@ import {
 import type { Shipment, ParcelCustomer, ParcelItem, PaymentTiming, PaymentMethod } from '../../types/index.ts'
 import { INITIAL_BRANCHES } from '../../domain/expresoPunataConfig.ts'
 import { calculateParcelPricing, formatCurrencyBob, type ParcelTariffConfig } from '../../domain/parcelEngine.ts'
+import { getDeliveryTypeLabel } from '../../domain/deliveryType.ts'
 import { fetchSystemConfig } from '../../services/configService.ts'
 import { automaticParcelPricingEnabled } from '../../config/features.ts'
 import { createShipmentThroughBackend, extractCustomerSuggestions } from '../../services/shipmentService.ts'
@@ -1101,7 +1102,7 @@ export const NewShipmentWizardModal: React.FC<WizardProps> = ({
                   </div>
                   <div>
                     <span className="font-semibold text-slate-800">Modalidad:</span>{' '}
-                    {deliveryType === 'home' ? 'A Domicilio' : 'En Agencia'}
+                    {getDeliveryTypeLabel(deliveryType)}
                   </div>
                   <div>
                     <span className="font-semibold text-slate-800">Remitente:</span> {sender.name} ({sender.phone})
